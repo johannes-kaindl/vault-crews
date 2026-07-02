@@ -11,9 +11,11 @@ export interface ScriptedCall {
 
 export class ScriptLlmClient implements LlmClient {
 	readonly calls: { messages: LlmMessage[]; params: LlmParams }[] = [];
+	readonly baseCalls: string[] = [];
 	constructor(private queue: ScriptedCall[], private ctxLength: number | null = 8192) {}
 
-	async ping(): Promise<boolean> { return true; }
+	async ping(_endpoint?: string): Promise<boolean> { return true; }
+	setBase(endpoint: string): void { this.baseCalls.push(endpoint); }
 	async listModels(): Promise<string[]> { return ['test-model']; }
 	async modelInfo(model: string): Promise<ModelInfo | null> { return { id: model, contextLength: this.ctxLength }; }
 

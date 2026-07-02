@@ -30,6 +30,10 @@ export interface LlmStreamResult { content: string; thinkTokens: number; finishR
 export interface ModelInfo { id: string; contextLength: number | null; }
 export interface LlmClient {
 	ping(endpoint: string): Promise<boolean>;
+	/** Retargetiert nachfolgende listModels/modelInfo/stream-Calls auf den übergebenen
+	 *  Endpoint (Multi-Endpoint-Failover, Spec §3.1: der in checkEndpointAndModel per
+	 *  ping() als erreichbar aufgelöste Endpoint muss auch tatsächlich benutzt werden). */
+	setBase(endpoint: string): void;
 	listModels(): Promise<string[]>;
 	modelInfo(model: string): Promise<ModelInfo | null>;
 	stream(messages: LlmMessage[], params: LlmParams, onToken: (t: string) => void, signal: AbortSignal): Promise<LlmStreamResult>;

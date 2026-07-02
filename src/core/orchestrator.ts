@@ -141,12 +141,24 @@ class RunFsm {
 		const candidates = this.deps.settings.endpoints.filter((e) => !denied.has(normalizeEndpoint(e)));
 		const active = await resolveActiveEndpoint(candidates, (e) => this.deps.llm.ping(e));
 		if (active === null) return { kind: 'endpoint_unreachable', message: 'Kein erreichbarer LLM-Endpoint' };
+		// Der resolveActiveEndpoint-Treffer ist per ping() bestätigt erreichbar — alle
+		// nachfolgenden Calls (listModels/modelInfo/stream) MÜSSEN ihn auch tatsächlich
+		// ansprechen, sonst bricht Multi-Endpoint-Failover (endpoints[0] tot, [1] lebt).
+		this.deps.llm.setBase(active);
 
-		const available = new Set(await this.deps.llm.listModels());
-		for (const model of this.effectiveModels()) {
-			if (!available.has(model)) return { kind: 'model_missing', message: `Modell nicht geladen: ${model}` };
-			const info = await this.deps.llm.modelInfo(model);
-			this.modelCtx.set(model, info?.contextLength ?? null);
+		try {
+			const available = new Set(await this.deps.llm.listModels());
+			for (const model of this.effectiveModels()) {
+				if (!available.has(model)) return { kind: 'model_missing', message: `Modell nicht geladen: ${model}` };
+				const info = await this.deps.llm.modelInfo(model);
+				this.modelCtx.set(model, info?.contextLength ?? null);
+			}
+		} catch (e) {
+			// Defense in depth: ein unerwarteter Netzwerk-Throw hier darf niemals uncaught
+			// aus executeRun() entkommen (verletzt "ein fehlgeschlagener Lauf ist immer
+			// sicher/geloggt") — auf denselben Refusal-Pfad wie ein erkannt-unerreichbarer
+			// Endpoint abbilden.
+			return { kind: 'endpoint_unreachable', message: `Endpoint-Abfrage fehlgeschlagen: ${errMsg(e)}` };
 		}
 		this.state.contextLength = this.modelCtx.get(this.deps.settings.defaultModel) ?? null;
 		return null;

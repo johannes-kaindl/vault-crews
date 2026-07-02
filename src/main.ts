@@ -160,8 +160,18 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
         window.clearTimeout(id);
       },
     };
+    this.llm = this.buildLlmClient();
+  }
+
+  /** Baut den LlmClient frisch aus den AKTUELLEN Settings (Endpoint + Timeouts).
+   *  initPorts() ruft dies einmalig beim Laden; executeRunFor() ruft es zusätzlich am
+   *  Start JEDES Laufs, damit Endpoint-/Timeout-Änderungen aus den Settings ohne
+   *  Plugin-Reload wirksam werden — sonst bleibt der zur onload-Zeit gebaute Client
+   *  (mit toten Timeouts, s. RunDeps.settings.limits.callTimeoutMs/stallTimeoutMs, die
+   *  nirgends mehr gelesen werden) für die gesamte Session eingefroren. */
+  private buildLlmClient(): LlmClient {
     const base = normalizeEndpoint(this.settings.endpoints[0] ?? "http://localhost:1234");
-    this.llm = new LmStudioClient(
+    return new LmStudioClient(
       base,
       new XhrSseTransport(),
       new RequestUrlJsonTransport(),
@@ -232,6 +242,10 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
   }
 
   private async executeRunFor(teamId: string, controller: AbortController): Promise<void> {
+    // Frischen Client pro Lauf bauen (Endpoint + Timeouts aus den aktuellen Settings,
+    // nicht dem onload-Zeitpunkt) — kombiniert mit setBase() im Preflight-Failover
+    // wirken Settings-Änderungen so ohne Plugin-Reload.
+    this.llm = this.buildLlmClient();
     let finished = false;
     const reporter: RunReporter = {
       emit: (e) => {

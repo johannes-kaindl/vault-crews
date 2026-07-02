@@ -5,6 +5,7 @@
  *  Thinking-Suppression nach vault-rag-Muster (reasoning_effort + chat_template_kwargs). */
 import { parseSSE } from '../vendor/kit/sse';
 import { ThinkSplitter } from '../vendor/kit/think';
+import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { LlmCallError } from './ports';
 import type {
 	ClockPort, JsonTransport, LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, SseTransport,
@@ -15,13 +16,24 @@ const ERROR_BODY_CAP = 4096;
 interface Timeouts { callTimeoutMs: number; stallTimeoutMs: number; }
 
 export class LmStudioClient implements LlmClient {
+	private base: string;
+
 	constructor(
-		private readonly base: string,
+		base: string,
 		private readonly sse: SseTransport,
 		private readonly json: JsonTransport,
 		private readonly clock: ClockPort,
 		private readonly timeouts: Timeouts,
-	) {}
+	) {
+		this.base = normalizeEndpoint(base);
+	}
+
+	/** Retargetiert listModels/modelInfo/stream auf den (per ping() bestätigten)
+	 *  erreichbaren Endpoint — muss nach checkEndpointAndModel's resolveActiveEndpoint,
+	 *  vor jedem weiteren Call laufen (s. orchestrator.ts checkEndpointAndModel). */
+	setBase(endpoint: string): void {
+		this.base = normalizeEndpoint(endpoint);
+	}
 
 	async ping(endpoint: string): Promise<boolean> {
 		try {
