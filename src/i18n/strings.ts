@@ -67,7 +67,7 @@ export const EN: Record<string, string> = {
     "Log extra detail to the developer console — useful when troubleshooting a run.",
 
   // --- Notices — connection test / install --------------------------------
-  "notice.testConnection.ok": "Connection ok — {0} model(s) available at {1}.",
+  "notice.testConnection.ok": "Connection ok — {0} model(s) available: {1}.",
   "notice.testConnection.failed": "Connection failed — is LM Studio running?",
   "notice.install.ok": "Example crews installed ({0} file(s)).",
   "notice.install.exists": "Example crews are already installed.",
@@ -116,7 +116,7 @@ export const EN: Record<string, string> = {
   "panel.status.failed": "Failed",
   "panel.status.skipped": "Skipped",
   "panel.status.stale": "Stale",
-  "panel.thinking": "thinking… {0} tokens",
+  "panel.thinking": "Thinking… {0} tokens",
   "panel.cancel": "Cancel",
   "panel.openLog": "Open log",
   "panel.viewFailure": "View failure",
@@ -192,7 +192,7 @@ export const DE: Record<string, string> = {
     "Schreibt zusätzliche Details in die Entwicklerkonsole — hilfreich zur Fehlersuche.",
 
   // --- Notices — connection test / install --------------------------------
-  "notice.testConnection.ok": "Verbindung ok — {0} Modell(e) verfügbar unter {1}.",
+  "notice.testConnection.ok": "Verbindung ok — {0} Modell(e) verfügbar: {1}.",
   "notice.testConnection.failed": "Verbindung fehlgeschlagen — läuft LM Studio?",
   "notice.install.ok": "Beispiel-Crews installiert ({0} Datei(en)).",
   "notice.install.exists": "Beispiel-Crews sind bereits installiert.",
@@ -240,7 +240,7 @@ export const DE: Record<string, string> = {
   "panel.status.failed": "Fehlgeschlagen",
   "panel.status.skipped": "Übersprungen",
   "panel.status.stale": "Stale",
-  "panel.thinking": "denkt … {0} Token",
+  "panel.thinking": "Denkt … {0} Token",
   "panel.cancel": "Abbrechen",
   "panel.openLog": "Log öffnen",
   "panel.viewFailure": "Fehlerstelle ansehen",

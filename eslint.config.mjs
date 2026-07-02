@@ -22,4 +22,13 @@ export default tseslint.config(
   //   files: ["src/streaming.ts"],
   //   rules: { "obsidianmd/no-restricted-globals": "off" }, // SSE via activeWindow.fetch, requestUrl kann nicht streamen
   // },
+  {
+    files: ["src/obsidian/settings.ts"],
+    rules: {
+      // Regel setzt Obsidian >=1.13.0 voraus (getSettingDefinitions()/deklarative
+      // Settings-API); manifest.json's minAppVersion ist 1.7.2 < 1.13.0, also ist
+      // display() hier der einzig unterstützte Weg — Warnung ist ein Fehlalarm.
+      "obsidianmd/settings-tab/prefer-setting-definitions": "off",
+    },
+  },
 );

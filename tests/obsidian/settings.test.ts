@@ -4,6 +4,7 @@
 // hier steht stellvertretend für das spätere Plugin-Objekt.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ButtonComponent, TextComponent, ToggleComponent, makeFakeApp, Notice } from "../__mocks__/obsidian";
+import type { Plugin } from "obsidian";
 import { registerI18n } from "../../src/i18n/strings";
 import { setLang } from "../../src/vendor/kit/i18n";
 import {
@@ -31,6 +32,13 @@ function makeFakeHost(overrides: Partial<SettingsHost> = {}): SettingsHost {
     testConnection: vi.fn().mockResolvedValue({ ok: true, models: ["m1"] }),
     ...overrides,
   };
+}
+
+/** Minimaler Plugin-Fake: SettingsTab liest nach `super(plugin.app, plugin)` nie wieder
+ *  von `plugin` selbst (nur `this.app`, gesetzt von PluginSettingTab, und `this.host`)
+ *  — ein Objekt mit `.app` genügt daher, ohne die echte `Plugin`-Basisklasse zu bauen. */
+function makeFakePlugin(): Plugin {
+  return { app: makeFakeApp() } as unknown as Plugin;
 }
 
 /** Fängt jeden addButton()-Klick-Handler in Erstellungsreihenfolge ab, unabhängig
@@ -83,9 +91,9 @@ describe("DEFAULT_SETTINGS", () => {
 
 describe("SettingsTab.display()", () => {
   it("renders all four groups without throwing and creates Setting elements", () => {
-    const app = makeFakeApp();
+    const plugin = makeFakePlugin();
     const host = makeFakeHost();
-    const tab = new SettingsTab(app, host);
+    const tab = new SettingsTab(plugin, host);
 
     expect(() => tab.display()).not.toThrow();
 
@@ -96,9 +104,9 @@ describe("SettingsTab.display()", () => {
   });
 
   it("re-rendering (repeated display() calls) clears the previous content first", () => {
-    const app = makeFakeApp();
+    const plugin = makeFakePlugin();
     const host = makeFakeHost();
-    const tab = new SettingsTab(app, host);
+    const tab = new SettingsTab(plugin, host);
 
     tab.display();
     const firstCount = tab.containerEl.children.length;
@@ -108,7 +116,7 @@ describe("SettingsTab.display()", () => {
   });
 
   it("the test-connection button tries endpoints in order and stops at the first success", async () => {
-    const app = makeFakeApp();
+    const plugin = makeFakePlugin();
     const host = makeFakeHost({
       settings: { ...DEFAULT_SETTINGS, endpoints: ["http://a", "http://b"] },
       testConnection: vi
@@ -117,7 +125,7 @@ describe("SettingsTab.display()", () => {
         .mockResolvedValueOnce({ ok: true, models: ["m1", "m2"] }),
     });
     const clicks = captureButtonClicks();
-    const tab = new SettingsTab(app, host);
+    const tab = new SettingsTab(plugin, host);
     tab.display();
 
     // Erster Button in Erstellungsreihenfolge = „Test connection" (Connection-Gruppe
@@ -128,17 +136,19 @@ describe("SettingsTab.display()", () => {
     expect(host.testConnection).toHaveBeenNthCalledWith(2, "http://b");
     expect(host.testConnection).toHaveBeenCalledTimes(2);
     expect(Notice.instances).toHaveLength(1);
-    expect(String(Notice.instances[0]?.message)).toContain("http://b");
+    // Erfolgs-Notice nennt die Modell-Ids (§6.4 „Default-Modell aus /v1/models"), nicht
+    // mehr den Endpoint — der Nutzer soll die exakte Id ins Default-model-Feld kopieren.
+    expect(String(Notice.instances[0]?.message)).toContain("m1, m2");
   });
 
   it("the test-connection button shows a failure notice when no endpoint responds", async () => {
-    const app = makeFakeApp();
+    const plugin = makeFakePlugin();
     const host = makeFakeHost({
       settings: { ...DEFAULT_SETTINGS, endpoints: ["http://a"] },
       testConnection: vi.fn().mockResolvedValue({ ok: false, models: [] }),
     });
     const clicks = captureButtonClicks();
-    const tab = new SettingsTab(app, host);
+    const tab = new SettingsTab(plugin, host);
     tab.display();
 
     await clicks[0]?.();
@@ -151,10 +161,10 @@ describe("SettingsTab.display()", () => {
   });
 
   it("the install-examples button never calls saveSettings/testConnection (host has no install hook)", () => {
-    const app = makeFakeApp();
+    const plugin = makeFakePlugin();
     const host = makeFakeHost();
     const clicks = captureButtonClicks();
-    const tab = new SettingsTab(app, host);
+    const tab = new SettingsTab(plugin, host);
     tab.display();
 
     // Zweiter Button in Erstellungsreihenfolge = „Install example crews" (Crews-Gruppe).
@@ -166,10 +176,10 @@ describe("SettingsTab.display()", () => {
   });
 
   it("editing the crew-root text field updates host.settings and persists", async () => {
-    const app = makeFakeApp();
+    const plugin = makeFakePlugin();
     const host = makeFakeHost();
     const changes = captureTextChanges();
-    const tab = new SettingsTab(app, host);
+    const tab = new SettingsTab(plugin, host);
     tab.display();
 
     // Erstellungsreihenfolge der Text/TextArea-Felder: endpoints, deniedEndpoints,
@@ -181,10 +191,10 @@ describe("SettingsTab.display()", () => {
   });
 
   it("editing the max-writes field parses to a number and ignores garbage input", async () => {
-    const app = makeFakeApp();
+    const plugin = makeFakePlugin();
     const host = makeFakeHost();
     const changes = captureTextChanges();
-    const tab = new SettingsTab(app, host);
+    const tab = new SettingsTab(plugin, host);
     tab.display();
 
     // Index 4 = maxWrites (Safety-Gruppe, erstes addText nach crewRoot).
@@ -196,7 +206,7 @@ describe("SettingsTab.display()", () => {
   });
 
   it("toggling verbose logging updates host.settings and persists", async () => {
-    const app = makeFakeApp();
+    const plugin = makeFakePlugin();
     const host = makeFakeHost();
     const toggles: Array<(v: boolean) => unknown> = [];
     vi.spyOn(ToggleComponent.prototype, "onChange").mockImplementation(function (
@@ -207,7 +217,7 @@ describe("SettingsTab.display()", () => {
       toggles.push(cb);
       return this;
     });
-    const tab = new SettingsTab(app, host);
+    const tab = new SettingsTab(plugin, host);
     tab.display();
 
     expect(toggles).toHaveLength(1);

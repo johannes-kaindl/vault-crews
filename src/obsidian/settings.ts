@@ -1,4 +1,4 @@
-import { App, Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
 import { t } from "../vendor/kit/i18n";
 
 /**
@@ -62,15 +62,14 @@ function parseIntSafe(raw: string, fallback: number): number {
  */
 export class SettingsTab extends PluginSettingTab {
   constructor(
-    app: App,
+    plugin: Plugin,
     private readonly host: SettingsHost,
   ) {
-    // PluginSettingTab verlangt laut echtem Obsidian-Typ ein `Plugin` als zweiten
-    // Parameter (nur intern für this.plugin genutzt — wir fassen es nie an). Die
-    // Entkopplung von main.ts verlangt hier einen Cast statt eines echten
-    // Plugin-Werts; alle Settings-Zugriffe dieser Klasse laufen ausschließlich
-    // über `host`.
-    super(app, host as unknown as Plugin);
+    // Echtes Plugin-Objekt statt Cast (main.ts, Task 16b, ruft `new SettingsTab(this,
+    // this)` — seine Plugin-Klasse extends `Plugin` UND implementiert `SettingsHost`).
+    // `PluginSettingTab` setzt daraus `this.app`; alle Settings-Zugriffe dieser Klasse
+    // laufen weiterhin ausschließlich über `host` (`this.host`), nie über `this.plugin`.
+    super(plugin.app, plugin);
   }
 
   display(): void {
@@ -129,7 +128,7 @@ export class SettingsTab extends PluginSettingTab {
     for (const endpoint of this.host.settings.endpoints) {
       const result = await this.host.testConnection(endpoint);
       if (result.ok) {
-        new Notice(t("notice.testConnection.ok", result.models.length, endpoint));
+        new Notice(t("notice.testConnection.ok", result.models.length, result.models.join(", ")));
         return;
       }
     }
