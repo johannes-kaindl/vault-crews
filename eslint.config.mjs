@@ -31,4 +31,15 @@ export default tseslint.config(
       "obsidianmd/settings-tab/prefer-setting-definitions": "off",
     },
   },
+  {
+    files: ["src/main.ts"],
+    rules: {
+      // prefer-get-language empfiehlt getLanguage(); no-unsupported-api verbietet es
+      // aber als Fehler, weil getLanguage() erst ab Obsidian 1.8.7 existiert und
+      // manifest.json's minAppVersion 1.7.2 ist. Der einzige widerspruchsfreie Weg ist
+      // der stabile localStorage-Key `language` (siehe readObsidianLocale) — die
+      // Warnung ist hier ein Fehlalarm des Versionskonflikts.
+      "obsidianmd/prefer-get-language": "off",
+    },
+  },
 );

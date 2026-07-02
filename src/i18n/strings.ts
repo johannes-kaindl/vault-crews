@@ -80,6 +80,12 @@ export const EN: Record<string, string> = {
   "notice.run.refused": "{0}: run refused — {1}",
   "notice.run.aborted": "{0}: run aborted — {1} file(s) written before stopping.",
 
+  // --- Notices — run-command guard states (main.ts wiring, Task 16b) -------
+  "notice.run.inProgress": "A run is already in progress.",
+  "notice.run.noActiveRun": "No run is currently active.",
+  "notice.run.noTeams": "No crews found — install the example crews first.",
+  "notice.run.noLastRun": "No previous run yet — run a crew first.",
+
   // --- Notices — error-kind reason text (matches core ErrorKind 1:1, Spec §7) —
   // used to fill the "{1}" of notice.run.failed/refused with one actionable line.
   "notice.errorKind.endpoint_unreachable": "Start LM Studio, then run again.",
@@ -216,6 +222,12 @@ export const DE: Record<string, string> = {
   "notice.run.failed": "{0}: Lauf fehlgeschlagen — {1}",
   "notice.run.refused": "{0}: Lauf verweigert — {1}",
   "notice.run.aborted": "{0}: Lauf abgebrochen — {1} Datei(en) vor dem Abbruch geschrieben.",
+
+  // --- Notices — Wächter-Zustände der Lauf-Commands (main.ts, Task 16b) ----
+  "notice.run.inProgress": "Es läuft bereits ein Lauf.",
+  "notice.run.noActiveRun": "Derzeit läuft kein Lauf.",
+  "notice.run.noTeams": "Keine Crews gefunden — zuerst die Beispiel-Crews installieren.",
+  "notice.run.noLastRun": "Noch kein vorheriger Lauf — zuerst eine Crew ausführen.",
 
   // --- Notices — Fehlerklassen-Text (1:1 zu core-ErrorKind, Spec §7) ------
   "notice.errorKind.endpoint_unreachable": "LM Studio starten, dann erneut ausführen.",
