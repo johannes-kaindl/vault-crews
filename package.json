@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && node esbuild.config.mjs --production",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "lint": "eslint src",
     "lint:obsidian": "eslint src",
     "lint:portal": "eslint src --config eslint.portal.config.mjs",

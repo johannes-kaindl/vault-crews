@@ -1,10 +1,13 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 
 export default defineConfig({
   test: {
     environment: "node",
     globals: true,
+    // Integrationstests (echtes git) laufen NICHT im Default-`npm test`,
+    // sondern über `npm run test:integration` (vitest.integration.config.ts):
+    exclude: [...configDefaults.exclude, "tests/integration/**"],
   },
   resolve: {
     alias: {
