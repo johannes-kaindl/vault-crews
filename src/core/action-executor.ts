@@ -83,6 +83,10 @@ async function validateAction(action: Action, ctx: ExecutorContext, vault: Vault
 		}
 		const mapped: Record<string, string | number | null> = {};
 		for (const [key, value] of Object.entries(action.set)) {
+			if (typeof value === 'string' && byteLength(value) > ctx.limits.maxNoteBytes) {
+				v.outcome = outcomeOf(action, 'rejected', `Wert für '${key}' überschreitet maxNoteBytes (${ctx.limits.maxNoteBytes})`);
+				return v;
+			}
 			const table = ctx.slugTables[key];
 			if (typeof value === 'string' && table !== undefined) {
 				const original = table.fromSlug[value];
@@ -135,6 +139,11 @@ async function validateAction(action: Action, ctx: ExecutorContext, vault: Vault
 			v.outcome = outcomeOf(action, 'failed', `Ziel existiert nicht: ${v.path} — zuerst anlegen (create_if_missing: false)`);
 			return v;
 		}
+		const marker = CREW_MARKER(ctx.team.id);
+		if (action.content.includes(marker.start) || action.content.includes(marker.end)) {
+			v.outcome = outcomeOf(action, 'rejected', `content enthält Crew-Marker — abgelehnt zum Schutz vor Marker-Injection`);
+			return v;
+		}
 		if (byteLength(action.content) > ctx.limits.maxNoteBytes) {
 			v.outcome = outcomeOf(action, 'rejected', `content überschreitet maxNoteBytes (${ctx.limits.maxNoteBytes})`);
 			return v;
@@ -177,12 +186,20 @@ function appendContent(current: string, heading: string | null, content: string)
 function replaceSection(current: string, teamId: string, content: string): string {
 	const { start, end } = CREW_MARKER(teamId);
 	const si = current.indexOf(start);
-	const ei = current.indexOf(end);
-	if (si === -1 && ei === -1) {
+	if (si === -1) {
+		// Ein einsamer End-Marker ohne Start ist beschädigt; sonst frischer Block ans Ende.
+		const strayEnd = current.indexOf(end);
+		if (strayEnd !== -1) {
+			throw new Error(`Crew-Marker beschädigt (start=${si}, end=${strayEnd}) — Block manuell reparieren`);
+		}
 		const base = current === '' || current.endsWith('\n') ? current : `${current}\n`;
 		return `${base}\n${start}\n${content}\n${end}\n`;
 	}
-	if (si === -1 || ei === -1 || ei < si) {
+	// End-Marker NACH dem Start suchen — verhindert, dass ein in den content
+	// eingebetteter (bei validateAction abgelehnter, aber defense-in-depth
+	// trotzdem hier abgesichert) Marker-String vom vorigen Lauf als Ende gefunden wird.
+	const ei = current.indexOf(end, si + start.length);
+	if (ei === -1) {
 		throw new Error(`Crew-Marker beschädigt (start=${si}, end=${ei}) — Block manuell reparieren`);
 	}
 	return `${current.slice(0, si + start.length)}\n${content}\n${current.slice(ei)}`;

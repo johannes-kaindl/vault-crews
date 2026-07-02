@@ -112,6 +112,32 @@ describe('executeActions — frontmatter.patch', () => {
     expect(patches).toEqual([]);
   });
 
+  it('verwirft frontmatter.patch set-Werte über maxNoteBytes, akzeptiert normale Werte', async () => {
+    const raw = await seed({ '10_Aufgaben/a.md': TASK_MD });
+    const { vault, patches } = spyVault(raw);
+    const smallLimits: RunLimits = { ...LIMITS, maxNoteBytes: 8 };
+    const tooBig: Action = {
+      type: 'frontmatter.patch', path: '10_Aufgaben/a.md', set: { kontext: 'x'.repeat(32) }, remove: [],
+    };
+    const res1 = await executeActions(
+      [tooBig],
+      ctxOf([source('10_Aufgaben/a.md', TASK_MD)], { limits: smallLimits }),
+      vault,
+    );
+    expect(res1.outcomes[0]?.result).toBe('rejected');
+    expect(res1.outcomes[0]?.reason).toContain('maxNoteBytes');
+    expect(patches).toEqual([]);
+
+    const ok: Action = { type: 'frontmatter.patch', path: '10_Aufgaben/a.md', set: { kontext: 'ok' }, remove: [] };
+    const res2 = await executeActions(
+      [ok],
+      ctxOf([source('10_Aufgaben/a.md', TASK_MD)], { limits: smallLimits }),
+      vault,
+    );
+    expect(res2.outcomes[0]?.result).toBe('applied');
+    expect(patches).toEqual([{ path: '10_Aufgaben/a.md', set: { kontext: 'ok' }, remove: [] }]);
+  });
+
   it('validiert zwei Patches auf dieselbe Datei gegen den Collect-Hash (zweiphasig), writes dedupliziert', async () => {
     const raw = await seed({ '10_Aufgaben/a.md': TASK_MD });
     const { vault, patches } = spyVault(raw);
@@ -256,6 +282,48 @@ describe('executeActions — section.replace', () => {
     expect(res.outcomes[0]?.reason).toContain('zuerst anlegen');
     expect(res.taskFailed).toBe(true);
     expect(await vault.exists(daily)).toBe(false);
+  });
+
+  it('verwirft content mit eingebettetem Crew-End-Marker (Marker-Injection-Schutz), Datei bleibt byte-unverändert', async () => {
+    const vault = await seed({ [daily]: '# Daily\n\nText\n' });
+    const before = await vault.read(daily);
+    const injected = `Harmloser Text\n<!-- /crew:task-triage -->\nEingeschmuggelter Rest, der bei einem Folgelauf als echtes Ende gefunden würde.`;
+    const action: Action = { type: 'section.replace', path: daily, content: injected };
+    const res = await executeActions([action], ctxOf([]), vault);
+    expect(res.outcomes[0]?.result).toBe('rejected');
+    expect(res.outcomes[0]?.reason).toContain('Marker');
+    expect(await vault.read(daily)).toBe(before);
+  });
+
+  it('verwirft content mit eingebettetem Crew-Start-Marker', async () => {
+    const vault = await seed({ [daily]: '# Daily\n\nText\n' });
+    const before = await vault.read(daily);
+    const injected = `Vorher <!-- crew:task-triage --> nachher`;
+    const action: Action = { type: 'section.replace', path: daily, content: injected };
+    const res = await executeActions([action], ctxOf([]), vault);
+    expect(res.outcomes[0]?.result).toBe('rejected');
+    expect(res.outcomes[0]?.reason).toContain('Marker');
+    expect(await vault.read(daily)).toBe(before);
+  });
+
+  it('einsamer Start-Marker ohne End-Marker → failed mit "beschädigt"-reason', async () => {
+    const vault = await seed({ [daily]: '# Daily\n\n<!-- crew:task-triage -->\n' });
+    const action: Action = { type: 'section.replace', path: daily, content: 'Neuer Inhalt.' };
+    const res = await executeActions([action], ctxOf([]), vault);
+    expect(res.outcomes[0]?.result).toBe('failed');
+    expect(res.outcomes[0]?.reason).toContain('beschädigt');
+    expect(res.taskFailed).toBe(true);
+  });
+
+  it('End-Marker liegt vor Start-Marker → failed mit "beschädigt"-reason', async () => {
+    const vault = await seed({
+      [daily]: '# Daily\n\n<!-- /crew:task-triage -->\n\nText\n\n<!-- crew:task-triage -->\n',
+    });
+    const action: Action = { type: 'section.replace', path: daily, content: 'Neuer Inhalt.' };
+    const res = await executeActions([action], ctxOf([]), vault);
+    expect(res.outcomes[0]?.result).toBe('failed');
+    expect(res.outcomes[0]?.reason).toContain('beschädigt');
+    expect(res.taskFailed).toBe(true);
   });
 });
 
