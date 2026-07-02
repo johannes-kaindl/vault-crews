@@ -3,10 +3,23 @@
 // imports). Not file-scoped — brings ambient types into the entire program. Avoids
 // editing tsconfig's global `types: []`. Consequence: src/core/** purity is enforced
 // by `npm run check:pure` (grep) + convention, not the type system.
+// Node-Builtins als STATISCHE top-level-Imports (NICHT dynamisches import()): esbuild
+// schreibt einen externen statischen Import im cjs-Bundle zu require("node:…") um — das
+// löst Obsidians Desktop-Renderer (nodeIntegration) auf, genau wie require("obsidian").
+// Ein natives dynamisches import("node:child_process") behandelt der Renderer dagegen als
+// Modul-URL-Fetch und BLOCKT es (CSP/CORS: "nur chrome/http/https/data") — das ließ im
+// Smoke-Test jede git-Operation scheitern. Sicher, weil isDesktopOnly:true: das Plugin
+// lädt nie dort, wo node fehlt. (vitest lädt statische node:-Imports nativ — Test bleibt gültig.)
+import { execFile as execFileCb } from "node:child_process";
+import { access, unlink, writeFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
+import { promisify } from "node:util";
 import { Platform } from "obsidian";
 import type { CommitPlan, GitPort, GitStatusInfo } from "../core/ports";
 
-/** Ausschnitt der Node-APIs, die dieser Port braucht — alle dynamisch importiert (siehe node()). */
+const execFileP = promisify(execFileCb);
+
+/** Ausschnitt der Node-APIs, die dieser Port braucht — aus den top-level-Imports zusammengesetzt (siehe node()). */
 interface NodeApis {
   execFile(file: string, args: string[], opts: { cwd: string; maxBuffer: number }): Promise<{ stdout: string; stderr: string }>;
   access(p: string): Promise<void>;
@@ -24,12 +37,12 @@ const UNMERGED_XY = new Set(["DD", "AU", "UD", "UA", "DU", "AA", "UU"]);
  *
  * - `vaultRoot` = absoluter Dateisystem-Pfad der Vault-Wurzel. Wiring (Task 16):
  *   `new ChildProcessGitPort((this.app.vault.adapter as FileSystemAdapter).getBasePath())`.
- * - Node-Builtins (`child_process`, `util`, `fs/promises`, `path`) werden ausschließlich
- *   dynamisch per `import()` geladen und nur hinter `Platform.isDesktop` angefasst:
- *   ohne Import-Spuren im Modul-Top-Level bleibt das Bundle browser-sauber, und auf
- *   Mobile (das dieses Plugin wegen `isDesktopOnly` nie erreicht) gäbe es einen sauberen
- *   Fehler statt eines Ladecrashs. Specifier MIT `node:`-Präfix, passend zur
- *   `external: ["obsidian", "electron", "node:*"]`-Wildcard in esbuild.config.mjs.
+ * - Node-Builtins (`child_process`, `util`, `fs/promises`, `path`) sind STATISCHE
+ *   top-level-Imports (siehe Kommentar oben): esbuild macht daraus `require("node:…")`,
+ *   das Obsidians Desktop-Renderer auflöst — ein natives `import("node:…")` würde vom
+ *   Renderer als Modul-URL geblockt (Smoke-Test-Fund). `node:`-Präfix passend zur
+ *   `external: ["obsidian", "electron", "node:*"]`-Wildcard. `node()` prüft weiterhin
+ *   `Platform.isDesktop` und wirft dort einen klaren Fehler.
  * - Binary-Resolve (macOS-GUI-PATH-Problem): Aus Dock/Finder gestartete GUI-Apps erben
  *   NICHT die Shell-PATH (kein /opt/homebrew/bin, kein /usr/local/bin) — ein nacktes
  *   `execFile("git", …)` scheitert dort mit ENOENT, obwohl git im Terminal funktioniert.
@@ -45,25 +58,18 @@ export class ChildProcessGitPort implements GitPort {
 
   constructor(private readonly vaultRoot: string) {}
 
-  private async node(): Promise<NodeApis> {
+  private node(): NodeApis {
     if (this.apis) return this.apis;
     if (!Platform.isDesktop) {
       throw new Error("vault-crews: GitPort benötigt Desktop (child_process nicht verfügbar).");
     }
-    const [cp, util, fs, path] = await Promise.all([
-      import("node:child_process"),
-      import("node:util"),
-      import("node:fs/promises"),
-      import("node:path"),
-    ]);
-    const execFileP = util.promisify(cp.execFile);
     this.apis = {
       execFile: (file, args, opts) => execFileP(file, args, opts),
-      access: (p) => fs.access(p),
-      writeFile: (p, data, enc) => fs.writeFile(p, data, enc),
-      unlink: (p) => fs.unlink(p),
-      join: (...parts) => path.join(...parts),
-      isAbsolute: (p) => path.isAbsolute(p),
+      access: (p) => access(p),
+      writeFile: (p, data, enc) => writeFile(p, data, enc),
+      unlink: (p) => unlink(p),
+      join: (...parts) => join(...parts),
+      isAbsolute: (p) => isAbsolute(p),
     };
     return this.apis;
   }
@@ -84,7 +90,7 @@ export class ChildProcessGitPort implements GitPort {
 
   /** Führt git im vaultRoot aus. Fehler tragen stderr in der Message (execFile-Verhalten). */
   private async git(args: string[]): Promise<string> {
-    const n = await this.node();
+    const n = this.node();
     const bin = await this.resolveGitBin(n);
     const { stdout } = await n.execFile(bin, args, { cwd: this.vaultRoot, maxBuffer: MAX_BUFFER });
     return stdout;
@@ -101,7 +107,7 @@ export class ChildProcessGitPort implements GitPort {
   }
 
   async status(): Promise<GitStatusInfo> {
-    const n = await this.node();
+    const n = this.node();
     let isRepo = false;
     try {
       isRepo = (await this.git(["rev-parse", "--is-inside-work-tree"])).trim() === "true";
@@ -130,7 +136,7 @@ export class ChildProcessGitPort implements GitPort {
 
   async applyPlan(plan: CommitPlan): Promise<string> {
     if (plan.paths.length === 0) throw new Error("vault-crews: CommitPlan ohne Pfade.");
-    const n = await this.node();
+    const n = this.node();
     // Pfadgenaues Stagen — NIE `add -A`, der Dirty-State des Users bleibt unberührt (§5.2):
     await this.git(["add", "--", ...plan.paths]);
     // Message per -F aus .git/CREW_COMMIT_MSG: mehrzeiliger Body + `Crew-Run:`-Trailer bleiben
