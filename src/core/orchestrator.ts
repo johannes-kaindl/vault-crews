@@ -69,7 +69,7 @@ class RunFsm {
 		const now = deps.clock.now();
 		const teamId = slugFromPath(teamPath);
 		this.limits = deps.settings.limits;
-		this.denylist = buildDenylist(deps.settings.configDir);
+		this.denylist = buildDenylist(deps.settings.configDir, deps.settings.crewRoot);
 		this.state = {
 			runId: formatRunId(now, teamId), teamId, teamPath,
 			status: 'running', startedAt: now, endedAt: null,

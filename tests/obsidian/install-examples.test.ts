@@ -51,7 +51,7 @@ const DEFAULT_MAXIMA: RunLimits = {
 	stallTimeoutMs: 60_000,
 };
 const KNOWN_AGENTS = ['triage-analyst', 'briefing-autor'];
-const DENYLIST = buildDenylist('.obsidian');
+const DENYLIST = buildDenylist('.obsidian', '_crews');
 
 /** Frontmatter-Block + Body aus einer Team-/Agent-Note extrahieren, per echtem
  *  YAML-Parser (js-yaml) — das kleine YAML-Subset aus in-memory-vault.ts reicht für

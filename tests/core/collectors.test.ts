@@ -7,7 +7,7 @@ import type { CollectorTaskDef } from '../../src/core/types';
 import { FixtureMetadataPort, InMemoryVaultPort } from '../helpers/in-memory-vault';
 
 const FIXTURE_DIR = join(__dirname, '../fixtures/pallas-tasknotes');
-const DENYLIST = buildDenylist('.obsidian');
+const DENYLIST = buildDenylist('.obsidian', '_crews');
 
 let vault: InMemoryVaultPort;
 let meta: FixtureMetadataPort;

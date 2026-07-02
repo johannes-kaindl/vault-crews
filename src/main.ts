@@ -365,7 +365,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     } catch {
       agentIds = [];
     }
-    const denylist = buildDenylist(this.app.vault.configDir);
+    const denylist = buildDenylist(this.app.vault.configDir, root);
     const limits = this.buildLimits();
 
     let paths: string[] = [];

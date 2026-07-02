@@ -44,7 +44,7 @@ function ctxOf(sources: CollectedFile[], overrides: Partial<ExecutorContext> = {
   return {
     team: makeTeam(), task: makeTask(), limits: LIMITS, writeCount: 0, sources,
     slugTables: { priority: { toSlug: { '2_mittel_🟡': 'mittel' }, fromSlug: { mittel: '2_mittel_🟡' } } },
-    denylist: buildDenylist('.obsidian'),
+    denylist: buildDenylist('.obsidian', '_crews'),
     ...overrides,
   };
 }

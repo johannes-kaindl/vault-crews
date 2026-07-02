@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildDenylist, expandTarget, globMatch, isDenied, normalizeVaultPath } from '../../src/core/paths';
 
-const DENYLIST = buildDenylist('.obsidian');
+const DENYLIST = buildDenylist('.obsidian', '_crews');
 
 describe('normalizeVaultPath', () => {
 	it('trimmt, vereinheitlicht Slashes und entfernt führende /', () => {
@@ -40,7 +40,26 @@ describe('isDenied', () => {
 	});
 
 	it('buildDenylist nutzt das injizierte configDir', () => {
-		expect(buildDenylist('.config-custom')).toEqual(expect.arrayContaining(['.config-custom/**', '.git/**', '_crews/**', '_vaultrag/**']));
+		expect(buildDenylist('.config-custom', '_crews')).toEqual(expect.arrayContaining(['.config-custom/**', '.git/**', '_crews/**', '_vaultrag/**']));
+	});
+
+	// Regression (safety review C2): buildDenylist hardcodete früher das Literal
+	// '_crews/**' statt den user-konfigurierbaren crewRoot zu verwenden. Ein
+	// umbenannter crewRoot (PluginSettings.crewRoot, Freitext) blieb dadurch
+	// ungeschützt — ein write_scope konnte legal die echte Crew-Config/Run-Logs/
+	// Lock treffen (Selbst-Eskalation, Audit-Manipulation).
+	it('schützt einen umbenannten crewRoot (Regression: Denylist folgte crewRoot-Setting nicht)', () => {
+		const denylist = buildDenylist('.obsidian', 'Crew-Ops');
+		expect(denylist).toEqual(expect.arrayContaining(['Crew-Ops/**']));
+		expect(isDenied('Crew-Ops/teams/task-triage.md', denylist)).toBe(true);
+		// Default-Root bleibt unter einem '_crews'-crewRoot weiterhin geschützt.
+		expect(isDenied('_crews/teams/task-triage.md', DENYLIST)).toBe(true);
+	});
+
+	it('normalisiert crewRoot (trailing slash entfernt, leer/whitespace fällt auf _crews zurück)', () => {
+		expect(buildDenylist('.obsidian', 'Crew-Ops/')).toEqual(expect.arrayContaining(['Crew-Ops/**']));
+		expect(buildDenylist('.obsidian', '')).toEqual(expect.arrayContaining(['_crews/**']));
+		expect(buildDenylist('.obsidian', '   ')).toEqual(expect.arrayContaining(['_crews/**']));
 	});
 });
 

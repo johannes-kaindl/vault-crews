@@ -2,11 +2,16 @@
  *  die Denylist überstimmt jede write_scope-Whitelist (Spec §4.4). */
 
 /** Denylist mit injiziertem Obsidian-configDir (`Vault#configDir` — der Ordnername ist
- *  user-konfigurierbar, deshalb kein Literal im pure-Layer). */
-export function buildDenylist(configDir: string): string[] {
+ *  user-konfigurierbar, deshalb kein Literal im pure-Layer) UND dem konfigurierbaren
+ *  crewRoot (`PluginSettings.crewRoot`, Default `_crews` — Freitext-Setting, deshalb
+ *  ebenfalls kein Literal: sonst wäre ein umbenannter crewRoot ungeschützt und ein
+ *  write_scope könnte legal die eigene Crew-Config/Run-Logs/Lock treffen). `_vaultrag/**`
+ *  bleibt Literal — feste externe Konvention (vault-rag-Index), kein Plugin-Setting. */
+export function buildDenylist(configDir: string, crewRoot: string): string[] {
+	const root = crewRoot.trim().replace(/\/+$/, '') || '_crews';
 	// '**/.*' deckt Dot-DATEIEN, '**/.*/**' Inhalte UNTER Dot-Ordnern (vom
 	// Guard-Property-Test gefundenes Loch: 'sub/.trash/evil.md').
-	return [`${configDir}/**`, '.git/**', '_crews/**', '_vaultrag/**', '.*', '**/.*', '**/.*/**'];
+	return [`${configDir}/**`, '.git/**', `${root}/**`, '_vaultrag/**', '.*', '**/.*', '**/.*/**'];
 }
 
 /** Vault-relative Pfade vereinheitlichen; `..`-Segmente sind immer ein Fehler (Escape). */

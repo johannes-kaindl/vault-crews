@@ -4,7 +4,7 @@ import { buildDenylist } from '../../src/core/paths';
 import type { RunLimits } from '../../src/core/types';
 
 const MAXIMA: RunLimits = { maxWrites: 20, maxLlmCalls: 10, wallClockMs: 600_000, maxNoteBytes: 65_536, callTimeoutMs: 300_000, stallTimeoutMs: 60_000 };
-const OPTS = { knownAgents: ['triage-analyst'], maxima: MAXIMA, denylist: buildDenylist('.obsidian') };
+const OPTS = { knownAgents: ['triage-analyst'], maxima: MAXIMA, denylist: buildDenylist('.obsidian', '_crews') };
 const AGENT_PATH = '_crews/agents/triage-analyst.md';
 const TEAM_PATH = '_crews/teams/task-triage.md';
 
