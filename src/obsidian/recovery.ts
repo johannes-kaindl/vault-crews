@@ -18,7 +18,7 @@ import { Modal, type App } from "obsidian";
 import type { GitPort, VaultPort } from "../core/ports";
 import type { RunState } from "../core/types";
 import { buildCommitPlan } from "../core/git-plan";
-import { buildRunMd } from "../core/run-log";
+import { buildRunMd, buildStateJson } from "../core/run-log";
 import { t } from "../vendor/kit/i18n";
 
 export interface OrphanedRun {
@@ -44,6 +44,19 @@ function lockPathFor(runDir: string): string {
  * (korrupt → wie der Orchestrator selbst: stiller Übernahme-Fall, kein Recovery-
  * Dialog), released Lock, oder einem `state.json`, das den Lauf bereits regulär
  * abgeschlossen zeigt.
+ *
+ * Annahme + bekannte Grenze: das wird beim Plugin-`onload` aufgerufen, also lange
+ * NACHDEM der Prozess, der einen etwaigen vorherigen Lauf ausgeführt hat, beendet
+ * ist (Obsidian neu gestartet/geöffnet). Ein aktives Lock + `state.json.status ===
+ * 'running'` heißt zu diesem Zeitpunkt daher zuverlässig "auf DIESEM Gerät
+ * abgestürzt" — es gibt keinen laufenden Prozess mehr, der das Lock noch halten
+ * könnte, und keinen Clock-Vergleich nötig (bewusst kein Timeout-Parameter hier,
+ * anders als `orchestrator.isLockHeld`, das GEGEN einen aktiven Fremdlauf im selben
+ * Prozessraum prüft). Der eine False-Positive-Fall — ein über Cloud-Sync geteilter
+ * Vault, auf zwei Desktops gleichzeitig geöffnet, während dort ein Lauf aktiv ist —
+ * ist laut Spec §10 Risiko 8 ("Ein-Lauf-Lock") explizit außerhalb des V1-Scopes und
+ * hier ungefährlich: die Recovery-Handlung ist ein vom Nutzer bestätigter
+ * Modal-Klick, nie automatisch, also committet nichts von selbst.
  */
 export async function checkOrphanedRun(vault: VaultPort, crewRoot: string): Promise<OrphanedRun | null> {
   const lockPath = `${crewRoot}/runs/.lock`;
@@ -100,21 +113,41 @@ export class RecoveryModal extends Modal {
     finishBtn.addEventListener("click", () => { void this.finish(); });
   }
 
-  /** Committet den Teilstand, schreibt run.md als `aborted` mit der Commit-SHA um,
-   *  und gibt das Lock frei — exakt der in Spec §5.3 beschriebene Recovery-Pfad.
-   *  Public (statt private), damit main.ts (und diese Tests) den Effekt direkt
-   *  auslösen können, ohne über eine simulierte DOM-Klick-Zeremonie zu müssen. */
+  /** Committet den Teilstand und gibt das Lock frei — exakt der in Spec §5.3
+   *  beschriebene Recovery-Pfad. Public (statt private), damit main.ts (und diese
+   *  Tests) den Effekt direkt auslösen können, ohne über eine simulierte
+   *  DOM-Klick-Zeremonie zu müssen.
+   *
+   *  Reihenfolge (Spec §5.2/§5.3 "Wirkung + Protokoll atomar", exakt wie
+   *  `orchestrator.commit()`): run.md UND state.json müssen den finalen
+   *  ('aborted') Status tragen, BEVOR `git.applyPlan()` sie stagt — der reale
+   *  `ChildProcessGitPort.applyPlan` macht `git add -- <paths>` und liest damit von
+   *  der PLATTE, nicht den In-Memory-State. Erst committen und danach schreiben
+   *  würde einen Commit erzeugen, dessen Inhalt noch "running" ist, während die
+   *  Commit-Message schon "aborted" sagt (Selbstwiderspruch) — und `state.json`
+   *  bliebe für immer "running" hängen, weil es nie neu geschrieben würde.
+   */
   async finish(): Promise<void> {
     const { vault, git } = this.deps;
     const { runDir, state } = this.orphan;
 
     const finished: RunState = { ...state, status: "aborted", endedAt: state.endedAt ?? Date.now() };
+
+    // Wirkung + Protokoll VOR dem Commit auf die Platte bringen.
+    await vault.modify(`${runDir}/run.md`, buildRunMd(finished));
+    await vault.modify(`${runDir}/state.json`, buildStateJson(finished));
+
+    // Lock liegt außerhalb runDir, geht also nie in den Commit — Freigabe-Zeitpunkt
+    // relativ zum Commit ist unkritisch, hier vor dem Commit (wie oben beschrieben).
+    await vault.modify(lockPathFor(runDir), JSON.stringify({ active: false }));
+
     const plan = buildCommitPlan(finished, runDir);
     const commitSha = await git.applyPlan(plan);
     finished.commitSha = commitSha;
 
+    // Post-Commit: SHA nur für Menschen in run.md nachtragen — bewusst uncommitted,
+    // exakt wie der zweite `persist()`-Aufruf in `orchestrator.commit()`.
     await vault.modify(`${runDir}/run.md`, buildRunMd(finished));
-    await vault.modify(lockPathFor(runDir), JSON.stringify({ active: false }));
 
     this.close();
   }

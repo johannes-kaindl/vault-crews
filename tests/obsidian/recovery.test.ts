@@ -12,6 +12,7 @@ import type { App } from "obsidian";
 import { InMemoryVaultPort } from "../helpers/in-memory-vault";
 import { RecorderGitPort } from "../helpers/recorder-git";
 import { buildStateJson } from "../../src/core/run-log";
+import type { CommitPlan, GitPort, GitStatusInfo } from "../../src/core/ports";
 import type { RunState } from "../../src/core/types";
 import { registerI18n } from "../../src/i18n/strings";
 import { setLang } from "../../src/vendor/kit/i18n";
@@ -52,6 +53,64 @@ function findAll(el: HTMLElement, pred: (e: HTMLElement) => boolean, out: HTMLEl
   if (pred(el)) out.push(el);
   for (const c of Array.from(el.children) as HTMLElement[]) findAll(c, pred, out);
   return out;
+}
+
+/** Git-Fake für die Reihenfolge-Regression (Fix 1): `applyPlan` liest bei jedem Aufruf
+ *  denselben In-Memory-Vault, den der Test seedet — genau wie die Produktions-
+ *  implementierung (`ChildProcessGitPort.applyPlan` stagt via `git add -- <paths>` von
+ *  der Platte, nie aus dem In-Memory-State) — und protokolliert den zu diesem Zeitpunkt
+ *  geparsten `status` von run.md/state.json. Deckt exakt den Bug auf, den ein reiner
+ *  Recorder (der nur den übergebenen CommitPlan aufzeichnet, ihn aber nie gegen den
+ *  Disk-Inhalt zum Aufrufzeitpunkt prüft) nicht sehen kann. */
+class DiskSensingGitPort implements GitPort {
+  readonly plans: CommitPlan[] = [];
+  readonly seenStatuses: { runMd: string | null; stateJson: string | null }[] = [];
+  private commitN = 0;
+
+  constructor(
+    private readonly vault: InMemoryVaultPort,
+    private readonly runDir: string,
+  ) {}
+
+  async status(): Promise<GitStatusInfo> {
+    return { isRepo: true, inMergeOrRebase: false, hasIndexLock: false, headSha: "base-sha", dirty: false };
+  }
+
+  async applyPlan(plan: CommitPlan): Promise<string> {
+    this.seenStatuses.push({
+      runMd: await this.readFrontmatterStatus(`${this.runDir}/run.md`),
+      stateJson: await this.readJsonStatus(`${this.runDir}/state.json`),
+    });
+    this.plans.push(plan);
+    this.commitN += 1;
+    return `sha-${this.commitN}`;
+  }
+
+  async revert(_sha: string): Promise<{ ok: boolean; conflictPaths: string[] }> {
+    return { ok: true, conflictPaths: [] };
+  }
+
+  async restorePaths(_sha: string, _paths: string[]): Promise<void> {
+    // no-op — nicht Teil dieser Regression
+  }
+
+  private async readFrontmatterStatus(path: string): Promise<string | null> {
+    try {
+      return /^status:\s*(\S+)/m.exec(await this.vault.read(path))?.[1] ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async readJsonStatus(path: string): Promise<string | null> {
+    try {
+      const parsed: unknown = JSON.parse(await this.vault.read(path));
+      const status = (parsed as { status?: unknown }).status;
+      return typeof status === "string" ? status : null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 describe("checkOrphanedRun", () => {
@@ -155,12 +214,42 @@ describe("RecoveryModal", () => {
 
     const [button] = findAll(modal.contentEl, (e) => e.tagName === "BUTTON");
     button?.click();
-    // click() im Mock feuert Listener fire-and-forget (kein Await der Promise) —
-    // eine Tick-Runde genügt, weil vault/git hier synchron auflösende In-Memory-Fakes sind.
-    await Promise.resolve();
-    await Promise.resolve();
+    // click() im Mock feuert Listener fire-and-forget (kein Await der Promise). finish()
+    // hängt inzwischen mehrere awaits (run.md/state.json/lock vor dem Commit) hintereinander
+    // — statt Microtask-Ticks zu zählen, wartet ein Macrotask: der läuft garantiert erst NACH
+    // allen ausstehenden Microtasks, und vault/git sind hier synchron auflösende In-Memory-Fakes.
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(git.plans).toHaveLength(1);
+  });
+});
+
+describe("RecoveryModal.finish() — atomic commit ordering (regression)", () => {
+  it("commits ABORTED run.md/state.json content, never the stale RUNNING disk snapshot, and rewrites state.json", async () => {
+    const vault = new InMemoryVaultPort();
+    const state = runningState();
+    const runDir = `${CREW_ROOT}/runs/${state.runId}`;
+    await vault.create(`${CREW_ROOT}/runs/.lock`, JSON.stringify({ active: true, runId: state.runId, startedAt: state.startedAt }));
+    await vault.create(`${runDir}/state.json`, buildStateJson(state));
+    await vault.create(`${runDir}/run.md`, "---\nstatus: running\n---\n\n# stub\n");
+
+    const git = new DiskSensingGitPort(vault, runDir);
+    const modal = new RecoveryModal(makeFakeApp() as unknown as App, { runId: state.runId, runDir, state }, { vault, git });
+
+    await modal.finish();
+
+    // Der Bug (Fix 1): applyPlan() liest via `git add -- <paths>` von der Platte — wenn
+    // finish() erst committet und danach schreibt, sieht der Commit noch den ererbten
+    // "running"-Snapshot, obwohl die Commit-Message schon "aborted" sagt.
+    expect(git.seenStatuses).toHaveLength(1);
+    expect(git.seenStatuses[0]).toEqual({ runMd: "aborted", stateJson: "aborted" });
+
+    // state.json wurde vor diesem Fix NIE umgeschrieben (blieb für immer "running").
+    const stateJsonAfter = JSON.parse(await vault.read(`${runDir}/state.json`)) as { status?: unknown };
+    expect(stateJsonAfter.status).toBe("aborted");
+
+    const lock = JSON.parse(await vault.read(`${CREW_ROOT}/runs/.lock`)) as { active: boolean };
+    expect(lock.active).toBe(false);
   });
 });
 
