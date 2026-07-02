@@ -1,8 +1,8 @@
 /// <reference types="node" />
-// Scoped opt-in to @types/node's ambient module declarations (needed to resolve the
-// `node:*` specifiers below) WITHOUT adding "node" to tsconfig's global `types` array —
-// that array is deliberately `[]` (Task 1 scaffold) to keep src/core/** free of Node
-// globals. Node builtins are only ever touched dynamically and only in this adapter file.
+// Triple-slash opt-in to @types/node's ambient declarations (needed for `node:*`
+// imports). Not file-scoped — brings ambient types into the entire program. Avoids
+// editing tsconfig's global `types: []`. Consequence: src/core/** purity is enforced
+// by `npm run check:pure` (grep) + convention, not the type system.
 import { Platform } from "obsidian";
 import type { CommitPlan, GitPort, GitStatusInfo } from "../core/ports";
 
