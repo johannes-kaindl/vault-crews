@@ -1,7 +1,11 @@
 /** Pfad-Guards des pure-Layers. Jede Schreib-/Leseaktion der Agenten läuft hier durch —
  *  die Denylist überstimmt jede write_scope-Whitelist (Spec §4.4). */
 
-export const DENYLIST: string[] = ['.obsidian/**', '.git/**', '_crews/**', '_vaultrag/**', '.*', '**/.*'];
+/** Denylist mit injiziertem Obsidian-configDir (`Vault#configDir` — der Ordnername ist
+ *  user-konfigurierbar, deshalb kein Literal im pure-Layer). */
+export function buildDenylist(configDir: string): string[] {
+	return [`${configDir}/**`, '.git/**', '_crews/**', '_vaultrag/**', '.*', '**/.*'];
+}
 
 /** Vault-relative Pfade vereinheitlichen; `..`-Segmente sind immer ein Fehler (Escape). */
 export function normalizeVaultPath(p: string): string {
@@ -38,8 +42,8 @@ function toRegex(pattern: string): RegExp {
 	return re;
 }
 
-export function isDenied(path: string): boolean {
-	return DENYLIST.some((d) => globMatch(d, path));
+export function isDenied(path: string, denylist: string[]): boolean {
+	return denylist.some((d) => globMatch(d, path));
 }
 
 /** Einziger Target-Platzhalter: {{today}} → lokales YYYY-MM-DD (deterministisch aus nowMs). */

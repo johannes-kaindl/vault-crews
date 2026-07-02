@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { DENYLIST, expandTarget, globMatch, isDenied, normalizeVaultPath } from '../../src/core/paths';
+import { buildDenylist, expandTarget, globMatch, isDenied, normalizeVaultPath } from '../../src/core/paths';
+
+const DENYLIST = buildDenylist('.obsidian');
 
 describe('normalizeVaultPath', () => {
 	it('trimmt, vereinheitlicht Slashes und entfernt führende /', () => {
@@ -32,13 +34,13 @@ describe('globMatch', () => {
 describe('isDenied', () => {
 	it('blockt Systempfade und Dotfiles unabhängig von write_scope', () => {
 		for (const p of ['.obsidian/app.json', '.git/config', '_crews/teams/x.md', '_vaultrag/notes.i8', '.env', 'a/.hidden.md']) {
-			expect(isDenied(p), p).toBe(true);
+			expect(isDenied(p, DENYLIST), p).toBe(true);
 		}
-		expect(isDenied('10_Aufgaben/t.md')).toBe(false);
+		expect(isDenied('10_Aufgaben/t.md', DENYLIST)).toBe(false);
 	});
 
-	it('DENYLIST enthält die vier Systemordner', () => {
-		expect(DENYLIST).toEqual(expect.arrayContaining(['.obsidian/**', '.git/**', '_crews/**', '_vaultrag/**']));
+	it('buildDenylist nutzt das injizierte configDir', () => {
+		expect(buildDenylist('.config-custom')).toEqual(expect.arrayContaining(['.config-custom/**', '.git/**', '_crews/**', '_vaultrag/**']));
 	});
 });
 

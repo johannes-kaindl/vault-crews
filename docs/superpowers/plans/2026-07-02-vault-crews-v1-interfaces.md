@@ -217,11 +217,13 @@ export interface RunReporter { emit(e: RunEvent): void; }
 
 ```ts
 // src/core/paths.ts
-export const DENYLIST: string[];   // ['.obsidian/**','.git/**','_crews/**','_vaultrag/**','.*','**/.*']
+export function buildDenylist(configDir: string): string[]; // [`${configDir}/**`,'.git/**','_crews/**','_vaultrag/**','.*','**/.*']
+                                                            // configDir injiziert (Vault#configDir, obsidianmd/hardcoded-config-path)
 export function normalizeVaultPath(p: string): string;      // wirft bei '..'
 export function globMatch(pattern: string, path: string): boolean;
-export function isDenied(path: string): boolean;
+export function isDenied(path: string, denylist: string[]): boolean;
 export function expandTarget(template: string, nowMs: number): string;  // ersetzt {{today}}
+// Konsequenz: parseTeamDef-opts, runCollector-deps und ExecutorContext führen `denylist: string[]`.
 
 // src/core/crew-parser.ts
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
