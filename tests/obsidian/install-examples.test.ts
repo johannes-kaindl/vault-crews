@@ -118,6 +118,10 @@ describe('Beispiel-Agenten/-Teams sind nicht tot (echte Parser, Plugin-Default-M
 		if (!r.ok) return;
 		expect(r.value.id).toBe('triage-analyst');
 		expect(r.value.systemPrompt.length).toBeGreaterThan(0);
+		// Regression: 'auto' laesst Reasoning-Modelle (z. B. qwen3.6) das gesamte
+		// max_tokens-Budget in <think> verbrennen -> leerer Output -> invalid_output
+		// (Smoke-Test-Fund). Strukturierte-Output-Agenten brauchen thinking:off.
+		expect(r.value.thinking).toBe('off');
 	});
 
 	it('briefing-autor.md parst über parseAgentDef', () => {
@@ -126,6 +130,9 @@ describe('Beispiel-Agenten/-Teams sind nicht tot (echte Parser, Plugin-Default-M
 		expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
 		if (!r.ok) return;
 		expect(r.value.id).toBe('briefing-autor');
+		// Regression: siehe triage-analyst.md oben - beide Beispiel-Agenten muessen
+		// thinking:off tragen, sonst produzieren Reasoning-Modelle keinen Output.
+		expect(r.value.thinking).toBe('off');
 	});
 
 	it('task-triage.md parst über parseTeamDef unter den Plugin-Default-Maxima', () => {

@@ -3,7 +3,7 @@ crew-kind: agent
 name: Triage-Analyst
 temperature: 0.1
 max_tokens: 2048
-thinking: auto
+thinking: off
 ---
 Du bist ein nüchterner Task-Triage-Analyst für einen persönlichen Obsidian-Vault.
 Du bewertest Aufgaben-Notizen anhand ihres Frontmatters und schlägst NUR
