@@ -49,9 +49,10 @@ describe('validateOutput mit triage-v1', () => {
 		const r = validateOutput(fixture('preamble-with-example.txt'), triage, sources, slugTables, null);
 		expect(r.ok).toBe(true);
 		if (!r.ok) return;
+		// set-Werte bleiben Slugs — Rück-Mapping auf Emoji-Originale ist Executor-Stufe 2.
 		expect(r.actions).toEqual([
-			{ type: 'frontmatter.patch', path: '10_Aufgaben/steuer.md', set: { priority: '1_hoch_🔴' }, remove: [] },
-			{ type: 'frontmatter.patch', path: '10_Aufgaben/zahnarzt.md', set: { priority: '2_mittel_🟡' }, remove: [] },
+			{ type: 'frontmatter.patch', path: '10_Aufgaben/steuer.md', set: { priority: 'hoch' }, remove: [] },
+			{ type: 'frontmatter.patch', path: '10_Aufgaben/zahnarzt.md', set: { priority: 'mittel' }, remove: [] },
 		]);
 	});
 

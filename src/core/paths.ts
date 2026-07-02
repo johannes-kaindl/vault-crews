@@ -4,7 +4,9 @@
 /** Denylist mit injiziertem Obsidian-configDir (`Vault#configDir` — der Ordnername ist
  *  user-konfigurierbar, deshalb kein Literal im pure-Layer). */
 export function buildDenylist(configDir: string): string[] {
-	return [`${configDir}/**`, '.git/**', '_crews/**', '_vaultrag/**', '.*', '**/.*'];
+	// '**/.*' deckt Dot-DATEIEN, '**/.*/**' Inhalte UNTER Dot-Ordnern (vom
+	// Guard-Property-Test gefundenes Loch: 'sub/.trash/evil.md').
+	return [`${configDir}/**`, '.git/**', '_crews/**', '_vaultrag/**', '.*', '**/.*', '**/.*/**'];
 }
 
 /** Vault-relative Pfade vereinheitlichen; `..`-Segmente sind immer ein Fehler (Escape). */

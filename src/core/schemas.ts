@@ -50,7 +50,9 @@ const triageV1: SchemaDef = {
 						errors.push(`items[${i}].set.${key}: '${String(rawValue)}' ist kein erlaubter Wert (${Object.keys(table.fromSlug).sort().join(', ')})`);
 						continue;
 					}
-					set[key] = table.fromSlug[rawValue] ?? rawValue;
+					// Wert bleibt SLUG — das byte-genaue Rück-Mapping ist Stufe 2 im Executor
+					// (ExecutorContext.slugTables, Detail-Anhang Tasks 9-11).
+					set[key] = rawValue;
 					continue;
 				}
 				if (typeof rawValue === 'string' || typeof rawValue === 'number' || rawValue === null) {
