@@ -461,7 +461,11 @@ class RunFsm {
 	}
 
 	private runDir(): string { return `${this.deps.settings.crewRoot}/runs/${this.state.runId}`; }
-	private lockPath(): string { return `${this.deps.settings.crewRoot}/runs/.lock`; }
+	// Non-dotfile: Obsidian's TFile-Index (getAbstractFileByPath, siehe ObsidianVaultPort)
+	// indiziert keine Dotfiles → vault.read/modify würden auf `.lock` zur Laufzeit werfen.
+	// create/exists/mkdir laufen über vault.adapter und funktionieren mit Dotfiles, aber
+	// releaseLock() (modify) braucht denselben Pfad wie acquireLock() — also non-dotfile.
+	private lockPath(): string { return `${this.deps.settings.crewRoot}/runs/run-lock.json`; }
 	private lockContent(): string { return JSON.stringify({ active: true, runId: this.state.runId, startedAt: this.state.startedAt }); }
 
 	private async isLockHeld(path: string): Promise<boolean> {

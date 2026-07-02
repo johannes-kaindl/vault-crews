@@ -1,4 +1,4 @@
-// Crash-Recovery (Spec §5.3/§7): erkennt eine verwaiste `runs/.lock` +
+// Crash-Recovery (Spec §5.3/§7): erkennt eine verwaiste `runs/run-lock.json` +
 // `state.json status:'running'` beim nächsten Plugin-Load und bietet genau EINE
 // empfohlene Handlung. Lock/State-Format hier ist exakt das, was der Orchestrator
 // tatsächlich schreibt (src/core/orchestrator.ts `lockContent`/`releaseLock`/
@@ -117,7 +117,7 @@ describe("checkOrphanedRun", () => {
   it("returns the orphan when the lock is active and state.json still says 'running'", async () => {
     const vault = new InMemoryVaultPort();
     const state = runningState();
-    await vault.create(`${CREW_ROOT}/runs/.lock`, JSON.stringify({ active: true, runId: state.runId, startedAt: state.startedAt }));
+    await vault.create(`${CREW_ROOT}/runs/run-lock.json`, JSON.stringify({ active: true, runId: state.runId, startedAt: state.startedAt }));
     await vault.create(`${CREW_ROOT}/runs/${state.runId}/state.json`, buildStateJson(state));
 
     const orphan = await checkOrphanedRun(vault, CREW_ROOT);
@@ -132,7 +132,7 @@ describe("checkOrphanedRun", () => {
   it("returns null once the lock has been released (normal run end)", async () => {
     const vault = new InMemoryVaultPort();
     const state = runningState();
-    await vault.create(`${CREW_ROOT}/runs/.lock`, JSON.stringify({ active: false }));
+    await vault.create(`${CREW_ROOT}/runs/run-lock.json`, JSON.stringify({ active: false }));
     await vault.create(`${CREW_ROOT}/runs/${state.runId}/state.json`, buildStateJson(state));
 
     expect(await checkOrphanedRun(vault, CREW_ROOT)).toBeNull();
@@ -141,7 +141,7 @@ describe("checkOrphanedRun", () => {
   it("returns null when state.json is no longer 'running', even if the lock still reads active", async () => {
     const vault = new InMemoryVaultPort();
     const state = runningState({ status: "ok", endedAt: 2_000, commitSha: "sha1" });
-    await vault.create(`${CREW_ROOT}/runs/.lock`, JSON.stringify({ active: true, runId: state.runId, startedAt: state.startedAt }));
+    await vault.create(`${CREW_ROOT}/runs/run-lock.json`, JSON.stringify({ active: true, runId: state.runId, startedAt: state.startedAt }));
     await vault.create(`${CREW_ROOT}/runs/${state.runId}/state.json`, buildStateJson(state));
 
     expect(await checkOrphanedRun(vault, CREW_ROOT)).toBeNull();
@@ -154,7 +154,7 @@ describe("checkOrphanedRun", () => {
 
   it("returns null for a corrupt lock file (treated like the orchestrator's silent takeover)", async () => {
     const vault = new InMemoryVaultPort();
-    await vault.create(`${CREW_ROOT}/runs/.lock`, "{not json");
+    await vault.create(`${CREW_ROOT}/runs/run-lock.json`, "{not json");
     expect(await checkOrphanedRun(vault, CREW_ROOT)).toBeNull();
   });
 });
@@ -179,7 +179,7 @@ describe("RecoveryModal", () => {
     const git = new RecorderGitPort();
     const state = runningState();
     const runDir = `${CREW_ROOT}/runs/${state.runId}`;
-    await vault.create(`${CREW_ROOT}/runs/.lock`, JSON.stringify({ active: true, runId: state.runId, startedAt: state.startedAt }));
+    await vault.create(`${CREW_ROOT}/runs/run-lock.json`, JSON.stringify({ active: true, runId: state.runId, startedAt: state.startedAt }));
     await vault.create(`${runDir}/state.json`, buildStateJson(state));
     await vault.create(`${runDir}/run.md`, "---\nstatus: running\n---\n\n# stub\n");
 
@@ -196,7 +196,7 @@ describe("RecoveryModal", () => {
     expect(runMd).toContain("status: aborted");
     expect(runMd).toContain(`commit: ${git.plans.length > 0 ? "sha-1" : ""}`);
 
-    const lock = JSON.parse(await vault.read(`${CREW_ROOT}/runs/.lock`)) as { active: boolean };
+    const lock = JSON.parse(await vault.read(`${CREW_ROOT}/runs/run-lock.json`)) as { active: boolean };
     expect(lock.active).toBe(false);
   });
 
@@ -205,7 +205,7 @@ describe("RecoveryModal", () => {
     const git = new RecorderGitPort();
     const state = runningState();
     const runDir = `${CREW_ROOT}/runs/${state.runId}`;
-    await vault.create(`${CREW_ROOT}/runs/.lock`, JSON.stringify({ active: true, runId: state.runId, startedAt: state.startedAt }));
+    await vault.create(`${CREW_ROOT}/runs/run-lock.json`, JSON.stringify({ active: true, runId: state.runId, startedAt: state.startedAt }));
     await vault.create(`${runDir}/state.json`, buildStateJson(state));
     await vault.create(`${runDir}/run.md`, "---\nstatus: running\n---\n\n# stub\n");
 
@@ -229,7 +229,7 @@ describe("RecoveryModal.finish() — atomic commit ordering (regression)", () =>
     const vault = new InMemoryVaultPort();
     const state = runningState();
     const runDir = `${CREW_ROOT}/runs/${state.runId}`;
-    await vault.create(`${CREW_ROOT}/runs/.lock`, JSON.stringify({ active: true, runId: state.runId, startedAt: state.startedAt }));
+    await vault.create(`${CREW_ROOT}/runs/run-lock.json`, JSON.stringify({ active: true, runId: state.runId, startedAt: state.startedAt }));
     await vault.create(`${runDir}/state.json`, buildStateJson(state));
     await vault.create(`${runDir}/run.md`, "---\nstatus: running\n---\n\n# stub\n");
 
@@ -248,7 +248,7 @@ describe("RecoveryModal.finish() — atomic commit ordering (regression)", () =>
     const stateJsonAfter = JSON.parse(await vault.read(`${runDir}/state.json`)) as { status?: unknown };
     expect(stateJsonAfter.status).toBe("aborted");
 
-    const lock = JSON.parse(await vault.read(`${CREW_ROOT}/runs/.lock`)) as { active: boolean };
+    const lock = JSON.parse(await vault.read(`${CREW_ROOT}/runs/run-lock.json`)) as { active: boolean };
     expect(lock.active).toBe(false);
   });
 });

@@ -31,15 +31,18 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** Lock-Pfad aus dem runDir zurückgewinnen: runDir = `<crewRoot>/runs/<runId>`. */
+/** Lock-Pfad aus dem runDir zurückgewinnen: runDir = `<crewRoot>/runs/<runId>`.
+ *  Non-dotfile (`run-lock.json`, nicht `.lock`) — Obsidians TFile-Index indiziert
+ *  keine Dotfiles, `vault.read`/`vault.modify` (beide gehen über getAbstractFileByPath)
+ *  würden für eine `.lock`-Datei zur Laufzeit werfen (siehe orchestrator.ts lockPath). */
 function lockPathFor(runDir: string): string {
   const parts = runDir.split("/");
   parts.pop(); // runId
-  return `${parts.join("/")}/.lock`;
+  return `${parts.join("/")}/run-lock.json`;
 }
 
 /**
- * Prüft `<crewRoot>/runs/.lock` + das referenzierte `state.json` auf einen
+ * Prüft `<crewRoot>/runs/run-lock.json` + das referenzierte `state.json` auf einen
  * verwaisten (Crash-)Lauf. Liefert `null` bei fehlender/kaputter Lock-Datei
  * (korrupt → wie der Orchestrator selbst: stiller Übernahme-Fall, kein Recovery-
  * Dialog), released Lock, oder einem `state.json`, das den Lauf bereits regulär
@@ -59,7 +62,7 @@ function lockPathFor(runDir: string): string {
  * Modal-Klick, nie automatisch, also committet nichts von selbst.
  */
 export async function checkOrphanedRun(vault: VaultPort, crewRoot: string): Promise<OrphanedRun | null> {
-  const lockPath = `${crewRoot}/runs/.lock`;
+  const lockPath = `${crewRoot}/runs/run-lock.json`;
   let lock: unknown;
   try {
     if (!(await vault.exists(lockPath))) return null;

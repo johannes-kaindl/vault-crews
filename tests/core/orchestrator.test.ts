@@ -87,7 +87,7 @@ async function harness(opts: HarnessOpts = {}): Promise<Harness> {
   const files = opts.files ?? { '10_Aufgaben/a.md': TASK_NOTE };
   for (const [p, c] of Object.entries(files)) await vault.create(p, c);
 
-  if (opts.seedLock !== undefined) await vault.create('_crews/runs/.lock', opts.seedLock);
+  if (opts.seedLock !== undefined) await vault.create('_crews/runs/run-lock.json', opts.seedLock);
 
   const clock = opts.clock ?? new FakeClock(START_MS);
   const reporter = new RecorderReporter();
@@ -430,7 +430,7 @@ describe('executeRun — run lock', () => {
     const result = await executeRun(h.teamPath, h.deps);
     expect(result.status).toBe('ok');
     // lock released (never committed) after the run
-    const lock = JSON.parse(await h.vault.read('_crews/runs/.lock')) as { active: boolean };
+    const lock = JSON.parse(await h.vault.read('_crews/runs/run-lock.json')) as { active: boolean };
     expect(lock.active).toBe(false);
   });
 
@@ -440,6 +440,28 @@ describe('executeRun — run lock', () => {
     const result = await executeRun(h.teamPath, h.deps);
     expect(result.status).toBe('refused');
     expect(h.git.log).not.toContain('applyPlan:sha-1');
+  });
+
+  it('lock-cycle: a run completes (releaseLock runs) → a SECOND executeRun right after is not refused by a stuck lock (acquire→release→re-acquire, end to end)', async () => {
+    // Same deps/vault reused across both calls — the lock file written by the first
+    // run's acquireLock() must actually be released by releaseLock() (vault.modify) for
+    // the second run's acquireLock() to succeed. This is the exact lifecycle a dotfile
+    // lock path breaks under InMemoryVaultPort's dotfile guard (which mirrors Obsidian's
+    // TFile index — getAbstractFileByPath never indexes dotfiles, so real vault.read/
+    // modify throw for one; see ObsidianVaultPort.file()).
+    const clock = new FakeClock(START_MS);
+    const llm = new ScriptLlmClient([{ content: TRIAGE_OK }, { content: TRIAGE_OK }]);
+    const h = await harness({ clock, llm });
+
+    const first = await executeRun(h.teamPath, h.deps);
+    expect(first.status).toBe('ok');
+
+    clock.tick(60_000); // distinct runId for the second run
+    const second = await executeRun(h.teamPath, h.deps);
+
+    expect(second.status).not.toBe('refused');
+    expect(second.errorKind).not.toBe('io');
+    expect(second.errorKind).not.toBe('git_refused');
   });
 });
 

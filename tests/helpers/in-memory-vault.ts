@@ -5,10 +5,21 @@
  *  Laufzeit Obsidians metadataCache parst und wir fremdes YAML-Parsing nicht testen. */
 import type { MetadataPort, VaultPort } from '../../src/core/ports';
 
+/** Obsidian's `app.vault.getAbstractFileByPath` (TFile-Index) does NOT index dotfiles —
+ *  only `vault.adapter` (used by create/exists/mkdir) sees them. ObsidianVaultPort.read/
+ *  modify resolve through that TFile index (see src/obsidian/vault-port.ts `file()`), so
+ *  they throw at runtime for a dotfile path. Mirror that constraint here so tests exercise
+ *  the real limitation instead of the InMemory map's uniform (and wrong) behaviour. */
+function isDotfilePath(path: string): boolean {
+	const segment = path.split('/').pop() ?? path;
+	return segment.startsWith('.');
+}
+
 export class InMemoryVaultPort implements VaultPort {
 	readonly files = new Map<string, string>();
 
 	async read(path: string): Promise<string> {
+		if (isDotfilePath(path)) throw new Error(`vault-crews: Datei nicht gefunden: ${path}`);
 		const c = this.files.get(path);
 		if (c === undefined) throw new Error(`not found: ${path}`);
 		return c;
@@ -18,6 +29,7 @@ export class InMemoryVaultPort implements VaultPort {
 		this.files.set(path, content);
 	}
 	async modify(path: string, content: string): Promise<void> {
+		if (isDotfilePath(path)) throw new Error(`vault-crews: Datei nicht gefunden: ${path}`);
 		this.files.set(path, content);
 	}
 	async append(path: string, content: string): Promise<void> {
