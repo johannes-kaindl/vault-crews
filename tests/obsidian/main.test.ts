@@ -5,13 +5,14 @@
 // der Orchestrator (`executeRun`) wird gemockt, damit `runCrew` einen kontrollierbaren,
 // nie auflösenden Lauf startet und der Mutex isoliert beobachtbar wird.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { makeFakeApp, Notice, Plugin } from "../__mocks__/obsidian";
+import { makeFakeApp, Notice, Plugin, requestUrl } from "../__mocks__/obsidian";
 import type { App, PluginManifest } from "obsidian";
 import { setLang, t } from "../../src/vendor/kit/i18n";
 import * as strings from "../../src/i18n/strings";
 import { VIEW_TYPE_CREWS } from "../../src/obsidian/panel";
 import { executeRun } from "../../src/core/orchestrator";
 import type { RunResult } from "../../src/core/types";
+import type { LlmClient } from "../../src/core/ports";
 import VaultCrewsPlugin from "../../src/main";
 
 vi.mock("../../src/core/orchestrator", () => ({ executeRun: vi.fn() }));
@@ -119,5 +120,45 @@ describe("VaultCrewsPlugin — one-run mutex", () => {
     // Aufräumen: den hängenden Lauf abschließen, damit keine offene Promise zurückbleibt.
     resolveRun(okResult());
     await Promise.resolve();
+  });
+});
+
+describe("VaultCrewsPlugin.testConnection", () => {
+  afterEach(() => {
+    // Default-Verhalten (immer 200 + leerer Body) für nachfolgende Tests wiederherstellen.
+    requestUrl.mockImplementation(() => Promise.resolve({
+      status: 200, headers: {}, text: "", json: {}, arrayBuffer: new ArrayBuffer(0),
+    }));
+  });
+
+  it("pings/lists via an ephemeral client pinned to the tested endpoint, never the shared this.llm", async () => {
+    const bodyFor = (id: string): string => JSON.stringify({ data: [{ id }] });
+    requestUrl.mockClear();
+    requestUrl.mockImplementation((opts: unknown) => {
+      const url = typeof opts === "string" ? opts : (opts as { url: string }).url;
+      if (url.startsWith("http://race-endpoint:5555")) {
+        return Promise.resolve({ status: 200, headers: {}, text: bodyFor("race-model"), json: {}, arrayBuffer: new ArrayBuffer(0) });
+      }
+      if (url.startsWith("http://endpoint-b:9999")) {
+        return Promise.resolve({ status: 200, headers: {}, text: bodyFor("model-b"), json: {}, arrayBuffer: new ArrayBuffer(0) });
+      }
+      return Promise.resolve({ status: 500, headers: {}, text: "", json: {}, arrayBuffer: new ArrayBuffer(0) });
+    });
+
+    const plugin = makePlugin();
+    await plugin.onload();
+
+    // Simuliert das Preflight-Failover eines LAUFENDEN Runs, der den geteilten
+    // this.llm bereits auf einen dritten Endpoint umgebogen hat (setBase()).
+    const sharedLlm = (plugin as unknown as { llm: LlmClient }).llm;
+    sharedLlm.setBase("http://race-endpoint:5555");
+
+    const result = await plugin.testConnection("http://endpoint-b:9999");
+
+    expect(result).toEqual({ ok: true, models: ["model-b"] });
+    // Der geteilte Client darf von testConnection nie berührt worden sein — er zeigt
+    // weiterhin auf den vom (simulierten) Lauf gesetzten race-endpoint, nicht auf
+    // endpoint-b und auch nicht zurück auf den onload-Default.
+    await expect(sharedLlm.listModels()).resolves.toEqual(["race-model"]);
   });
 });

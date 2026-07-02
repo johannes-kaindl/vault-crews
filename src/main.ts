@@ -137,11 +137,20 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     await this.saveData({ ...this.settings, lastRuns: this.lastRuns });
   }
 
+  /** Ephemerer Client statt `this.llm` (PROF-OBS-XX): `this.llm` ist der GETEILTE,
+   *  pro-Lauf neu gebaute Client, dessen `base` das Preflight-Failover per setBase()
+   *  auf den gerade aktiven Endpoint eines LAUFS umbiegt — nicht auf den hier getesteten.
+   *  Ein Test während/nach einem Lauf würde also Endpoint A pingen, aber Endpoint B's
+   *  Modell-Liste melden. Der lokale Client bindet ping()+listModels() an DENSELBEN
+   *  Endpoint und rührt `this.llm` nie an, kann also nie mit einem Lauf racen. */
   async testConnection(endpoint: string): Promise<{ ok: boolean; models: string[] }> {
-    const ok = await this.llm.ping(normalizeEndpoint(endpoint));
+    const target = normalizeEndpoint(endpoint);
+    const client = this.buildLlmClient();
+    client.setBase(target);
+    const ok = await client.ping(target);
     if (!ok) return { ok: false, models: [] };
     try {
-      return { ok: true, models: await this.llm.listModels() };
+      return { ok: true, models: await client.listModels() };
     } catch {
       return { ok: true, models: [] };
     }
