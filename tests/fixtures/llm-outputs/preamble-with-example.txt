@@ -1,0 +1,11 @@
+Ich analysiere die Aufgaben. Das erwartete Format ist zum Beispiel:
+```json
+{"items": [{"path": "10_A/beispiel.md", "set": {"priority": "niedrig"}}]}
+```
+Nach Durchsicht der echten Aufgaben ist hier mein Ergebnis:
+```json
+{"items": [
+  {"path": "10_Aufgaben/steuer.md", "set": {"priority": "hoch"}},
+  {"path": "10_Aufgaben/zahnarzt.md", "set": {"priority": "mittel"}}
+]}
+```
