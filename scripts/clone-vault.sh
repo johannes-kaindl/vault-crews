@@ -23,7 +23,9 @@
 #                  spiegelt: 10_Aufgaben, 30_Chronos/10_Tage, _types/_status/
 #                  _priority — die mitgelieferten Crews laufen darauf out-of-the-box.
 #                  Für einen realistischeren Klon einen echten Vault als $1 übergeben.)
-#   DEST_DIR      Default: /tmp/vault-crews-smoke
+#   DEST_DIR      Default: /Users/Shared/10_ObsidianVaults/vault-crews-smoke
+#                 (neben den echten Vaults, damit er im Obsidian-Ordner-Picker
+#                  auftaucht — /tmp ist versteckt und dort nicht auswählbar)
 #
 # Danach: DEST_DIR in Obsidian öffnen (community plugins bleiben erhalten,
 # NUR .obsidian/workspace* — offene Tabs/Layout — wird nicht mitkopiert),
@@ -36,7 +38,7 @@
 set -euo pipefail
 
 SOURCE_VAULT="${1:-/Users/Shared/10_ObsidianVaults/Y3_ProtoVault}"
-DEST_DIR="${2:-/tmp/vault-crews-smoke}"
+DEST_DIR="${2:-/Users/Shared/10_ObsidianVaults/vault-crews-smoke}"
 
 if [ ! -d "$SOURCE_VAULT" ]; then
   echo "clone-vault: Quell-Vault nicht gefunden: $SOURCE_VAULT" >&2
