@@ -185,6 +185,9 @@ export interface LlmClient {
   modelInfo(model: string): Promise<ModelInfo | null>;
   stream(messages: LlmMessage[], params: LlmParams, onToken: (t: string) => void, signal: AbortSignal): Promise<LlmStreamResult>;
 }
+export class LlmCallError extends Error {           // typisierter Call-Fehler statt Message-Sniffing
+  constructor(message: string, readonly kind: 'overflow' | 'timeout' | 'stalled' | 'http');
+}
 export interface SseTransport {
   postStream(url: string, body: unknown, onChunk: (raw: string) => void, signal: AbortSignal): Promise<number>; // resolves HTTP-Status
 }
