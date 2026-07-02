@@ -5,3 +5,4 @@ main.js.map
 data.json
 # styles.css bleibt TRACKED (Release-Asset)
 node_modules/
+.claude/
