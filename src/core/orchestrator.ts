@@ -288,6 +288,7 @@ class RunFsm {
 		if (result.finishReason === 'aborted') { this.abortRun(task.id, 'Stream abgebrochen'); rec.error = { kind: 'aborted', message: 'Stream abgebrochen' }; return 'failed'; }
 
 		let validated = validateOutput(result.content, schema, sources, slugTables, target);
+		if (!validated.ok) await this.writeArtifact(task.id, 1, result.content);
 		if (!validated.ok && this.state.llmCalls < this.limits.maxLlmCalls) {
 			// genau ein Repair-Zyklus
 			try {
@@ -295,6 +296,7 @@ class RunFsm {
 				rec.thinkTokens += repair.thinkTokens;
 				if (repair.finishReason === 'aborted') { this.abortRun(task.id, 'Stream abgebrochen'); rec.error = { kind: 'aborted', message: 'Stream abgebrochen' }; return 'failed'; }
 				validated = validateOutput(repair.content, schema, sources, slugTables, target);
+				if (!validated.ok) await this.writeArtifact(task.id, 2, repair.content);
 			} catch (e) {
 				return this.failLlm(task, rec, llmErrorKind(e), errMsg(e));
 			}
@@ -489,6 +491,16 @@ class RunFsm {
 	private async writeFile(path: string, content: string): Promise<void> {
 		if (await this.deps.vault.exists(path)) await this.deps.vault.modify(path, content);
 		else await this.deps.vault.create(path, content);
+	}
+
+	/** Rohen LLM-Output bei Validierungs-/Repair-Fehlschlag ablegen (Spec §2.4, §3.4 Schritt 4,
+	 *  §9: „fehlerfall-artifacts"). Fixture-Korpus, kein Vault-Write des Modells: NICHT im
+	 *  writeRegister, zählt nicht gegen max_writes — der runDir-Verzeichnis-Pathspec
+	 *  (git-plan.ts) staged artifacts/ trotzdem automatisch für den Commit. */
+	private async writeArtifact(taskId: string, attempt: 1 | 2, content: string): Promise<void> {
+		const dir = `${this.runDir()}/artifacts`;
+		try { await this.deps.vault.mkdir(dir); } catch { /* existiert bereits */ }
+		await this.writeFile(`${dir}/${taskId}-${attempt}.txt`, content);
 	}
 
 	private delay(ms: number): Promise<void> {

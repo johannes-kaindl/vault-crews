@@ -119,9 +119,17 @@ Documented rather than silently missing:
   mid-run". A vault synced across two concurrently-running Obsidian desktops (e.g.
   via iCloud/Syncthing while both are open) is explicitly out of scope for V1 — see
   design risk #8.
+- **Raw LLM output on validation failure is captured under `runs/<id>/artifacts/`.**
+  Whenever a task's output fails schema/source-binding validation, the raw model
+  response is written to `artifacts/<taskId>-1.txt`; if the one repair attempt also
+  fails validation, its raw response is written to `artifacts/<taskId>-2.txt`. This
+  feeds the test-fixture corpus of real broken model outputs and is committed
+  automatically as part of the run directory — it is never counted as a vault write
+  and never touches `max_writes`. Successful runs write no artifacts at all.
 - **`verboseLogging` (Settings → Advanced) is reserved, not yet wired.** The setting
-  exists and persists, but nothing currently reads it; full raw-output mitschnitt
-  beyond the existing failure-case `artifacts/` capture is not implemented.
+  exists and persists, but nothing currently reads it; full raw-output mitschnitt of
+  *every* call (success or failure) — beyond the failure-case `artifacts/` capture
+  above — is not implemented.
 - **The failure log opens `run.md` at the top, not scrolled to the failed task.**
   "View failure" opens the run's log file via `workspace.getLeaf().openFile()` with
   no ephemeral scroll state — you land at the top of the note and scroll to the

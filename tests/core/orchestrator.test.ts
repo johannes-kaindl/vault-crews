@@ -1,7 +1,7 @@
 // tests/core/orchestrator.test.ts
 import { describe, expect, it } from 'vitest';
 import { executeRun, type RunDeps } from '../../src/core/orchestrator';
-import type { LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, RunEvent } from '../../src/core/ports';
+import type { CommitPlan, LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, RunEvent } from '../../src/core/ports';
 import type { RunLimits } from '../../src/core/types';
 import { expandTarget } from '../../src/core/paths';
 import { InMemoryVaultPort, FixtureMetadataPort } from '../helpers/in-memory-vault';
@@ -125,6 +125,17 @@ class ClockAdvancingLlm implements LlmClient {
     this.clock.tick(this.advanceMs);
     onToken(this.content);
     return { content: this.content, thinkTokens: 0, finishReason: 'stop' };
+  }
+}
+
+/** GitPort double for M9 (commit()-failure resilience): status() behaves like
+ *  RecorderGitPort, applyPlan() always rejects — models a git commit that fails
+ *  after writes were already applied to the vault. */
+class ApplyPlanFailsGitPort extends RecorderGitPort {
+  override async applyPlan(plan: CommitPlan): Promise<string> {
+    this.plans.push(plan);
+    this.log.push('applyPlan:reject');
+    throw new Error('git commit failed: pre-commit hook rejected');
   }
 }
 
@@ -461,5 +472,108 @@ describe('executeRun — target threading (briefing-v1 → section.replace)', ()
     expect(daily).toContain('## Heute');
     expect(daily).toContain('<!-- crew:task-triage -->');
     expect(h.git.plans[0]?.paths).toContain(dailyPath);
+  });
+});
+
+describe('executeRun — raw-output artifacts on validation failure (V1 §2.4/§3.4/§9)', () => {
+  it('primary invalid AND repair invalid → both raw outputs saved under artifacts/, never registered as writes', async () => {
+    const llm = new ScriptLlmClient([{ content: 'kaputt' }, { content: 'immer noch kaputt' }]);
+    const h = await harness({ llm });
+    const result = await executeRun(h.teamPath, h.deps);
+
+    expect(result.status).toBe('failed');
+    expect(result.errorKind).toBe('invalid_output');
+
+    const runDir = `_crews/runs/${result.runId}`;
+    expect(await h.vault.read(`${runDir}/artifacts/analyse-1.txt`)).toBe('kaputt');
+    expect(await h.vault.read(`${runDir}/artifacts/analyse-2.txt`)).toBe('immer noch kaputt');
+
+    // artifacts are plugin-internal run output, not an LLM vault write: no writes happened,
+    // so they cannot have inflated the write register / max_writes.
+    expect(result.writes).toBe(0);
+    const paths = h.git.plans[0]?.paths ?? [];
+    expect(paths).not.toContain(`${runDir}/artifacts/analyse-1.txt`);
+    expect(paths).not.toContain(`${runDir}/artifacts/analyse-2.txt`);
+    // the runDir directory pathspec still stages artifacts/ for the commit automatically.
+    expect(paths).toContain(runDir);
+  });
+
+  it('primary invalid, repair valid → only the primary raw output is saved (no -2 artifact)', async () => {
+    const llm = new ScriptLlmClient([{ content: 'kaputt' }, { content: TRIAGE_OK }]);
+    const h = await harness({ llm });
+    const result = await executeRun(h.teamPath, h.deps);
+
+    expect(result.status).toBe('ok');
+    const runDir = `_crews/runs/${result.runId}`;
+    expect(await h.vault.read(`${runDir}/artifacts/analyse-1.txt`)).toBe('kaputt');
+    await expect(h.vault.read(`${runDir}/artifacts/analyse-2.txt`)).rejects.toThrow();
+  });
+
+  it('golden happy path (no validation failure) writes no artifacts at all', async () => {
+    const h = await harness();
+    const result = await executeRun(h.teamPath, h.deps);
+
+    expect(result.status).toBe('ok');
+    const runDir = `_crews/runs/${result.runId}`;
+    const artifactFiles = [...h.vault.files.keys()].filter((p) => p.startsWith(`${runDir}/artifacts/`));
+    expect(artifactFiles).toEqual([]);
+  });
+});
+
+describe('executeRun — commit()-failure resilience (M9)', () => {
+  it('git.applyPlan rejects after writes were applied → resolves (never throws), errorKind io, protocolFailure task recorded, run.md/state.json reflect the real final status + writes', async () => {
+    const git = new ApplyPlanFailsGitPort();
+    const h = await harness({ git });
+
+    // Awaiting directly (no try/catch) already proves executeRun resolves rather than rejects.
+    const result = await executeRun(h.teamPath, h.deps);
+
+    expect(result.status).toBe('ok');        // finalStatus() was computed before the commit attempt
+    expect(result.commitSha).toBeNull();      // applyPlan threw before a sha could be assigned
+    expect(result.errorKind).toBe('io');
+    expect(result.writes).toBe(1);            // the actual vault write already happened and is not undone
+    expect(await h.vault.read('10_Aufgaben/a.md')).toContain('priority: mittel');
+    expect(h.git.log).toContain('applyPlan:reject');
+
+    const runDir = `_crews/runs/${result.runId}`;
+    const runMd = await h.vault.read(`${runDir}/run.md`);
+    expect(runMd).toContain('status: ok');
+    expect(runMd).toContain('error_kind: io');
+    expect(runMd).not.toContain('commit:');
+
+    const state = JSON.parse(await h.vault.read(`${runDir}/state.json`)) as {
+      status: string;
+      errorKind: string | null;
+      writeRegister: string[];
+      tasks: { taskId: string; kind: string; status: string; error: { kind: string; message: string } | null }[];
+    };
+    expect(state.status).toBe('ok');
+    expect(state.errorKind).toBe('io');
+    expect(state.writeRegister).toEqual(['10_Aufgaben/a.md']);
+
+    const protocolTask = state.tasks.find((t) => t.taskId === 'preflight' && t.error?.kind === 'io');
+    expect(protocolTask).toBeDefined();
+    expect(protocolTask?.status).toBe('failed');
+    expect(protocolTask?.kind).toBe('collector');
+    expect(protocolTask?.error?.message).toContain('Commit fehlgeschlagen');
+  });
+
+  it('commit failure preserves an already-set errorKind rather than overwriting it with io', async () => {
+    const git = new ApplyPlanFailsGitPort();
+    const llm = new ScriptLlmClient([{ error: 'timeout' }]);
+    const h = await harness({ git, llm });
+
+    const result = await executeRun(h.teamPath, h.deps);
+
+    expect(result.status).toBe('failed');
+    expect(result.errorKind).toBe('timeout');    // the pre-existing kind wins, not clobbered by the commit-io path
+    expect(result.commitSha).toBeNull();
+
+    const runDir = `_crews/runs/${result.runId}`;
+    const state = JSON.parse(await h.vault.read(`${runDir}/state.json`)) as {
+      tasks: { taskId: string; error: { kind: string } | null }[];
+    };
+    const protocolTask = state.tasks.find((t) => t.taskId === 'preflight' && t.error?.kind === 'io');
+    expect(protocolTask).toBeDefined();
   });
 });
