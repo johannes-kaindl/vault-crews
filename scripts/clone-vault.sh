@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# scripts/clone-vault.sh
+#
+# Erzeugt einen WEGWERF-KLON eines Obsidian-Vaults für die manuelle Release-
+# Smoke-Checkliste (Spec §8: "Kein Live-LLM in CI; manuelle Smoke-Checkliste
+# gegen einen Wegwerf-Klon des Pallas-Vaults ... nie der echte Vault").
+#
+# ══════════════════════════════════════════════════════════════════════════
+#  NIEMALS den echten Vault (SOURCE_VAULT) selbst für die Smoke-Checkliste
+#  öffnen oder verändern. Dieses Skript LIEST ihn nur (rsync, keine
+#  Löschungen im Quell-Vault); alles danach — Plugin-Install, Beispiel-Crews
+#  ausführen, Undo/Abort testen — passiert ausschließlich im Klon unter
+#  DEST_DIR. Der Klon ist sein eigenes, frisches Git-Repo: das Plugin darf
+#  dort bedenkenlos committen/reverten, ohne die echte Vault-History
+#  (obsidian-git o.ä.) zu berühren.
+# ══════════════════════════════════════════════════════════════════════════
+#
+# Usage:
+#   scripts/clone-vault.sh [SOURCE_VAULT] [DEST_DIR]
+#
+#   SOURCE_VAULT  Default: /Users/Shared/10_ObsidianVaults/10_Pallas
+#   DEST_DIR      Default: /tmp/vault-crews-smoke
+#
+# Danach: DEST_DIR in Obsidian öffnen (community plugins bleiben erhalten,
+# NUR .obsidian/workspace* — offene Tabs/Layout — wird nicht mitkopiert),
+# den Plugin-Build hineinkopieren (`OBSIDIAN_PLUGIN_DIR=<DEST_DIR>/.obsidian/plugins/vault-crews npm run deploy`
+# oder BRAT), dann die Smoke-Checkliste aus AGENTS.md abarbeiten. Erneutes
+# Ausführen ist sicher (kein `--delete`) — es aktualisiert nur vorhandene/neue
+# Dateien aus dem Quell-Vault, lässt bereits im Klon installierte Plugin-
+# Dateien und bisherige Testläufe unangetastet.
+
+set -euo pipefail
+
+SOURCE_VAULT="${1:-/Users/Shared/10_ObsidianVaults/10_Pallas}"
+DEST_DIR="${2:-/tmp/vault-crews-smoke}"
+
+if [ ! -d "$SOURCE_VAULT" ]; then
+  echo "clone-vault: Quell-Vault nicht gefunden: $SOURCE_VAULT" >&2
+  exit 1
+fi
+
+# Sicherheitsnetz: SOURCE_VAULT und DEST_DIR dürfen nie derselbe Ort sein —
+# sonst könnte ein künftiger Aufruf mit anderen Flags im echten Vault landen.
+SOURCE_REAL="$(cd "$SOURCE_VAULT" && pwd -P)"
+if [ -d "$DEST_DIR" ]; then
+  DEST_REAL="$(cd "$DEST_DIR" && pwd -P)"
+  if [ "$SOURCE_REAL" = "$DEST_REAL" ]; then
+    echo "clone-vault: SOURCE_VAULT und DEST_DIR sind identisch ($SOURCE_REAL) — abgebrochen." >&2
+    exit 1
+  fi
+fi
+
+echo "clone-vault: ${SOURCE_VAULT} -> ${DEST_DIR}"
+mkdir -p "$DEST_DIR"
+
+# Kein --delete (bewusst): der Klon darf über mehrere Smoke-Läufe hinweg
+# bestehen bleiben (installiertes Plugin, bisherige Crew-Läufe) — nur
+# .git/ (eigene Klon-History, nicht die des echten Vaults) und
+# .obsidian/workspace* (Fenster-/Tab-Layout, irrelevant für den Smoke-Test)
+# werden nie mitkopiert.
+rsync -a \
+  --exclude ".git/" \
+  --exclude ".obsidian/workspace*" \
+  "${SOURCE_VAULT}/" "${DEST_DIR}/"
+
+cd "$DEST_DIR"
+git init -q
+git add -A
+if git diff --cached --quiet; then
+  echo "clone-vault: keine Änderungen seit dem letzten Klon-Commit."
+else
+  git commit -q -m "chore: vault-crews smoke-clone snapshot ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+  echo "clone-vault: Initial-/Snapshot-Commit erstellt."
+fi
+
+echo "clone-vault: fertig — eigenständiges Git-Repo unter ${DEST_DIR} (Undo-Netz bereit)."
+echo "clone-vault: der echte Vault (${SOURCE_VAULT}) wurde nicht verändert."

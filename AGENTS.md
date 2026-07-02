@@ -49,3 +49,39 @@ collector → llm → actions, constrain-then-verify, ein Git-Commit pro Lauf.
   (Zeiger auf Cockpit); operativer Stand im Coding-Cockpit
   `/Users/Shared/10_ObsidianVaults/10_Pallas/25_Coding/vault-crews/vault-crews.md`.
 - **Session logs:** Cockpit-`_Log/` (SessionEnd-Hook) + remember-Plugin.
+
+## Smoke checklist
+Manueller Release-Smoke-Test (Spec §8: „Kein Live-LLM in CI" — dies ist das
+Gate danach). Läuft **immer** gegen einen Wegwerf-Klon, **nie** gegen den
+echten Vault — `scripts/clone-vault.sh` schreibt/löscht nie im Quell-Vault,
+der Klon ist ein eigenständiges Git-Repo.
+
+1. `scripts/clone-vault.sh` (Default: Pallas → `/tmp/vault-crews-smoke`;
+   Quelle/Ziel optional als Argumente).
+2. Klon in Obsidian öffnen; Plugin-Build hineinkopieren
+   (`OBSIDIAN_PLUGIN_DIR=<Klon>/.obsidian/plugins/vault-crews npm run deploy`)
+   oder per BRAT gegen den Klon installieren.
+3. Command **„Install example crews"** ausführen.
+4. **BEIDE** Beispiel-Crews laufen lassen (Task-Triage **und** Daily-Briefing —
+   nicht nur eine).
+5. Git-Commit pro Lauf verifizieren (`git log` im Klon zeigt genau einen
+   `crew(...)`-Commit pro Lauf) **und** „Undo last run" testen (Revert sauber,
+   Dateien wieder im Vorzustand).
+6. „Abort current run" **mitten in einem Lauf** auslösen — Partial-Commit
+   entsteht, run.md zeigt `status: aborted` + `error_kind: aborted`.
+
+## V1 limitations
+Kurzfassung von README.md „V1 limitations" — bei Rückfragen dort das Detail:
+- Kein Mid-Run-Transport-Retry/Endpoint-Re-Resolve (V2) — ein fehlgeschlagener
+  Lauf ist immer sicher (Commit + Log) und dank `section.replace`-Idempotenz +
+  Overwrite-Verweigerung billig wiederholbar.
+- Crash-Recovery geht von EINEM Gerät aus; zwei gleichzeitig laufende
+  Obsidian-Desktops auf demselben gesyncten Vault sind out of scope (Spec §10
+  Risiko 8).
+- `verboseLogging` (Settings → Advanced) ist reserviert, aber noch nicht
+  verdrahtet — nichts liest den Wert.
+- „Fehlerstelle ansehen" öffnet `run.md` am Dateianfang (kein Ephemeral-Scroll
+  zum fehlgeschlagenen Task).
+- Ports (LLM-Endpoint, Timeouts) werden einmalig in `onload()` gebaut —
+  Endpoint-/Timeout-Änderungen in den Settings brauchen Plugin-Reload
+  (deaktivieren/aktivieren oder Obsidian-Neustart).
