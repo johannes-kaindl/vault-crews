@@ -18,7 +18,11 @@
 # Usage:
 #   scripts/clone-vault.sh [SOURCE_VAULT] [DEST_DIR]
 #
-#   SOURCE_VAULT  Default: /Users/Shared/10_ObsidianVaults/10_Pallas
+#   SOURCE_VAULT  Default: /Users/Shared/10_ObsidianVaults/Y3_ProtoVault
+#                 (kleiner, sauberer Proto-Vault, der die Beispiel-Crew-Struktur
+#                  spiegelt: 10_Aufgaben, 30_Chronos/10_Tage, _types/_status/
+#                  _priority — die mitgelieferten Crews laufen darauf out-of-the-box.
+#                  Für einen realistischeren Klon einen echten Vault als $1 übergeben.)
 #   DEST_DIR      Default: /tmp/vault-crews-smoke
 #
 # Danach: DEST_DIR in Obsidian öffnen (community plugins bleiben erhalten,
@@ -31,7 +35,7 @@
 
 set -euo pipefail
 
-SOURCE_VAULT="${1:-/Users/Shared/10_ObsidianVaults/10_Pallas}"
+SOURCE_VAULT="${1:-/Users/Shared/10_ObsidianVaults/Y3_ProtoVault}"
 DEST_DIR="${2:-/tmp/vault-crews-smoke}"
 
 if [ ! -d "$SOURCE_VAULT" ]; then
@@ -53,15 +57,27 @@ fi
 echo "clone-vault: ${SOURCE_VAULT} -> ${DEST_DIR}"
 mkdir -p "$DEST_DIR"
 
-# Kein --delete (bewusst): der Klon darf über mehrere Smoke-Läufe hinweg
-# bestehen bleiben (installiertes Plugin, bisherige Crew-Läufe) — nur
-# .git/ (eigene Klon-History, nicht die des echten Vaults) und
-# .obsidian/workspace* (Fenster-/Tab-Layout, irrelevant für den Smoke-Test)
-# werden nie mitkopiert.
-rsync -a \
-  --exclude ".git/" \
-  --exclude ".obsidian/workspace*" \
-  "${SOURCE_VAULT}/" "${DEST_DIR}/"
+# Kopie via tar-Pipe (NICHT rsync): Das Default-rsync auf macOS 15+ ist
+# openrsync, das erzeugte Ziel-Verzeichnisse IMMER auf den Quell-Modus fchmod't —
+# auch ohne -p. Obsidian-Vault-Ordner tragen oft setgid (2775) + macOS-ACLs und
+# sind teils fremd-owned (geteilte Daemon-Ordner); openrsync bricht dort mit
+# "unable to escalate mode" / "fchmodat: Operation not permitted" ab (und
+# openrsync kennt weder GNU-rsyncs `--chmod=D…,F…` noch ein zuverlässiges
+# --no-perms für erzeugte Dirs). bsdtar strippt als Non-Root setgid/setuid beim
+# Entpacken by default und restauriert keine ACLs → saubere Kopie für einen
+# Wegwerf-Klon (Modi kommen aus der umask). Verifiziert gegen die problematischen
+# setgid+ACL-Ordner des echten Pallas-Vaults.
+#
+# Kein Löschen im Ziel (bewusst): tar-extract überschreibt vorhandene Quell-
+# Dateien und legt neue an, lässt aber Ziel-only-Dateien (installiertes Plugin
+# unter .obsidian/plugins/, bisherige Crew-Läufe) unangetastet — der Klon darf
+# über mehrere Smoke-Läufe bestehen bleiben. .git/ (eigene Klon-History) und
+# .obsidian/workspace* (Fenster-/Tab-Layout) werden nie mitkopiert.
+tar -C "${SOURCE_VAULT}" \
+  --exclude './.git' \
+  --exclude './.obsidian/workspace*' \
+  -cf - . \
+  | tar -C "${DEST_DIR}" -xf -
 
 cd "$DEST_DIR"
 git init -q
