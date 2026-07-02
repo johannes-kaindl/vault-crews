@@ -521,7 +521,7 @@ function llmErrorKind(e: unknown): ErrorKind {
 			case 'overflow': return 'context_overflow';
 			case 'timeout': return 'timeout';
 			case 'stalled': return 'stalled';
-			case 'http': return 'io';
+			case 'http': return 'endpoint_unreachable';
 		}
 	}
 	return 'io';

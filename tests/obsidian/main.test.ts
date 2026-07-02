@@ -21,6 +21,8 @@ const MANIFEST: PluginManifest = {
   name: "Vault Crews",
   version: "0.1.0",
   minAppVersion: "1.7.2",
+  author: "Test",
+  description: "Test fixture manifest",
 };
 
 function makePlugin(): VaultCrewsPlugin {

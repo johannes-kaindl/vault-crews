@@ -127,7 +127,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
   async loadSettings(): Promise<void> {
     const raw = (await this.loadData()) as Record<string, unknown> | null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, raw ?? {});
-    this.lastRuns = raw && isRecord(raw.lastRuns) ? (raw.lastRuns as LastRuns) : {};
+    this.lastRuns = raw && isRecord(raw.lastRuns) ? filterValidLastRuns(raw.lastRuns) : {};
     // lastRuns ist ein eigenes data.json-Feld, nicht Teil von PluginSettings —
     // aus dem Merge-Ergebnis wieder entfernen, damit `settings` sauber bleibt.
     delete (this.settings as unknown as Record<string, unknown>).lastRuns;
@@ -138,7 +138,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
   }
 
   async testConnection(endpoint: string): Promise<{ ok: boolean; models: string[] }> {
-    const ok = await this.llm.ping(endpoint);
+    const ok = await this.llm.ping(normalizeEndpoint(endpoint));
     if (!ok) return { ok: false, models: [] };
     try {
       return { ok: true, models: await this.llm.listModels() };
@@ -641,4 +641,25 @@ function shortSha(sha: string): string {
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Wirft korrupte lastRuns-Einträge weg (z. B. fehlendes/NaN `when`), damit sie nicht
+ *  mostRecentRun() vergiften — data.json wird nicht von Obsidian selbst geschrieben,
+ *  ein manueller/fehlerhafter Edit darf den Undo-/Panel-Pfad nicht crashen lassen. */
+function isValidLastRunInfo(v: unknown): v is LastRunInfo {
+  return (
+    isRecord(v)
+    && typeof v.when === "number" && Number.isFinite(v.when)
+    && typeof v.status === "string"
+    && typeof v.runId === "string"
+    && (v.commitSha === null || typeof v.commitSha === "string")
+  );
+}
+
+function filterValidLastRuns(raw: Record<string, unknown>): LastRuns {
+  const out: LastRuns = {};
+  for (const [teamId, info] of Object.entries(raw)) {
+    if (isValidLastRunInfo(info)) out[teamId] = info;
+  }
+  return out;
 }
