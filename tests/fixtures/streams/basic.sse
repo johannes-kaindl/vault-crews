@@ -1,0 +1,8 @@
+data: {"model":"qwen/qwen3.6-35b-a3b","choices":[{"delta":{"content":"Hal"}}]}
+
+data: {"choices":[{"delta":{"content":"lo "}}]}
+
+data: {"choices":[{"delta":{"content":"Welt"}}]}
+
+data: [DONE]
+
