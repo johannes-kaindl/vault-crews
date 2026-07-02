@@ -1,0 +1,78 @@
+filters:
+  and:
+    - note["crew-kind"] == "run"
+formulas:
+  fehlerklasse: if(error_kind != null, error_kind, "—")
+properties:
+  team:
+    displayName: Team
+  status:
+    displayName: Status
+  writes:
+    displayName: Writes
+  llm_calls:
+    displayName: LLM-Calls
+  duration_s:
+    displayName: Dauer (s)
+  model:
+    displayName: Modell
+  formula.fehlerklasse:
+    displayName: Fehlerklasse
+  error_task:
+    displayName: Fehler-Task
+  commit:
+    displayName: Commit
+  started:
+    displayName: Gestartet
+views:
+  - type: table
+    name: 🤖 Alle Läufe
+    order:
+      - file.name
+      - team
+      - status
+      - writes
+      - llm_calls
+      - duration_s
+      - model
+      - formula.fehlerklasse
+      - commit
+      - started
+    sort:
+      - property: started
+        direction: DESC
+  - type: table
+    name: ⚠️ Braucht Aufmerksamkeit
+    filters:
+      and:
+        - or:
+            - status == "failed"
+            - status == "refused"
+            - status == "aborted"
+    order:
+      - file.name
+      - team
+      - status
+      - formula.fehlerklasse
+      - error_task
+      - started
+    sort:
+      - property: started
+        direction: DESC
+  - type: table
+    name: ✅ Erfolgreich
+    filters:
+      and:
+        - or:
+            - status == "ok"
+            - status == "partial"
+    order:
+      - file.name
+      - team
+      - status
+      - writes
+      - duration_s
+      - started
+    sort:
+      - property: started
+        direction: DESC
