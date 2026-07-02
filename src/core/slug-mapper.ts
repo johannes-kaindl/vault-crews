@@ -5,6 +5,13 @@ import type { SlugTableData } from './types';
 
 const ENUM_PATTERN = /^[^_\s]+_(.+)_[^\w\s]+$/u;
 
+/** Ein Feld ist nur dann enum-artig (und damit slug-mapping-würdig, Spec §2.5), wenn
+ *  ALLE Ist-Werte dem `<nr>_<wort>_<emoji>`-Muster entsprechen. Freitext (title, projekt, …)
+ *  fällt sonst nie hier hinein, egal wie zufällig ein Einzelwert aussieht. */
+export function isEnumField(values: string[]): boolean {
+	return values.length > 0 && values.every((v) => ENUM_PATTERN.test(v));
+}
+
 export function buildSlugTable(values: string[]): SlugTableData {
 	const toSlug: Record<string, string> = {};
 	const fromSlug: Record<string, string> = {};

@@ -2,7 +2,7 @@
  *  nie im LLM. Sie normalisieren YAML-Pathologien ([null]-Listen, fehlende Keys) und
  *  slugifizieren Enum-Werte, damit das Modell nie Emoji-Vokabular sieht. */
 import { isDenied, normalizeVaultPath } from './paths';
-import { buildSlugTable } from './slug-mapper';
+import { buildSlugTable, isEnumField } from './slug-mapper';
 import type { MetadataPort, VaultPort } from './ports';
 import type { Artifact, CollectedFile, CollectorTaskDef, SlugTableData } from './types';
 
@@ -98,7 +98,7 @@ async function tasknotesQuery(def: CollectorTaskDef, deps: CollectorDeps): Promi
 		const values = entries
 			.flatMap((e) => (Array.isArray(e.fm[key]) ? (e.fm[key] as unknown[]) : [e.fm[key]]))
 			.filter((v): v is string => typeof v === 'string' && v !== '');
-		if (values.length > 0) slugTables[key] = buildSlugTable(values);
+		if (isEnumField(values)) slugTables[key] = buildSlugTable(values);
 	}
 
 	// 3. Filtern auf Slug-Ebene.

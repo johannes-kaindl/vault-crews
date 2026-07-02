@@ -246,7 +246,7 @@ model: test-model
       "path": "10_Aufgaben/zahnarzt.md",
       "contentHash": "85deb0f6",
       "frontmatter": {
-        "title": "zahnarzt-termin-vereinbaren",
+        "title": "Zahnarzt: Termin vereinbaren",
         "status": "backlog",
         "priority": null,
         "kontext": [
@@ -262,11 +262,11 @@ model: test-model
       "path": "10_Aufgaben/plugin.md",
       "contentHash": "694f0a89",
       "frontmatter": {
-        "title": "plugin-release-vorbereiten",
+        "title": "Plugin-Release vorbereiten",
         "status": "aktiv",
         "priority": "hoch",
         "kontext": null,
-        "projekt": "vault-crews",
+        "projekt": "[[Vault Crews]]",
         "frist": null
       },
       "content": null
@@ -275,11 +275,11 @@ model: test-model
       "path": "10_Aufgaben/steuer.md",
       "contentHash": "53378a49",
       "frontmatter": {
-        "title": "steuererklarung-2025-einreichen",
+        "title": "Steuererklärung 2025 einreichen",
         "status": "backlog",
         "priority": "mittel",
         "kontext": [],
-        "projekt": "finanzen-2026",
+        "projekt": "[[Finanzen 2026]]",
         "frist": null
       },
       "content": null
@@ -293,7 +293,7 @@ model: test-model
 - Status: ok
 - Dauer: 0.0 s
 - Modell: test-model
-- Prompt-Hash: 62d174bb
+- Prompt-Hash: 1ecb0de6
 
 \`\`\`json
 {
