@@ -1,0 +1,36 @@
+{
+  "name": "vault-crews",
+  "version": "0.1.0",
+  "description": "Run autonomous local LLM agent teams (crews) on your vault via LM Studio",
+  "type": "module",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc --noEmit && node esbuild.config.mjs --production",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "lint": "eslint src",
+    "lint:obsidian": "eslint src",
+    "lint:portal": "eslint src --config eslint.portal.config.mjs",
+    "deploy": "npm run build && cp main.js manifest.json styles.css \"${OBSIDIAN_PLUGIN_DIR:?set OBSIDIAN_PLUGIN_DIR}\"/",
+    "version-bump": "node scripts/version-bump.mjs",
+    "release": "node scripts/release.mjs",
+    "check:pure": "sh -c \"! grep -rl \\\"from 'obsidian'\\\" src/core src/vendor 2>/dev/null\"",
+    "gate": "npm run lint && npm run typecheck && npm test && npm run check:pure"
+  },
+  "keywords": [
+    "obsidian",
+    "obsidian-plugin"
+  ],
+  "author": "Johannes Kaindl",
+  "license": "AGPL-3.0-or-later",
+  "devDependencies": {
+    "@types/node": "^20",
+    "esbuild": "^0.23",
+    "eslint": "^9",
+    "eslint-plugin-obsidianmd": "latest",
+    "obsidian": "latest",
+    "typescript": "^5.5",
+    "typescript-eslint": "^8",
+    "vitest": "^2"
+  }
+}
