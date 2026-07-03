@@ -7,8 +7,15 @@ import type { Action, CollectedFile, FrontmatterPatchAction, SchemaId, SlugTable
 
 export interface SchemaDef {
 	id: SchemaId;
+	/** 'json': Modell antwortet mit einem ```json-Block, validate() bekommt das geparste Objekt.
+	 *  'text': Modell antwortet mit rohem Text (kein JSON-Wrapping) — validate() bekommt den
+	 *  bereits extrahierten String. JSON-Wrapping bietet für ein einzelnes Freitext-Feld keinen
+	 *  Validierungsgewinn und ist genau der Anlass für den briefing-v1-Bug (Spec-Notiz unten). */
+	outputFormat: 'json' | 'text';
+	/** "So antwortest du"-Zeile für den System-Prompt — pro Schema, nicht mehr hartkodiert. */
+	promptContract: string;
 	/** One-Shot-Minimalbeispiel für den Prompt — bei kleinen Modellen wirksamer als Schema-Prosa. */
-	jsonExample: string;
+	outputExample: string;
 	validate(
 		json: unknown,
 		sources: CollectedFile[],
@@ -22,7 +29,10 @@ const MAX_BRIEFING_CHARS = 16_000;
 
 const triageV1: SchemaDef = {
 	id: 'triage-v1',
-	jsonExample: '{"items": [{"path": "10_Aufgaben/beispiel.md", "set": {"priority": "mittel"}}]}',
+	outputFormat: 'json',
+	promptContract:
+		'Antworte ausschließlich mit einem JSON-Objekt in einem ```json-Block, keine Erklärungen davor oder danach.',
+	outputExample: '{"items": [{"path": "10_Aufgaben/beispiel.md", "set": {"priority": "mittel"}}]}',
 	validate(json, sources, slugTables, _target) {
 		const errors: string[] = [];
 		if (!isRecord(json) || !Array.isArray(json.items)) {
@@ -70,17 +80,23 @@ const triageV1: SchemaDef = {
 
 const briefingV1: SchemaDef = {
 	id: 'briefing-v1',
-	jsonExample: '{"markdown": "## Heute fällig\\n- Beispiel-Aufgabe"}',
+	outputFormat: 'text',
+	promptContract:
+		'Antworte ausschließlich mit dem fertigen Briefing als Markdown-Text — kein JSON, keine Code-Fence, keine Erklärungen davor oder danach.',
+	outputExample: '## Heute fällig\n- Beispiel-Aufgabe\n\n## Überfällig\n- …\n\n## Eine nächste Handlung\n- …',
+	/** `json` ist hier trotz des Namens der bereits extrahierte, rohe Markdown-STRING
+	 *  (kein JSON — Spec-Notiz oben bei SchemaDef.outputFormat). */
 	validate(json, _sources, _slugTables, target) {
 		const errors: string[] = [];
-		if (target === null) errors.push('target: actions-Task ohne target kann briefing-v1 nicht anwenden');
-		if (!isRecord(json) || typeof json.markdown !== 'string') {
-			errors.push('markdown: fehlt oder ist kein String');
-		} else if (json.markdown.length > MAX_BRIEFING_CHARS) {
-			errors.push(`markdown: ${json.markdown.length} Zeichen überschreiten Maximum ${MAX_BRIEFING_CHARS}`);
+		const text = json;
+		if (typeof text !== 'string' || text.trim().length === 0) {
+			errors.push('markdown: leer oder kein Text');
+		} else if (text.length > MAX_BRIEFING_CHARS) {
+			errors.push(`markdown: ${text.length} Zeichen überschreiten Maximum ${MAX_BRIEFING_CHARS}`);
 		}
-		if (errors.length > 0 || !isRecord(json) || target === null) return { ok: false, errors };
-		return { ok: true, actions: [{ type: 'section.replace', path: target, content: json.markdown as string }] };
+		if (target === null) errors.push('target: actions-Task ohne target kann briefing-v1 nicht anwenden');
+		if (errors.length > 0 || typeof text !== 'string' || target === null) return { ok: false, errors };
+		return { ok: true, actions: [{ type: 'section.replace', path: target, content: text.trim() }] };
 	},
 };
 

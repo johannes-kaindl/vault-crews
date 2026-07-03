@@ -77,6 +77,17 @@ export function extractJson(raw: string): { ok: true; json: unknown } | { ok: fa
 	return parseCandidate(text.slice(span.start, span.end + 1));
 }
 
+/** Extrahiert rohen Text für 'text'-Schemata (briefing-v1): think-strippen, optional EINEN
+ *  umschließenden ```markdown/```/```md-Fence entfernen (Modelle fencen trotz Anweisung
+ *  gelegentlich), trimmen. Kein JSON-Parsing — genau das ist der Punkt (Spec-Notiz
+ *  SchemaDef.outputFormat in schemas.ts). Kann nicht fehlschlagen (anders als extractJson) —
+ *  im schlimmsten Fall liefert es einen leeren String, den schema.validate zurückweist. */
+export function extractText(raw: string): string {
+	const stripped = stripThink(raw).trim();
+	const fenceMatch = /^```(?:markdown|md)?\s*\n?([\s\S]*?)\n?```$/.exec(stripped);
+	return (fenceMatch ? fenceMatch[1] : stripped)?.trim() ?? '';
+}
+
 export function validateOutput(
 	raw: string,
 	schema: SchemaDef,
@@ -84,6 +95,12 @@ export function validateOutput(
 	slugTables: Record<string, SlugTableData>,
 	target: string | null,
 ): { ok: true; json: unknown; actions: Action[] } | { ok: false; errors: string[] } {
+	if (schema.outputFormat === 'text') {
+		const text = extractText(raw);
+		const validated = schema.validate(text, sources, slugTables, target);
+		if (!validated.ok) return { ok: false, errors: validated.errors };
+		return { ok: true, json: text, actions: validated.actions };
+	}
 	const extracted = extractJson(raw);
 	if (!extracted.ok) return { ok: false, errors: [extracted.error] };
 	const validated = schema.validate(extracted.json, sources, slugTables, target);
@@ -95,11 +112,11 @@ export function buildRepairPrompt(raw: string, errors: string[]): LlmMessage[] {
 	return [
 		{
 			role: 'system',
-			content: 'Du korrigierst fehlerhaftes JSON. Ändere nur, was die Fehlerliste verlangt. Antworte mit NUR korrigiertem JSON in einem ```json-Block.',
+			content: 'Deine vorherige Antwort war ungültig. Antworte erneut, exakt im im System-Prompt geforderten Format.',
 		},
 		{
 			role: 'user',
-			content: `Deine vorherige Ausgabe:\n${raw}\n\nKonkrete Fehler:\n${errors.map((e) => `- ${e}`).join('\n')}\n\nGib NUR korrigiertes JSON in einem \`\`\`json-Block zurück.`,
+			content: `Deine vorherige Ausgabe:\n${raw}\n\nKonkrete Fehler:\n${errors.map((e) => `- ${e}`).join('\n')}\n\nAntworte erneut, exakt im im System-Prompt geforderten Format.`,
 		},
 	];
 }

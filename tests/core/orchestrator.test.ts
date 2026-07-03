@@ -485,7 +485,7 @@ describe('executeRun — target threading (briefing-v1 → section.replace)', ()
       teamFm,
       agents: { 'briefing-autor': { fm: { 'crew-kind': 'agent', name: 'Briefing-Autor' }, body: 'Du schreibst ein Briefing.' } },
       files: { '10_Aufgaben/a.md': TASK_NOTE, [dailyPath]: '# Daily\n' },
-      llm: new ScriptLlmClient([{ content: '{"markdown":"## Heute\\n- Aufgabe X"}' }]),
+      llm: new ScriptLlmClient([{ content: '## Heute\n- Aufgabe X' }]),
     });
     const result = await executeRun(h.teamPath, h.deps);
     expect(result.status).toBe('ok');

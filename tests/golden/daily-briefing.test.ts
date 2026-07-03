@@ -58,9 +58,9 @@ const LIMITS: RunLimits = {
 	maxNoteBytes: 65_536, callTimeoutMs: 300_000, stallTimeoutMs: 60_000,
 };
 
-// Realistischer, gescripteter Modell-Output (Präambel + ```json-Fence + Nachsatz)
-// statt reinem JSON — nimmt denselben Extraktionspfad (letzter Fence, Spec §3.4)
-// wie ein echtes Reasoning-Modell, ohne dass ein LLM live läuft.
+// briefing-v1 ist RAW-TEXT (kein JSON, s. schemas.ts SchemaDef.outputFormat) — der
+// gescriptete Modell-Output ist deshalb direkt die fertige Markdown-Antwort, so wie sie
+// ein echtes Modell unter dem Text-Vertrag zurückgibt, ohne dass ein LLM live läuft.
 const BRIEFING_MARKDOWN =
 	'## Heute fällig\n' +
 	'- Plugin-Release vorbereiten\n\n' +
@@ -68,11 +68,7 @@ const BRIEFING_MARKDOWN =
 	'Keine überfälligen Aufgaben — alles im Rahmen.\n\n' +
 	'## Eine nächste Handlung\n' +
 	'Steuererklärung 2025 einreichen.';
-const BRIEFING_LLM_OUTPUT =
-	'Hier ist das Briefing:\n\n' +
-	'```json\n' +
-	JSON.stringify({ markdown: BRIEFING_MARKDOWN }) +
-	'\n```\n';
+const BRIEFING_LLM_OUTPUT = BRIEFING_MARKDOWN;
 
 const EXISTING_DAILY = '---\ntype: daily\n---\n# Daily Note\n\n## Journal\n\nKurzer Tagesrückblick vom Vortag.\n';
 
@@ -293,13 +289,11 @@ model: test-model
 - Status: ok
 - Dauer: 0.0 s
 - Modell: test-model
-- Prompt-Hash: 1ecb0de6
+- Prompt-Hash: f80a8c24
 
 \`\`\`json
 {
-  "output": {
-    "markdown": "## Heute fällig\\n- Plugin-Release vorbereiten\\n\\n## Überfällig\\nKeine überfälligen Aufgaben — alles im Rahmen.\\n\\n## Eine nächste Handlung\\nSteuererklärung 2025 einreichen."
-  },
+  "output": "## Heute fällig\\n- Plugin-Release vorbereiten\\n\\n## Überfällig\\nKeine überfälligen Aufgaben — alles im Rahmen.\\n\\n## Eine nächste Handlung\\nSteuererklärung 2025 einreichen.",
   "actions": [
     {
       "type": "section.replace",

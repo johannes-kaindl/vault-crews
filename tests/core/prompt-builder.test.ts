@@ -13,9 +13,18 @@ const TASK: LlmTaskDef = {
 	id: 'analyse', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'],
 	instruction: 'Bewerte jede Aufgabe.', outputSchema: 'triage-v1', onError: 'abort',
 };
-const SCHEMA: Pick<SchemaDef, 'id' | 'jsonExample'> = {
+const SCHEMA: Pick<SchemaDef, 'id' | 'outputFormat' | 'promptContract' | 'outputExample'> = {
 	id: 'triage-v1',
-	jsonExample: '{"items": [{"path": "10_A/t.md", "set": {"priority": "mittel"}}]}',
+	outputFormat: 'json',
+	promptContract: 'Antworte ausschließlich mit einem JSON-Objekt in einem ```json-Block, keine Erklärungen davor oder danach.',
+	outputExample: '{"items": [{"path": "10_A/t.md", "set": {"priority": "mittel"}}]}',
+};
+
+const TEXT_SCHEMA: Pick<SchemaDef, 'id' | 'outputFormat' | 'promptContract' | 'outputExample'> = {
+	id: 'briefing-v1',
+	outputFormat: 'text',
+	promptContract: 'Antworte ausschließlich mit dem fertigen Briefing als Markdown-Text — kein JSON, keine Code-Fence, keine Erklärungen davor oder danach.',
+	outputExample: '## Heute fällig\n- Beispiel-Aufgabe',
 };
 
 function artifact(n: number): Artifact {
@@ -45,12 +54,20 @@ describe('buildPrompt', () => {
 		expect(sys?.content).toContain('Du bist ein nüchterner Analyst.');
 		expect(sys?.content).toContain('```json-Block');
 		expect(sys?.content).toContain('Erlaubte Werte für status: backlog');
-		expect(sys?.content).toContain(SCHEMA.jsonExample);
+		expect(sys?.content).toContain(`\`\`\`json\n${SCHEMA.outputExample}\n\`\`\``);
 		expect(usr?.role).toBe('user');
 		expect(usr?.content).toContain('Bewerte jede Aufgabe.');
 		expect(usr?.content).toContain('=== KONTEXT: collect (2 Dateien) ===');
 		expect(usr?.content).toContain('10_A/t1.md');
 		expect(p.truncated).toBe(false);
+	});
+
+	it('text-Schema (briefing-v1): Vertrag+Beispiel OHNE ```json-Fence (Modell darf nicht JSON wrappen)', () => {
+		const p = buildPrompt(AGENT, TASK, [artifact(1)], TEXT_SCHEMA as SchemaDef, 4000);
+		const sys = p.messages[0];
+		expect(sys?.content).toContain(TEXT_SCHEMA.promptContract);
+		expect(sys?.content).not.toContain('```json');
+		expect(sys?.content).toContain(`Beispiel:\n${TEXT_SCHEMA.outputExample}`);
 	});
 
 	it('ist byte-deterministisch (gleicher Hash bei gleichen Inputs)', () => {
