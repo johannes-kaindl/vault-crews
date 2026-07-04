@@ -21,6 +21,7 @@ import {
 } from "obsidian";
 import { pickLang, setLang, t } from "./vendor/kit/i18n";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
+import { mergeSettings } from "./vendor/kit/settings";
 import { registerI18n } from "./i18n/strings";
 import {
   DEFAULT_SETTINGS,
@@ -126,7 +127,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
 
   async loadSettings(): Promise<void> {
     const raw = (await this.loadData()) as Record<string, unknown> | null;
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, raw ?? {});
+    this.settings = mergeSettings(DEFAULT_SETTINGS, raw);
     this.lastRuns = raw && isRecord(raw.lastRuns) ? filterValidLastRuns(raw.lastRuns) : {};
     // lastRuns ist ein eigenes data.json-Feld, nicht Teil von PluginSettings —
     // aus dem Merge-Ergebnis wieder entfernen, damit `settings` sauber bleibt.
