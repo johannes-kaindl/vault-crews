@@ -41,7 +41,7 @@
 - [ ] `npm install && npm run gate` grün → Commit `chore: scaffold vault-crews from obsidian-plugin template`.
 
 ### Task 2: Kit-Module + Obsidian-Mock vendoren
-**Files:** Create: `src/vendor/kit/{sse,think,endpoint,i18n}.ts`, `tests/__mocks__/obsidian.ts` — Quellen: `/Users/Shared/code/obsidian-kit/src/pure/*` und `src/testing/obsidian-mock.ts` (reale Dateinamen dort prüfen und mappen).
+**Files:** Create: `src/vendor/kit/{sse,think,endpoint,i18n}.ts`, `tests/__mocks__/obsidian.ts` — Quellen: `/Users/Shared/code/obsidian-plugins/obsidian-kit/src/pure/*` und `src/testing/obsidian-mock.ts` (reale Dateinamen dort prüfen und mappen).
 - [ ] Jede Datei: erste Zeile `// vendored from obsidian-kit#0.2.0, <quellpfad>`; vitest-alias `obsidian` → Mock.
 - [ ] Smoke-Tests: `parseSSE` zerlegt einen 2-Delta-SSE-String; `ThinkSplitter` trennt `<think>a</think>b`; `normalizeEndpoint('localhost:1234')` → `http://localhost:1234`; `resolveActiveEndpoint` wählt ersten pingbaren.
 - [ ] Commit `chore: vendor obsidian-kit modules (sse, think, endpoint, i18n) + test mock`.
@@ -103,7 +103,7 @@
 
 ### Task 12: LmStudioClient
 **Files:** Create: `src/core/lmstudio-client.ts`, `tests/fixtures/streams/*.sse` (≥3, mit `<think>`); Test: `tests/core/lmstudio-client.test.ts`.
-**Referenz:** `/Users/Shared/code/vault-rag/src/` (SSE-über-Transport-Muster, `/api/v0/models`-Feldnamen live prüfen).
+**Referenz:** `/Users/Shared/code/obsidian-plugins/vault-rag/src/` (SSE-über-Transport-Muster, `/api/v0/models`-Feldnamen live prüfen).
 - [ ] `ping` = GET `/v1/models` ok; `listModels` = `data[].id`; `modelInfo` = GET `/api/v0/models` → `loaded_context_length ?? max_context_length ?? null` (Feldnamen gegen vault-rag verifizieren), Fehler → null.
 - [ ] `stream`: POST `/v1/chat/completions` (`stream: true`); Chunks → vendored `parseSSE` → `ThinkSplitter`; onToken nur Nicht-Think; thinkTokens zählen; `thinking: 'off'` → Suppression nach vault-rag-Muster.
 - [ ] Timeouts via ClockPort: Hard `callTimeoutMs` ab Start; Stall `stallTimeoutMs` NUR nach erstem Token (Reset je Token). AbortSignal → `finishReason: 'aborted'`. HTTP ≠ 200: Fehler mit Status; 400 + „context length" im Body → Error mit `contextOverflow = true`.
