@@ -161,10 +161,11 @@ UI-STANDARD §6 „ViewModel als pure Funktion neben der View"):
 - Empty-State Crews (keine Teams) → Install-Button-Body.
 Render bleibt dünn und ungetestet.
 
-**Gate:** `npm run gate` (lint + typecheck + test + check:pure) muss grün sein; `panel-view-
-model.ts` importiert nie `obsidian` (fällt sonst bei check:pure auf, obwohl es unter
-`src/obsidian/` liegt — der pure-Check greift für `core/`+`vendor/`; hier ist es
-Selbstdisziplin für die Node-Testbarkeit, nicht CI-erzwungen).
+**Gate:** `npm run gate` (lint + typecheck + test + check:pure) muss grün sein. Das
+`check:pure`-Glob wird um genau diese Datei erweitert
+(`… src/core src/vendor src/obsidian/panel-view-model.ts`), sodass die „importiert nie
+`obsidian`"-Invariante **CI-fest** ist statt Selbstdisziplin — obwohl die Datei unter
+`src/obsidian/` liegt.
 
 ---
 

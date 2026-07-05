@@ -143,7 +143,7 @@ export class RunPanelView extends ItemView {
         back.addEventListener("click", () => { this.runState = { kind: "idle" }; this.render(); });
         return;
       }
-      case "verlauf": {
+      case "history": {
         if (body.empty) {
           root.createDiv({ cls: "vault-crews-empty", text: body.emptyText });
           return;

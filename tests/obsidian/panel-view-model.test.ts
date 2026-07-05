@@ -76,16 +76,16 @@ const teams: TeamInfo[] = [
 
 describe("buildPanelViewModel — tabs & navigation", () => {
   it("marks the active tab from navState", () => {
-    const vm = buildPanelViewModel({ navState: "verlauf", runState: { kind: "idle" }, teams, latest: null, nowMs: 1000 });
-    expect(vm.tabs.map((t) => [t.id, t.active])).toEqual([["crews", false], ["verlauf", true]]);
+    const vm = buildPanelViewModel({ navState: "history", runState: { kind: "idle" }, teams, latest: null, nowMs: 1000 });
+    expect(vm.tabs.map((t) => [t.id, t.active])).toEqual([["crews", false], ["history", true]]);
   });
 
   it("shows no status line unless a run is active", () => {
     const idle = buildPanelViewModel({ navState: "crews", runState: { kind: "idle" }, teams, latest: null, nowMs: 0 });
     expect(idle.statusLine).toBeNull();
     const running = reduceRun({ kind: "idle" }, { type: "runStarted", runId: "r1", teamId: "t" });
-    const vm = buildPanelViewModel({ navState: "verlauf", runState: running, teams, latest: null, nowMs: 0 });
-    expect(vm.statusLine).not.toBeNull(); // reachable even from the verlauf tab
+    const vm = buildPanelViewModel({ navState: "history", runState: running, teams, latest: null, nowMs: 0 });
+    expect(vm.statusLine).not.toBeNull(); // reachable even from the history tab
   });
 });
 
@@ -151,22 +151,22 @@ describe("buildPanelViewModel — abort honesty (§3)", () => {
   });
 });
 
-describe("buildPanelViewModel — verlauf body", () => {
+describe("buildPanelViewModel — history body", () => {
   const latest: RunSummary = {
     teamName: "Task triage", status: "ok", runId: "r9", commitSha: "abcdef1234567890",
     when: 900, writes: 3, durationS: 7, errorKind: null,
   };
 
-  it("empty verlauf when there is no latest run", () => {
-    const vm = buildPanelViewModel({ navState: "verlauf", runState: { kind: "idle" }, teams: [], latest: null, nowMs: 0 });
-    expect(vm.body.kind === "verlauf" && vm.body.empty).toBe(true);
-    expect(vm.body.kind === "verlauf" && vm.body.latest).toBeNull();
+  it("empty history when there is no latest run", () => {
+    const vm = buildPanelViewModel({ navState: "history", runState: { kind: "idle" }, teams: [], latest: null, nowMs: 0 });
+    expect(vm.body.kind === "history" && vm.body.empty).toBe(true);
+    expect(vm.body.kind === "history" && vm.body.latest).toBeNull();
   });
 
   it("shows the latest run summary (with team name, files count, commit) and a per-crew list", () => {
-    const vm = buildPanelViewModel({ navState: "verlauf", runState: { kind: "idle" }, teams, latest, nowMs: 1000 });
-    expect(vm.body.kind).toBe("verlauf");
-    if (vm.body.kind === "verlauf") {
+    const vm = buildPanelViewModel({ navState: "history", runState: { kind: "idle" }, teams, latest, nowMs: 1000 });
+    expect(vm.body.kind).toBe("history");
+    if (vm.body.kind === "history") {
       expect(vm.body.latest?.teamName).toBe("Task triage");
       expect(vm.body.latest?.filesText).toContain("3");
       expect(vm.body.latest?.commitText).toContain("abcdef1");

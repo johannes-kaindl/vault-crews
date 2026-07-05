@@ -150,7 +150,7 @@ export const EN: Record<string, string> = {
   // Hub navigation + honest abort UX (Run-Panel-UI-Überarbeitung)
   "panel.title": "Vault Crews",
   "panel.tab.crews": "Crews",
-  "panel.tab.verlauf": "History",
+  "panel.tab.history": "History",
   "panel.idle.empty": "No crews yet.",
   "panel.done.back": "Back to overview",
   "panel.statusLine.running": "▶ {0}/{1} · {2}",
@@ -158,9 +158,9 @@ export const EN: Record<string, string> = {
   "panel.statusLine.aborting": "⏳ Abort requested…",
   "panel.abortNote.aborted": "Aborted before completion.",
   "panel.abortNote.finishedFirst": "The run finished before the abort took effect — nothing was aborted.",
-  "panel.verlauf.empty": "No runs yet.",
-  "panel.verlauf.crewsHeading": "Per crew",
-  "panel.verlauf.crewRow": "{0} — {1} · {2}",
+  "panel.history.empty": "No runs yet.",
+  "panel.history.crewsHeading": "Per crew",
+  "panel.history.crewRow": "{0} — {1} · {2}",
 
   // --- Crash-recovery modal (Spec §7 "Obsidian-Crash mid-run", Task 17) ----
   "recovery.title": "Recover interrupted run",
@@ -306,7 +306,7 @@ export const DE: Record<string, string> = {
   // Hub-Navigation + ehrliche Abbruch-UX (Run-Panel-UI-Überarbeitung)
   "panel.title": "Vault Crews",
   "panel.tab.crews": "Crews",
-  "panel.tab.verlauf": "Verlauf",
+  "panel.tab.history": "Verlauf",
   "panel.idle.empty": "Noch keine Crews.",
   "panel.done.back": "Zurück zur Übersicht",
   "panel.statusLine.running": "▶ {0}/{1} · {2}",
@@ -314,9 +314,9 @@ export const DE: Record<string, string> = {
   "panel.statusLine.aborting": "⏳ Abbruch angefordert …",
   "panel.abortNote.aborted": "Vor Abschluss abgebrochen.",
   "panel.abortNote.finishedFirst": "Lauf war schon fertig, bevor der Abbruch griff — nichts abgebrochen.",
-  "panel.verlauf.empty": "Noch keine Läufe.",
-  "panel.verlauf.crewsHeading": "Pro Crew",
-  "panel.verlauf.crewRow": "{0} — {1} · {2}",
+  "panel.history.empty": "Noch keine Läufe.",
+  "panel.history.crewsHeading": "Pro Crew",
+  "panel.history.crewRow": "{0} — {1} · {2}",
 
   // --- Crash-Recovery-Modal (Spec §7 „Obsidian-Crash mid-run", Task 17) ----
   "recovery.title": "Unterbrochenen Lauf wiederherstellen",
