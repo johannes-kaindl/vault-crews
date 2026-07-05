@@ -185,6 +185,9 @@ export interface LlmClient {
   modelInfo(model: string): Promise<ModelInfo | null>;
   stream(messages: LlmMessage[], params: LlmParams, onToken: (t: string) => void, signal: AbortSignal): Promise<LlmStreamResult>;
 }
+export class LlmCallError extends Error {           // typisierter Call-Fehler statt Message-Sniffing
+  constructor(message: string, readonly kind: 'overflow' | 'timeout' | 'stalled' | 'http');
+}
 export interface SseTransport {
   postStream(url: string, body: unknown, onChunk: (raw: string) => void, signal: AbortSignal): Promise<number>; // resolves HTTP-Status
 }
@@ -214,11 +217,13 @@ export interface RunReporter { emit(e: RunEvent): void; }
 
 ```ts
 // src/core/paths.ts
-export const DENYLIST: string[];   // ['.obsidian/**','.git/**','_crews/**','_vaultrag/**','.*','**/.*']
+export function buildDenylist(configDir: string): string[]; // [`${configDir}/**`,'.git/**','_crews/**','_vaultrag/**','.*','**/.*']
+                                                            // configDir injiziert (Vault#configDir, obsidianmd/hardcoded-config-path)
 export function normalizeVaultPath(p: string): string;      // wirft bei '..'
 export function globMatch(pattern: string, path: string): boolean;
-export function isDenied(path: string): boolean;
+export function isDenied(path: string, denylist: string[]): boolean;
 export function expandTarget(template: string, nowMs: number): string;  // ersetzt {{today}}
+// Konsequenz: parseTeamDef-opts, runCollector-deps und ExecutorContext führen `denylist: string[]`.
 
 // src/core/crew-parser.ts
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };

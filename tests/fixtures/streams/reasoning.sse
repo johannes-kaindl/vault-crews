@@ -1,0 +1,8 @@
+data: {"choices":[{"delta":{"reasoning_content":"Der User will"}}]}
+
+data: {"choices":[{"delta":{"reasoning_content":" eine Antwort."}}]}
+
+data: {"choices":[{"delta":{"content":"{\"items\": []}"}}]}
+
+data: [DONE]
+

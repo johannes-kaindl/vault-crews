@@ -1,0 +1,4 @@
+<think>Der User will Prioritäten. steuer.md wirkt dringend.</think>
+```json
+{"items": [{"path": "10_Aufgaben/steuer.md", "set": {"priority": "hoch"}}]}
+```
