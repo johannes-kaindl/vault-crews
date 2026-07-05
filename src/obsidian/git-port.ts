@@ -154,19 +154,62 @@ export class ChildProcessGitPort implements GitPort {
   }
 
   async revert(sha: string): Promise<{ ok: boolean; conflictPaths: string[] }> {
-    try {
-      await this.git(["revert", "--no-edit", sha]);
-      return { ok: true, conflictPaths: [] };
-    } catch {
-      // Konflikt-Pfade VOR dem Abort einsammeln — danach ist der Konfliktzustand weg.
-      const conflictPaths = await this.collectConflictPaths();
-      try {
-        await this.git(["revert", "--abort"]);
-      } catch {
-        // Kein Sequencer-Zustand (z. B. unbekannte SHA) — nichts abzubrechen.
-      }
-      return { ok: false, conflictPaths };
+    // `git revert` verlangt einen sauberen Working Tree. Während einer laufenden
+    // Obsidian-Session ist der Tree praktisch immer dirty: (a) der Run-Log schreibt nach
+    // dem Commit seine eigene commit-SHA in run.md/state.json zurück, (b) Obsidian schreibt
+    // getrackte `.obsidian/*`-Configs dauernd neu. Ohne Vorbehandlung verweigert `revert`
+    // VOR dem Start (kein Sequencer, 0 Konflikt-Pfade) — der alte Code deutete das als
+    // 0-Datei-Konflikt und meldete irreführend „0 files have local changes" (Smoke-Fund).
+    //
+    // Strategie (§5.2: Dirty-State des Users nie verlieren):
+    // 1. Dirt auf genau den Pfaden verwerfen, die der Revert ohnehin zurückdreht (v. a. die
+    //    wegwerfbare Run-Log-SHA-Rückschreibung). Damit ist der Stash unten DISJUNKT zu dem,
+    //    was der Revert anfasst → `stash pop` kann strukturell nie kollidieren.
+    // 2. Den Rest stashen (fremder Dirt: `.obsidian`, andere Notizen), auf sauberem Tree
+    //    revertieren, danach den Stash verlustfrei zurückspielen.
+    // Echte Konflikte (committete Divergenz auf einem revertierten Pfad) erzeugt `revert`
+    // weiterhin regulär → `collectConflictPaths` + Restore-Angebot greifen wie gehabt.
+    const revertPaths = await this.pathsOf(sha);
+    if (revertPaths.length > 0) {
+      // `checkout -- <pfade>` ist auf sauberen Pfaden ein No-op; auf dirty Pfaden verwirft
+      // es die uncommittete Änderung (die der Revert sowieso überschreibt).
+      await this.git(["checkout", "--", ...revertPaths]);
     }
+    const stashed = await this.stashDirtyState();
+    try {
+      try {
+        await this.git(["revert", "--no-edit", sha]);
+      } catch {
+        // Konflikt-Pfade VOR dem Abort einsammeln — danach ist der Konfliktzustand weg.
+        const conflictPaths = await this.collectConflictPaths();
+        try {
+          await this.git(["revert", "--abort"]);
+        } catch {
+          // Kein Sequencer-Zustand (z. B. unbekannte SHA) — nichts abzubrechen.
+        }
+        return { ok: false, conflictPaths };
+      }
+      return { ok: true, conflictPaths: [] };
+    } finally {
+      // Stash ist disjunkt zum Revert (Schritt 1) → pop ist im ok- wie im Konflikt-Fall
+      // (nach `revert --abort`) konfliktfrei.
+      if (stashed) await this.git(["stash", "pop"]);
+    }
+  }
+
+  /** Von einem Commit berührte Pfade (add/modify/delete), relativ zur Vault-Wurzel. */
+  private async pathsOf(sha: string): Promise<string[]> {
+    // `--format=` unterdrückt Commit-Header → nur die Datei-Namen (eine führende Leerzeile).
+    const out = await this.git(["show", "--name-only", "--format=", sha]);
+    return out.split("\n").filter((line) => line.length > 0);
+  }
+
+  /** Stasht Working Tree + Index + Untracked, falls dirty. True, wenn ein Stash entstand. */
+  private async stashDirtyState(): Promise<boolean> {
+    const dirty = (await this.git(["status", "--porcelain"])).trim().length > 0;
+    if (!dirty) return false;
+    await this.git(["stash", "push", "--include-untracked", "-m", "vault-crews-undo"]);
+    return true;
   }
 
   /** Unmerged-Einträge aus `git status --porcelain` (XY ∈ DD/AU/UD/UA/DU/AA/UU). */

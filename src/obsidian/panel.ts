@@ -52,6 +52,12 @@ interface RunningState {
   lines: TaskLine[];
   tokenCount: number;
   thinkCount: number;
+  /** Gesetzt, sobald der Nutzer Abbrechen geklickt hat. Der Orchestrator meldet den
+   *  Abbruch erst nach Stream-Teardown + Commit (Event-Latenz) — bis dahin würde das
+   *  Panel ohne diesen Flag einfrieren und der Klick wirkte folgenlos (Smoke-Fund).
+   *  Er persistiert im Zustand, damit die token-getriebenen Re-Renders keinen aktiven
+   *  Cancel-Button wiederbeleben. */
+  aborting: boolean;
 }
 interface DoneState { kind: "done"; result: RunResult; }
 type PanelState = { kind: "idle" } | RunningState | DoneState;
@@ -113,6 +119,7 @@ export class RunPanelView extends ItemView {
         this.state = {
           kind: "running", runId: e.runId, teamId: e.teamId,
           total: 0, index: 0, currentTaskId: null, lines: [], tokenCount: 0, thinkCount: 0,
+          aborting: false,
         };
         break;
       case "taskStarted":
@@ -204,8 +211,23 @@ export class RunPanelView extends ItemView {
     const think = root.createEl("details", { cls: "vault-crews-think" });
     think.createEl("summary", { text: t("panel.thinking", s.thinkCount) });
 
-    const cancel = root.createEl("button", { cls: "mod-warning", text: t("panel.cancel") });
-    cancel.addEventListener("click", () => { this.host.abortCurrentRun(); });
+    // Genau EIN Cancel-Button. Nach dem Klick sofortige, persistente Quittung: disabled
+    // + „Wird abgebrochen …", bis runFinished den done-Zustand bringt. Der Guard verhindert
+    // Mehrfach-Abbrüche (der Mock-Klick ignoriert `disabled`, echtes DOM blockt zusätzlich).
+    const cancel = root.createEl("button", {
+      cls: "mod-warning",
+      text: s.aborting ? t("panel.cancelling") : t("panel.cancel"),
+    });
+    if (s.aborting) {
+      cancel.disabled = true;
+    } else {
+      cancel.addEventListener("click", () => {
+        if (this.state.kind !== "running" || this.state.aborting) return;
+        this.state.aborting = true;
+        this.render();
+        this.host.abortCurrentRun();
+      });
+    }
   }
 
   // ── Done ─────────────────────────────────────────────────────────────────

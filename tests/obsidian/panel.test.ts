@@ -137,6 +137,48 @@ describe("RunPanelView — handleEvent drives running state", () => {
     expect(host.abortCurrentRun).toHaveBeenCalledTimes(1);
   });
 
+  it("clicking Cancel gives instant feedback: button becomes a disabled 'Cancelling…' and survives later token events", () => {
+    // Smoke-Fund „Button schien keine Reaktion zu zeigen": der Abbruch wirkt am Backend,
+    // aber ohne synchrone Quittung, und die nächste Event-Latenz (Stream-Teardown + Commit)
+    // friert das Panel ein. Der Klick muss SOFORT sichtbar quittieren, und der Zustand
+    // muss die Token-Re-Renders überleben (sonst taucht der aktive Cancel-Button wieder auf).
+    const host = makeHost();
+    const view = new RunPanelView(makeLeaf(), host);
+    driveEvents(view, [
+      { type: "runStarted", runId: "r1", teamId: "task-triage" },
+      { type: "taskStarted", taskId: "analyse", index: 1, total: 1 },
+    ]);
+
+    const [cancel] = findAll(view.contentEl, (e) => e.tagName === "BUTTON" && e.textContent === "Cancel");
+    cancel?.click();
+
+    expect(findAll(view.contentEl, (e) => e.tagName === "BUTTON" && e.textContent === "Cancel")).toHaveLength(0);
+    const cancelling = findAll(view.contentEl, (e) => e.tagName === "BUTTON" && e.textContent === "Cancelling…");
+    expect(cancelling).toHaveLength(1);
+    expect((cancelling[0] as unknown as { disabled: boolean }).disabled).toBe(true);
+
+    // Ein spätes token-Event (Stream läuft noch aus) darf keinen aktiven Cancel wiederbeleben.
+    driveEvents(view, [{ type: "token", taskId: "analyse", isThink: false }]);
+    expect(findAll(view.contentEl, (e) => e.tagName === "BUTTON" && e.textContent === "Cancel")).toHaveLength(0);
+    expect(findAll(view.contentEl, (e) => e.tagName === "BUTTON" && e.textContent === "Cancelling…")).toHaveLength(1);
+  });
+
+  it("a second click on the cancelling button does not fire another abort", () => {
+    const host = makeHost();
+    const view = new RunPanelView(makeLeaf(), host);
+    driveEvents(view, [
+      { type: "runStarted", runId: "r1", teamId: "task-triage" },
+      { type: "taskStarted", taskId: "analyse", index: 1, total: 1 },
+    ]);
+
+    const [cancel] = findAll(view.contentEl, (e) => e.tagName === "BUTTON" && e.textContent === "Cancel");
+    cancel?.click();
+    const [cancelling] = findAll(view.contentEl, (e) => e.tagName === "BUTTON" && e.textContent === "Cancelling…");
+    cancelling?.click();
+
+    expect(host.abortCurrentRun).toHaveBeenCalledTimes(1);
+  });
+
   it("token events update the collapsed progress counter and the think counter separately", () => {
     const host = makeHost();
     const view = new RunPanelView(makeLeaf(), host);

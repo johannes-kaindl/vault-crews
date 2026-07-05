@@ -172,6 +172,48 @@ describe("ChildProcessGitPort.revert", () => {
     expect(await git(root, "status", "--porcelain")).toBe("");
     expect(await readFile(join(root, "note.md"), "utf8")).toBe("gamma\n");
   });
+
+  it("revertiert trotz dirty working tree; fremder Dirt bleibt erhalten (Stash-Wrap, §5.2)", async () => {
+    // Reproduziert den Smoke-Test-Fund: während einer Obsidian-Session ist der Tree
+    // praktisch immer dirty — (a) der Run-Log schreibt nach dem Commit seine eigene
+    // commit-SHA zurück, (b) Obsidian schreibt getrackte .obsidian/*-Configs neu. `git
+    // revert` verweigerte darum VOR dem Start (0 Konflikt-Pfade → irreführendes
+    // "0 files have local changes"). Der Stash-Wrap muss trotzdem sauber revertieren
+    // und den fremden Dirt verlustfrei erhalten.
+    await initRepo(root);
+    await writeFile(join(root, "seed.md"), "seed\n", "utf8");
+    await mkdir(join(root, ".obsidian"), { recursive: true });
+    await writeFile(join(root, ".obsidian/workspace.json"), '{"open":1}\n', "utf8");
+    await commitAll(root, "c0");
+
+    await mkdir(join(root, "_crews/runs/r1"), { recursive: true });
+    await writeFile(join(root, "note.md"), "priority: hoch\n", "utf8");
+    await writeFile(join(root, "_crews/runs/r1/run.md"), "status: ok\n", "utf8");
+    const port = new ChildProcessGitPort(root);
+    const runSha = await port.applyPlan({
+      message: "crew(t): run r1 — ok, 1 Dateien",
+      paths: ["note.md", "_crews/runs/r1/run.md"],
+    });
+
+    // (a) Run-Log-Selbst-Dirt: schreibt seine eigene commit-SHA zurück (post-commit).
+    await writeFile(join(root, "_crews/runs/r1/run.md"), `commit: ${runSha}\nstatus: ok\n`, "utf8");
+    // (b) fremder Dirt: getrackte Config geändert + ungetrackte User-Datei.
+    await writeFile(join(root, ".obsidian/workspace.json"), '{"open":2}\n', "utf8");
+    await writeFile(join(root, "user-note.md"), "meine notiz\n", "utf8");
+
+    const res = await port.revert(runSha);
+
+    expect(res).toEqual({ ok: true, conflictPaths: [] });
+    // Lauf ist zurückgedreht:
+    expect(await fileExists(join(root, "note.md"))).toBe(false);
+    expect(await fileExists(join(root, "_crews/runs/r1/run.md"))).toBe(false);
+    // §5.2: fremder Dirt unversehrt wiederhergestellt:
+    expect(await readFile(join(root, ".obsidian/workspace.json"), "utf8")).toBe('{"open":2}\n');
+    expect(await readFile(join(root, "user-note.md"), "utf8")).toBe("meine notiz\n");
+    // Kein hängender Merge-/Stash-Zustand:
+    expect(await git(root, "stash", "list")).toBe("");
+    expect(await git(root, "status", "--porcelain")).toBe(" M .obsidian/workspace.json\n?? user-note.md");
+  });
 });
 
 describe("ChildProcessGitPort.restorePaths", () => {

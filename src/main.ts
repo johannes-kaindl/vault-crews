@@ -505,6 +505,9 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       `${t("undo.field.commit")}: ${shortSha(sha)}`,
       `${t("undo.field.files")}: ${files.length > 0 ? files.join(", ") : "—"}`,
     ];
+    // Undo dreht den Working Tree auf genau diese Pfade zurück; uncommittete spätere
+    // Edits daran gehen dabei verloren (§5.2/§5.3: nie STILL — hier explizit vorab).
+    if (files.length > 0) lines.push(t("undo.warnDiscard"));
     new ConfirmModal(this.app, {
       title: t("undo.title"),
       lines,
