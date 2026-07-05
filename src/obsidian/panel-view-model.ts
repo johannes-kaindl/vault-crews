@@ -9,7 +9,7 @@ import type { ErrorKind, RunResult, RunStatus } from "../core/types";
 
 // ── Navigations- und Lauf-Zustand (zwei orthogonale Achsen, §2 der Spec) ──────
 
-export type NavState = "crews" | "verlauf";
+export type NavState = "crews" | "history";
 
 // Festes Vokabular (Spec §6.2): ⏳ wartet · ▶ läuft · ✓ ok · ✗ fehlgeschlagen ·
 // ↷ übersprungen · ⊘ stale.
@@ -153,7 +153,7 @@ export type BodyVM =
   | { kind: "crewsIdle"; empty: boolean; emptyText: string; installLabel: string; teams: TeamRowVM[] }
   | { kind: "crewsRunning"; lines: { icon: string; label: string }[]; streamingText: string; thinkingText: string }
   | { kind: "crewsDone"; summary: SummaryVM; backLabel: string }
-  | { kind: "verlauf"; empty: boolean; emptyText: string; latest: SummaryVM | null; crewsHeading: string; crews: CrewHistoryRowVM[] };
+  | { kind: "history"; empty: boolean; emptyText: string; latest: SummaryVM | null; crewsHeading: string; crews: CrewHistoryRowVM[] };
 
 export interface StatusLineVM { text: string; abortLabel: string; aborting: boolean; }
 
@@ -187,10 +187,10 @@ export function buildPanelViewModel(inputs: PanelInputs): PanelViewModel {
     title: t("panel.title"),
     tabs: [
       { id: "crews", label: t("panel.tab.crews"), active: navState === "crews" },
-      { id: "verlauf", label: t("panel.tab.verlauf"), active: navState === "verlauf" },
+      { id: "history", label: t("panel.tab.history"), active: navState === "history" },
     ],
-    body: navState === "verlauf"
-      ? buildVerlaufBody(teams, latest, nowMs)
+    body: navState === "history"
+      ? buildHistoryBody(teams, latest, nowMs)
       : buildCrewsBody(runState, teams, nowMs),
     statusLine: runState.kind === "running" ? buildStatusLine(runState) : null,
   };
@@ -232,20 +232,20 @@ function buildCrewsBody(runState: RunState, teams: TeamInfo[], nowMs: number): B
   };
 }
 
-function buildVerlaufBody(teams: TeamInfo[], latest: RunSummary | null, nowMs: number): BodyVM {
+function buildHistoryBody(teams: TeamInfo[], latest: RunSummary | null, nowMs: number): BodyVM {
   const crews: CrewHistoryRowVM[] = teams
     .filter((tm) => tm.lastRun !== null)
     .sort((a, b) => (b.lastRun?.when ?? 0) - (a.lastRun?.when ?? 0))
     .map((tm) => ({
       teamId: tm.id,
-      text: t("panel.verlauf.crewRow", tm.name, t(`panel.status.${tm.lastRun!.status}`), formatRelative(nowMs, tm.lastRun!.when)),
+      text: t("panel.history.crewRow", tm.name, t(`panel.status.${tm.lastRun!.status}`), formatRelative(nowMs, tm.lastRun!.when)),
     }));
   return {
-    kind: "verlauf",
+    kind: "history",
     empty: latest === null,
-    emptyText: t("panel.verlauf.empty"),
+    emptyText: t("panel.history.empty"),
     latest: latest === null ? null : summaryFromLastRun(latest),
-    crewsHeading: t("panel.verlauf.crewsHeading"),
+    crewsHeading: t("panel.history.crewsHeading"),
     crews,
   };
 }
