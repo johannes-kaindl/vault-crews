@@ -85,6 +85,11 @@ Kurzfassung von README.md „V1 limitations" — bei Rückfragen dort das Detail
 - Ports (LLM-Endpoint, Timeouts) werden einmalig in `onload()` gebaut —
   Endpoint-/Timeout-Änderungen in den Settings brauchen Plugin-Reload
   (deaktivieren/aktivieren oder Obsidian-Neustart).
+- Abbruch ist best-effort und greift nur im LLM-Call. Das Panel quittiert den Klick
+  sofort („Wird abgebrochen …"), aber schnelle Läufe (1–2 s mit MoE-Modell) können
+  durch sein, bevor der Abbruch das Stream-Fenster trifft → Lauf endet `ok` statt
+  `aborted`. Zuverlässiger Mid-Run-Abbruch kurzer Läufe ist V1-out-of-scope, gefaltet
+  in die geplante Run-Panel-UI-Überarbeitung.
 
 ## Dach-Kontext (obsidian-plugins)
 
