@@ -34,6 +34,7 @@ import {
   VIEW_TYPE_CREWS,
   type PanelHost,
   type PanelTeam,
+  type RunSummary,
 } from "./obsidian/panel";
 import { RecoveryModal, checkOrphanedRun } from "./obsidian/recovery";
 import { installExampleCrews } from "./obsidian/install-examples";
@@ -45,7 +46,7 @@ import { executeRun, type RunDeps } from "./core/orchestrator";
 import { parseTeamDef } from "./core/crew-parser";
 import { buildDenylist } from "./core/paths";
 import type { ClockPort, GitPort, LlmClient, MetadataPort, RunEvent, RunReporter, VaultPort } from "./core/ports";
-import type { RunLimits, RunResult, RunStatus } from "./core/types";
+import type { ErrorKind, RunLimits, RunResult, RunStatus } from "./core/types";
 
 /** Feste V1-Grenzen, die die Settings-UI (bewusst) nicht exponiert. */
 const MAX_NOTE_BYTES = 65_536;
@@ -60,6 +61,11 @@ interface LastRunInfo {
   when: number;
   runId: string;
   commitSha: string | null;
+  // Anzeige-Felder für die persistente Verlauf-Karte (optional — Alt-Einträge ohne
+  // sie bleiben gültig und fallen im Panel auf 0/null zurück).
+  writes?: number;
+  durationS?: number;
+  errorKind?: ErrorKind | null;
 }
 type LastRuns = Record<string, LastRunInfo>;
 
@@ -317,6 +323,9 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       when: this.clock.now(),
       runId: result.runId,
       commitSha: result.commitSha,
+      writes: result.writes,
+      durationS: result.durationS,
+      errorKind: result.errorKind,
     };
     void this.saveSettings();
   }
@@ -366,6 +375,45 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
 
   undoLastRun(): void {
     void this.startUndo();
+  }
+
+  /** Anzeigefertiges Futter für die persistente Verlauf-Karte (Panel Verlauf-Tab): der
+   *  global jüngste Lauf. Liest ausschließlich aus `lastRuns` (sync) — die Anzeige-Felder
+   *  writes/durationS/errorKind wurden bei runFinished mitpersistiert. */
+  getLastRunSummary(): RunSummary | null {
+    const recent = this.mostRecentRun();
+    if (recent === null) return null;
+    return {
+      teamName: this.teamName(recent.teamId),
+      status: recent.info.status,
+      runId: recent.info.runId,
+      commitSha: recent.info.commitSha,
+      when: recent.info.when,
+      writes: recent.info.writes ?? 0,
+      durationS: recent.info.durationS ?? 0,
+      errorKind: recent.info.errorKind ?? null,
+    };
+  }
+
+  /** Öffnet die run.md des letzten Laufs EINER Crew (Klick auf eine Verlauf-Zeile) —
+   *  Verallgemeinerung von openLastRunLog, das implizit den global jüngsten nimmt. */
+  openCrewLog(teamId: string): void {
+    void this.openCrewLogFor(teamId);
+  }
+
+  private async openCrewLogFor(teamId: string): Promise<void> {
+    const info = this.lastRuns[teamId];
+    if (info === undefined) {
+      new Notice(t("notice.run.noLastRun"));
+      return;
+    }
+    const path = normalizePath(`${this.settings.crewRoot}/runs/${info.runId}/run.md`);
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (file instanceof TFile) {
+      await this.app.workspace.getLeaf(false).openFile(file);
+    } else {
+      new Notice(t("notice.run.noLastRun"));
+    }
   }
 
   /** Ein Einstieg für „Log öffnen" (ok) UND „Fehlerstelle ansehen" (Fehler): öffnet
@@ -463,7 +511,13 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     if (leaf !== null) void workspace.revealLeaf(leaf);
   }
 
-  private async installExamples(): Promise<void> {
+  // PanelHost.installExamples — synchroner void-Wrapper (auch der Empty-State-Button im
+  // Crews-Tab ruft dies), der die async-Installation feuert.
+  installExamples(): void {
+    void this.runInstallExamples();
+  }
+
+  private async runInstallExamples(): Promise<void> {
     try {
       const { created } = await installExampleCrews(this.vault, this.settings.crewRoot);
       new Notice(created.length > 0 ? t("notice.install.ok", created.length) : t("notice.install.exists"));

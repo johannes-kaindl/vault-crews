@@ -115,10 +115,12 @@ Fakt aus dem Code: **Undo** und **Log öffnen** operieren beide auf `mostRecentR
 global jüngsten Lauf (git-`revert` kann nur den HEAD-Commit sauber zurückdrehen). Pro Crew
 existiert ein `lastRuns[teamId]`-Eintrag, aber die Aktionen gelten nur dem allerneuesten.
 
-- **Oben — jüngster Lauf als persistente Ergebnis-Karte:** Crew · Status · Dateien (als
-  `internal-link`) · Commit · Dauer, mit Aktionen **„Log öffnen"** + **„Undo"**. Nutzt
-  *dieselbe* `renderRunSummary(el, summary, actions)`-Komponente wie die Crews-Done-Karte
-  (DRY, ein Testziel).
+- **Oben — jüngster Lauf als persistente Ergebnis-Karte:** Crew · Status · Datei-*Zahl*
+  · Commit · Dauer, mit Aktionen **„Log öffnen"** + **„Undo"**. Nutzt *dieselbe*
+  `renderSummary`-Komponente wie die Crews-Done-Karte (DRY, ein Testziel). Die
+  einzelnen Datei-*Links* bleiben der Live-Done-Karte vorbehalten (sie hält die Pfade
+  in-memory aus `actionApplied`); die persistente Karte zeigt nur die Zahl + „Log öffnen"
+  — die Pfade zu persistieren wäre für den Verlauf unnötiger Ballast (YAGNI).
 - **Darunter — Per-Crew-Statusliste:** je Crew letzter Status + „vor X" (Relativzeit).
   **Rein informativ, keine Aktionsbuttons** — Klick auf eine Zeile öffnet deren `run.md`.
   Ehrlich, weil Undo mechanisch nur den HEAD-Lauf kann.
