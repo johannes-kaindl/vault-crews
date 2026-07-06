@@ -95,7 +95,7 @@ function normalize(text: string, runId: string, todayMdName: string): string {
 }
 
 describe('Golden-Run: ausgelieferte Daily-Briefing-Crew, end-to-end', () => {
-	it('collector -> llm -> section.replace: byte-exakte Daily Note, run.md, CommitPlan', async () => {
+	it('collector -> llm -> section.replace: byte-exakte Daily Note, run.md, Undo-Snapshot', async () => {
 		const vault = new InMemoryVaultPort();
 		const meta = new FixtureMetadataPort(vault);
 

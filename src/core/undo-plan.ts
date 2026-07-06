@@ -1,5 +1,5 @@
 /** Purer Undo-Planer (Design-Spec §4): berechnet aus einem SnapshotManifest + den
- *  aktuellen Inhalten die Rollback-Operationen. Spiegelt den git-plan.ts-Split —
+ *  aktuellen Inhalten die Rollback-Operationen. Reiner pure/obsidian-Split —
  *  I/O macht der Aufrufer (main.ts über VaultPort + SnapshotStore), hier lebt nur Logik.
  *  Import von obsidian ist verboten (check:pure). */
 import { fnv1a } from './collectors';

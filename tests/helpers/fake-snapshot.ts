@@ -42,8 +42,8 @@ export class FakeSnapshotStore implements SnapshotStore {
 }
 
 /** Snapshot-Store, dessen finalize() immer wirft — modelliert einen I/O-Fehler NACH
- *  den bereits angewandten Vault-Writes (Finalize-Resilienz, analog zum alten
- *  ApplyPlanFailsGitPort). */
+ *  den bereits angewandten Vault-Writes (Finalize-Resilienz: der Lauf bleibt sicher
+ *  geloggt, die Wirkung ist im Vault). */
 export class FinalizeFailsSnapshotStore extends FakeSnapshotStore {
 	override async finalize(runId: string, _postHashes: Record<string, string>, _keepLast: number): Promise<void> {
 		this.log.push(`finalize:reject:${runId}`);

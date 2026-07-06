@@ -1,7 +1,7 @@
 /** SnapshotStore über app.vault.adapter (Design-Spec §3/§4): der Store liegt versteckt
  *  unter <configDir>/plugins/vault-crews/undo/ und ist NICHT im TFile-Index — daher
  *  Adapter-I/O (nicht vault.read/modify). Manifest wird write-ahead pro capture
- *  neu geschrieben (crash-sicher). Kein child_process/node:fs — reine Obsidian-API. */
+ *  neu geschrieben (crash-sicher). Keine Shell-/Node-Dateisystem-Zugriffe — reine Obsidian-API. */
 import type { App } from 'obsidian';
 import { fnv1a } from '../core/collectors';
 import type { SnapshotManifest, SnapshotStore } from '../core/ports';

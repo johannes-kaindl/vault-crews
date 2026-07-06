@@ -58,21 +58,6 @@ export interface JsonTransport {
 	postJson(url: string, body: unknown): Promise<unknown>;
 }
 
-export interface GitStatusInfo {
-	isRepo: boolean;
-	inMergeOrRebase: boolean;
-	hasIndexLock: boolean;
-	headSha: string | null;
-	dirty: boolean;
-}
-export interface CommitPlan { message: string; paths: string[]; }
-export interface GitPort {
-	status(): Promise<GitStatusInfo>;
-	applyPlan(plan: CommitPlan): Promise<string>;
-	revert(sha: string): Promise<{ ok: boolean; conflictPaths: string[] }>;
-	restorePaths(sha: string, paths: string[]): Promise<void>;
-}
-
 // ── Snapshot-Undo (Design-Spec 2026-07-06 §4): git-freies Sicherheitsnetz über die
 //    Obsidian-Adapter-API. buildUndoPlan (undo-plan.ts) rechnet damit; AdapterSnapshotStore
 //    (obsidian/) implementiert den Store. ──────────────────────────────────────────────
