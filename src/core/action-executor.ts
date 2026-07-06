@@ -19,6 +19,11 @@ export interface ExecutorContext {
 	slugTables: Record<string, SlugTableData>;
 	/** Denylist mit injiziertem configDir (buildDenylist) — überstimmt jede Whitelist. */
 	denylist: string[];
+	/** Copy-on-Write-Hook (Design-Spec §6): vor jedem ANGEWANDTEN Write mit dem
+	 *  aufgelösten Pfad aufgerufen — der Orchestrator snapshottet hier den Pre-Image.
+	 *  Ein Throw wird wie ein Write-Fehler behandelt (Aktion failed). Optional:
+	 *  Tests/Läufe ohne Undo lassen ihn weg. */
+	preWrite?: (path: string) => Promise<void>;
 }
 
 export const CREW_MARKER = (teamId: string): { start: string; end: string } => ({
@@ -268,6 +273,7 @@ export async function executeActions(
 			continue;
 		}
 		try {
+			if (ctx.preWrite) await ctx.preWrite(v.path); // Pre-Image sichern, BEVOR geschrieben wird
 			await applyAction(v, ctx, vault);
 			if (!writes.includes(v.path)) writes.push(v.path);
 			outcomes.push({ action: v.action, result: 'applied', reason: null });

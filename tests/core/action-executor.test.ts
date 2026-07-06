@@ -417,3 +417,34 @@ describe('Guard-Property: bösartige Pfade werden nie geschrieben', () => {
     }
   });
 });
+
+describe('preWrite-Hook', () => {
+  it('feuert vor jedem angewandten Write mit dem aufgelösten Pfad', async () => {
+    const seen: string[] = [];
+    const vault = await seed({ '10_Aufgaben/a.md': 'alt\n' });
+    const ctx = ctxOf([], { preWrite: async (p) => { seen.push(p); } });
+    const action: Action = { type: 'note.append', path: '10_Aufgaben/a.md', heading: null, content: 'neu' };
+    await executeActions([action], ctx, vault);
+    expect(seen).toEqual(['10_Aufgaben/a.md']);
+  });
+
+  it('feuert NICHT für rejected/failed Aktionen', async () => {
+    const seen: string[] = [];
+    const vault = await seed({});
+    const ctx = ctxOf([], { preWrite: async (p) => { seen.push(p); } });
+    // Ziel existiert nicht → note.append failed, kein Write:
+    const action: Action = { type: 'note.append', path: '10_Aufgaben/fehlt.md', heading: null, content: 'x' };
+    await executeActions([action], ctx, vault);
+    expect(seen).toEqual([]);
+  });
+
+  it('ein preWrite-Throw macht die Aktion failed (kein Write ohne Snapshot)', async () => {
+    const vault = await seed({ '10_Aufgaben/a.md': 'alt\n' });
+    const ctx = ctxOf([], { preWrite: async () => { throw new Error('snapshot-io'); } });
+    const action: Action = { type: 'note.append', path: '10_Aufgaben/a.md', heading: null, content: 'neu' };
+    const res = await executeActions([action], ctx, vault);
+    expect(res.writes).toEqual([]);
+    expect(res.outcomes[0]?.result).toBe('failed');
+    expect(await vault.read('10_Aufgaben/a.md')).toBe('alt\n'); // Original unangetastet
+  });
+});
