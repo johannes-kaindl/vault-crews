@@ -2,7 +2,7 @@ import type { ActionOutcome, ErrorKind, RunState, TaskRecord } from './types';
 
 export const ERROR_KINDS: readonly ErrorKind[] = [
   'endpoint_unreachable', 'model_missing', 'timeout', 'stalled',
-  'invalid_output', 'context_overflow', 'git_refused', 'crew_invalid',
+  'invalid_output', 'context_overflow', 'crew_invalid',
   'write_limit', 'consistency', 'aborted', 'io',
 ];
 
