@@ -24,9 +24,9 @@ import {
 } from '../../src/obsidian/example-assets';
 import { installExampleCrews } from '../../src/obsidian/install-examples';
 import { InMemoryVaultPort } from '../helpers/in-memory-vault';
-// js-yaml ist reines Test-Tooling (devDependency) — parst die ECHTE YAML-Frontmatter
+// `yaml` (eemeli) ist reines Test-Tooling (devDependency) — parst die ECHTE YAML-Frontmatter
 // der Beispiel-Teams (verschachtelte params/where/tasks), nie im Plugin-Bundle.
-import * as yaml from 'js-yaml';
+import { parse as parseYaml } from 'yaml';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ROOT = '_crews';
@@ -54,7 +54,7 @@ const KNOWN_AGENTS = ['triage-analyst', 'briefing-autor'];
 const DENYLIST = buildDenylist('.obsidian', '_crews');
 
 /** Frontmatter-Block + Body aus einer Team-/Agent-Note extrahieren, per echtem
- *  YAML-Parser (js-yaml) — das kleine YAML-Subset aus in-memory-vault.ts reicht für
+ *  YAML-Parser (`yaml`) — das kleine YAML-Subset aus in-memory-vault.ts reicht für
  *  verschachtelte Team-Definitionen (params/where/tasks) explizit nicht aus. */
 function splitFrontmatter(raw: string): { fm: Record<string, unknown> | null; body: string } {
 	if (!raw.startsWith('---\n')) return { fm: null, body: raw };
@@ -62,7 +62,7 @@ function splitFrontmatter(raw: string): { fm: Record<string, unknown> | null; bo
 	if (end < 0) return { fm: null, body: raw };
 	const block = raw.slice(4, end);
 	const body = raw.slice(end + 5);
-	const fm = yaml.load(block);
+	const fm = parseYaml(block);
 	return { fm: (fm ?? null) as Record<string, unknown> | null, body };
 }
 

@@ -15,6 +15,7 @@ import {
   Platform,
   Plugin,
   TFile,
+  getLanguage,
   normalizePath,
   type App,
   type WorkspaceLeaf,
@@ -700,13 +701,12 @@ function hasBasePath(a: unknown): a is { getBasePath(): string } {
   return typeof a === "object" && a !== null && typeof (a as { getBasePath?: unknown }).getBasePath === "function";
 }
 
-/** Obsidian-UI-Sprache best-effort aus dem seit jeher stabilen localStorage-Key
- *  `language` (getLanguage() gäbe es erst ab 1.8.7, minAppVersion ist 1.7.2). Member-
- *  Zugriff `window.localStorage` (kein bare-global, daher nicht restricted); in einer
- *  window-losen Umgebung wirft der Zugriff → null, pickLang fällt auf 'en'. */
+/** Obsidian-UI-Sprache über die native `getLanguage()`-API (verfügbar ab App 1.8.7,
+ *  siehe minAppVersion). In einer App-/window-losen Umgebung (Tests) wirft der Aufruf
+ *  → null, pickLang fällt auf 'en'. */
 function readObsidianLocale(): string | null {
   try {
-    return window.localStorage.getItem("language");
+    return getLanguage();
   } catch {
     return null;
   }

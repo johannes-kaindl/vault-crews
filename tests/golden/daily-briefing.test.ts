@@ -33,10 +33,10 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-// js-yaml ist reines Test-Tooling (devDependency, wie in
+// `yaml` (eemeli) ist reines Test-Tooling (devDependency, wie in
 // tests/obsidian/install-examples.test.ts) — parst die ECHTE, verschachtelte
 // YAML-Frontmatter der ausgelieferten Team-Datei (tasks/params/where).
-import * as yaml from 'js-yaml';
+import { parse as parseYaml } from 'yaml';
 
 import { executeRun, type RunDeps } from '../../src/core/orchestrator';
 import { expandTarget } from '../../src/core/paths';
@@ -81,7 +81,7 @@ function splitFrontmatter(raw: string): { fm: Record<string, unknown> | null; bo
 	if (end < 0) return { fm: null, body: raw };
 	const block = raw.slice(4, end);
 	const body = raw.slice(end + 5);
-	const fm = yaml.load(block);
+	const fm = parseYaml(block);
 	return { fm: (fm ?? null) as Record<string, unknown> | null, body };
 }
 
