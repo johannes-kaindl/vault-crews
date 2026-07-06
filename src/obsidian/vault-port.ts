@@ -60,6 +60,12 @@ export class ObsidianVaultPort implements VaultPort {
       for (const key of remove) delete fm[key];                        // remove: Key verschwindet
     });
   }
+
+  async trash(path: string): Promise<void> {
+    const f = this.file(path); // wirft, wenn nicht vorhanden — Aufrufer prüft vorher via exists()
+    // trashFile respektiert die Papierkorb-Einstellung des Users (System/.trash/lokal).
+    await this.app.fileManager.trashFile(f);
+  }
 }
 
 /** Dünner MetadataPort-Adapter über metadataCache + vault.getMarkdownFiles/cachedRead. */

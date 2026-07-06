@@ -17,6 +17,14 @@ function isDotfilePath(path: string): boolean {
 
 export class InMemoryVaultPort implements VaultPort {
 	readonly files = new Map<string, string>();
+	/** Pfade, die trash() in den Papierkorb verschoben hat (Undo-Tests prüfen darauf). */
+	readonly trashed: string[] = [];
+
+	async trash(path: string): Promise<void> {
+		if (!this.files.has(path)) throw new Error(`not found: ${path}`);
+		this.files.delete(path);
+		this.trashed.push(path);
+	}
 
 	async read(path: string): Promise<string> {
 		if (isDotfilePath(path)) throw new Error(`vault-crews: Datei nicht gefunden: ${path}`);

@@ -67,6 +67,7 @@ function spyVault(vault: VaultPort): {
         patches.push({ path: p, set: s, remove: r });
         await vault.patchFrontmatter(p, s, r);
       },
+      trash: (p) => vault.trash(p),
     },
   };
 }
