@@ -22,10 +22,23 @@
   },
   "keywords": [
     "obsidian",
-    "obsidian-plugin"
+    "obsidian-plugin",
+    "llm",
+    "agents",
+    "local-first",
+    "lm-studio",
+    "automation"
   ],
   "author": "Johannes Kaindl",
   "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://codeberg.org/jkaindl/vault-crews.git"
+  },
+  "homepage": "https://codeberg.org/jkaindl/vault-crews",
+  "bugs": {
+    "url": "https://codeberg.org/jkaindl/vault-crews/issues"
+  },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^20",

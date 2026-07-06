@@ -50,20 +50,23 @@ ever touches your vault.
   git repository. The commit-per-run **is** the undo net; there is no code path that
   writes to the vault without it.
 
-## Install (BRAT)
+## Install
 
-Vault Crews is not (yet) in the community plugin directory. Install it via
-[BRAT](https://github.com/TfTHacker/obsidian42-brat) (Beta Reviewers Auto-update
-Tool):
+**From Community plugins (once listed):** open **Settings → Community plugins →
+Browse**, search for **Vault Crews**, install and enable it.
+
+**Before it is listed — via BRAT** ([Beta Reviewers Auto-update
+Tool](https://github.com/TfTHacker/obsidian42-brat)):
 
 1. Install the **BRAT** community plugin from Obsidian's community plugin browser.
 2. In BRAT's settings, "Add beta plugin" and point it at this repository
    (`https://codeberg.org/jkaindl/vault-crews`).
 3. Enable **Vault Crews** under Community plugins.
-4. Run the command **"Install example crews"** to seed `_crews/` (default root,
-   configurable in settings) with the Task-Triage and Daily-Briefing example teams,
-   their agents, and the `runs.base` dashboard. Installed files are never
-   overwritten by a second run — edit them freely afterwards.
+
+**After enabling**, run the command **"Install example crews"** to seed `_crews/`
+(default root, configurable in settings) with the Task-Triage and Daily-Briefing
+example teams, their agents, and the `runs.base` dashboard. Installed files are never
+overwritten by a second run — edit them freely afterwards.
 
 ## Safety model
 
@@ -127,7 +130,7 @@ Documented rather than silently missing:
   automatically as part of the run directory — it is never counted as a vault write
   and never touches `max_writes`. Successful runs write no artifacts at all.
 - **`verboseLogging` (Settings → Advanced) is reserved, not yet wired.** The setting
-  exists and persists, but nothing currently reads it; full raw-output mitschnitt of
+  exists and persists, but nothing currently reads it; full raw-output recording of
   *every* call (success or failure) — beyond the failure-case `artifacts/` capture
   above — is not implemented.
 - **The failure log opens `run.md` at the top, not scrolled to the failed task.**
@@ -151,4 +154,4 @@ Documented rather than silently missing:
 
 ## License
 
-AGPL-3.0-or-later. See `package.json` for the full license identifier.
+AGPL-3.0-or-later — see [`LICENSE`](LICENSE) for the full text.
