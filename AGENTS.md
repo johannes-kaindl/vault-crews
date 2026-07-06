@@ -85,11 +85,13 @@ Kurzfassung von README.md „V1 limitations" — bei Rückfragen dort das Detail
 - Ports (LLM-Endpoint, Timeouts) werden einmalig in `onload()` gebaut —
   Endpoint-/Timeout-Änderungen in den Settings brauchen Plugin-Reload
   (deaktivieren/aktivieren oder Obsidian-Neustart).
-- Abbruch ist best-effort und greift nur im LLM-Call. Das Panel quittiert den Klick
-  sofort („Wird abgebrochen …"), aber schnelle Läufe (1–2 s mit MoE-Modell) können
-  durch sein, bevor der Abbruch das Stream-Fenster trifft → Lauf endet `ok` statt
-  `aborted`. Zuverlässiger Mid-Run-Abbruch kurzer Läufe ist V1-out-of-scope, gefaltet
-  in die geplante Run-Panel-UI-Überarbeitung.
+- Abbruch ist kooperativ (greift an Task-Grenzen + im LLM-Stream). Schnelle Läufe
+  (1–2 s, MoE) können durch sein, bevor der Klick einen Checkpoint trifft → Lauf endet
+  `ok` — das ist *korrekt* (Arbeit war fertig), kein verlorener Klick. Das Panel ist
+  darüber ehrlich (Run-Panel-UI-Überarbeitung, `feat/run-panel-ui`): Statuszeile zeigt
+  „Abbruch angefordert …", und wenn der Lauf zuerst fertig wurde, sagt die Ergebnis-Karte
+  „Lauf war schon fertig, bevor der Abbruch griff — nichts abgebrochen". Bewusst KEIN
+  Mechanismus, der fertig gerechnete Arbeit verwirft.
 
 ## Dach-Kontext (obsidian-plugins)
 

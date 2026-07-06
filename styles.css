@@ -1,0 +1,224 @@
+/* Vault Crews — Run-Panel (UI-STANDARD §3).
+   Ein Präfix (vault-crews-), nur Obsidian-Theme-Variablen, kein !important,
+   keine hardcodierten Farben/Fonts. Layout: flex + gap statt Margin-Stacking. */
+
+.vault-crews-panel {
+  padding: var(--size-4-3);
+  background: var(--background-primary);
+}
+
+.vault-crews-title {
+  margin: 0 0 var(--size-4-2) 0;
+}
+
+/* ── Tab-Leiste (Segment-Navigation, §4 Kopf) ──────────────────────────────── */
+
+.vault-crews-tabs {
+  display: flex;
+  gap: var(--size-4-1);
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: var(--size-4-3);
+}
+
+.vault-crews-tab {
+  padding: var(--size-4-1) var(--size-4-2);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  cursor: pointer;
+}
+.vault-crews-tab:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+.vault-crews-tab.is-active {
+  color: var(--text-accent);
+  border-bottom-color: var(--interactive-accent);
+}
+
+/* ── Content-Container ─────────────────────────────────────────────────────── */
+
+.vault-crews-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.vault-crews-empty {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  padding: var(--size-4-2) 0;
+}
+
+/* ── Crew-Liste (idle) ─────────────────────────────────────────────────────── */
+
+.vault-crews-team-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.vault-crews-team-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+  padding: var(--size-4-2);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+
+.vault-crews-team-name {
+  font-weight: var(--font-semibold);
+  color: var(--text-normal);
+}
+.vault-crews-team-desc {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+.vault-crews-team-status {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+.vault-crews-run {
+  align-self: flex-start;
+}
+
+/* ── Laufende Task-Liste (running) ─────────────────────────────────────────── */
+
+.vault-crews-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+}
+.vault-crews-task-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+.vault-crews-task-icon {
+  flex: 0 0 auto;
+  width: var(--size-4-4);
+  text-align: center;
+}
+.vault-crews-task-label {
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+}
+.vault-crews-progress {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.vault-crews-think summary {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
+/* ── Ergebnis-Karte (done + Verlauf-jüngster-Lauf) ─────────────────────────── */
+
+.vault-crews-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+  padding: var(--size-4-3);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+.vault-crews-summary-heading {
+  margin: 0;
+}
+.vault-crews-summary-team {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+.vault-crews-summary-files,
+.vault-crews-summary-commit,
+.vault-crews-summary-duration {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.vault-crews-summary-abort {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  font-style: italic;
+}
+.vault-crews-files {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+}
+.vault-crews-summary-actions {
+  display: flex;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-1);
+}
+.vault-crews-next-action {
+  display: flex;
+  gap: var(--size-4-1);
+  margin-top: var(--size-4-1);
+  font-size: var(--font-ui-smaller);
+}
+.vault-crews-next-action-label {
+  color: var(--text-faint);
+}
+.vault-crews-next-action-text {
+  color: var(--text-muted);
+}
+.vault-crews-back {
+  align-self: flex-start;
+  margin-top: var(--size-4-2);
+}
+
+/* ── Verlauf: Per-Crew-Liste ───────────────────────────────────────────────── */
+
+.vault-crews-section {
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: var(--size-4-3);
+  padding-top: var(--size-4-3);
+}
+.vault-crews-section-heading {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--size-4-2);
+}
+.vault-crews-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+}
+.vault-crews-history-row {
+  padding: var(--size-4-1) var(--size-4-2);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  cursor: pointer;
+}
+.vault-crews-history-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* ── Statuszeile (persistent während eines Laufs, trägt den EINZIGEN Abbrechen) */
+
+.vault-crews-statusline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-4-2);
+  margin-top: var(--size-4-3);
+  padding: var(--size-4-2);
+  background: var(--background-secondary);
+  border-top: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+.vault-crews-statusline-text {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}

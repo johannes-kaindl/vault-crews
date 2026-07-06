@@ -139,14 +139,15 @@ Documented rather than silently missing:
   the endpoint or timeout values in Settings does not affect an already-running
   plugin instance. Disable and re-enable the plugin (or restart Obsidian) after
   changing these settings for them to take effect.
-- **Aborting a run is best-effort and only bites during the LLM call.** "Cancel" /
-  "Abort current run" sets the abort flag; mid-stream it aborts the LLM fetch
-  (→ `status: aborted`, partial commit), and the panel shows an immediate
-  "Cancelling…" acknowledgement. But the flag is only observed between tasks and
-  inside the stream — with a fast local model a whole run can finish in 1–2 s, so a
-  click can land outside that window and the run completes normally (`ok`) rather than
-  aborting. Reliable mid-run cancellation of very short runs is out of scope for V1 and
-  folded into the planned run-panel UI rework.
+- **Aborting a run is cooperative — and the panel is honest about it.** "Cancel" /
+  "Abort current run" sets the abort flag, which is observed between tasks and inside
+  the LLM stream; when it bites you get `status: aborted` with a partial commit. With a
+  fast local model a whole run can finish in 1–2 s, so a click can land after the last
+  checkpoint and the run completes normally — that is *correct* (the work was already
+  done), not a lost click. The panel reflects this truthfully: while aborting it shows
+  "Abort requested…", and if the run finished first it states "the run finished before
+  the abort took effect — nothing was aborted" rather than freezing on a spinner. There
+  is deliberately no mechanism to throw away already-completed work.
 
 ## License
 
