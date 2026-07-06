@@ -23,7 +23,7 @@ function drive(state: RunState, events: RunEvent[]): RunState {
 }
 
 const okResult = (o: Partial<RunResult> = {}): RunResult => ({
-  runId: "r1", status: "ok", commitSha: "abcdef1234567890", writes: 1, durationS: 12, errorTask: null, errorKind: null, ...o,
+  runId: "r1", status: "ok", undoable: true, writes: 1, durationS: 12, errorTask: null, errorKind: null, ...o,
 });
 
 describe("reduceRun", () => {
@@ -153,7 +153,7 @@ describe("buildPanelViewModel — abort honesty (§3)", () => {
 
 describe("buildPanelViewModel — history body", () => {
   const latest: RunSummary = {
-    teamName: "Task triage", status: "ok", runId: "r9", commitSha: "abcdef1234567890",
+    teamName: "Task triage", status: "ok", runId: "r9", undoable: true,
     when: 900, writes: 3, durationS: 7, errorKind: null,
   };
 
@@ -163,13 +163,13 @@ describe("buildPanelViewModel — history body", () => {
     expect(vm.body.kind === "history" && vm.body.latest).toBeNull();
   });
 
-  it("shows the latest run summary (with team name, files count, commit) and a per-crew list", () => {
+  it("shows the latest run summary (with team name, files count, undoable) and a per-crew list", () => {
     const vm = buildPanelViewModel({ navState: "history", runState: { kind: "idle" }, teams, latest, nowMs: 1000 });
     expect(vm.body.kind).toBe("history");
     if (vm.body.kind === "history") {
       expect(vm.body.latest?.teamName).toBe("Task triage");
       expect(vm.body.latest?.filesText).toContain("3");
-      expect(vm.body.latest?.commitText).toContain("abcdef1");
+      expect(vm.body.latest?.undoable).toBe(true);
       // Only crews that have run appear; task-triage has a lastRun, daily-briefing does not.
       expect(vm.body.crews).toHaveLength(1);
       expect(vm.body.crews[0]?.teamId).toBe("task-triage");

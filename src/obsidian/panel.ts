@@ -177,15 +177,17 @@ export class RunPanelView extends ItemView {
         files.createEl("a", { cls: "internal-link", text: path, attr: { href: path } });
       }
     }
-    if (s.commitText !== null) card.createDiv({ cls: "vault-crews-summary-commit", text: s.commitText });
     card.createDiv({ cls: "vault-crews-summary-duration", text: s.durationText });
     if (s.abortNote !== null) card.createDiv({ cls: "vault-crews-summary-abort", text: s.abortNote });
 
     const actions = card.createDiv({ cls: "vault-crews-summary-actions" });
     const primary = actions.createEl("button", { cls: "mod-cta", text: s.primaryLabel });
     primary.addEventListener("click", () => { this.host.openLog(); });
-    const undo = actions.createEl("button", { cls: "vault-crews-undo", text: s.undoLabel });
-    undo.addEventListener("click", () => { this.host.undoLastRun(); });
+    // Undo nur, wenn der Lauf etwas geschrieben hat (Snapshot vorhanden).
+    if (s.undoable) {
+      const undo = actions.createEl("button", { cls: "vault-crews-undo", text: s.undoLabel });
+      undo.addEventListener("click", () => { this.host.undoLastRun(); });
+    }
 
     const nextRow = card.createDiv({ cls: "vault-crews-next-action" });
     nextRow.createSpan({ cls: "vault-crews-next-action-label", text: s.nextActionLabel });

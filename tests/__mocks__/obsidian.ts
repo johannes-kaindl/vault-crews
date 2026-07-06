@@ -600,6 +600,7 @@ export function makeFakeApp(): any {
     fileManager: {
       processFrontMatter: fn().mockResolvedValue(undefined),
       generateMarkdownLink: fn().mockReturnValue(""),
+      trashFile: fn().mockResolvedValue(undefined),
     },
     keymap: {},
   };

@@ -10,6 +10,8 @@ export interface VaultPort {
 	exists(path: string): Promise<boolean>;
 	mkdir(path: string): Promise<void>;
 	patchFrontmatter(path: string, set: Record<string, string | number | null>, remove: string[]): Promise<void>;
+	/** Datei in den Obsidian-Papierkorb verschieben (fileManager.trashFile) — nie Hard-Delete. */
+	trash(path: string): Promise<void>;
 }
 
 export interface MetadataPort {
@@ -56,19 +58,32 @@ export interface JsonTransport {
 	postJson(url: string, body: unknown): Promise<unknown>;
 }
 
-export interface GitStatusInfo {
-	isRepo: boolean;
-	inMergeOrRebase: boolean;
-	hasIndexLock: boolean;
-	headSha: string | null;
-	dirty: boolean;
+// ── Snapshot-Undo (Design-Spec 2026-07-06 §4): git-freies Sicherheitsnetz über die
+//    Obsidian-Adapter-API. buildUndoPlan (undo-plan.ts) rechnet damit; AdapterSnapshotStore
+//    (obsidian/) implementiert den Store. ──────────────────────────────────────────────
+export interface SnapshotEntry {
+	path: string;
+	existedBefore: boolean;
+	preHash: string | null;   // fnv1a des Pre-Image (null gdw. !existedBefore)
+	postHash: string | null;  // fnv1a des Post-Run-Inhalts (finalize; null nach Crash)
+	blob: string | null;      // Blob-Dateiname (null gdw. !existedBefore)
 }
-export interface CommitPlan { message: string; paths: string[]; }
-export interface GitPort {
-	status(): Promise<GitStatusInfo>;
-	applyPlan(plan: CommitPlan): Promise<string>;
-	revert(sha: string): Promise<{ ok: boolean; conflictPaths: string[] }>;
-	restorePaths(sha: string, paths: string[]): Promise<void>;
+export interface SnapshotManifest {
+	runId: string;
+	teamId: string;
+	createdAt: number;
+	entries: SnapshotEntry[];
+}
+export interface SnapshotStore {
+	/** Pre-Image erfassen; first-write-wins (no-op, wenn Pfad im Lauf schon erfasst).
+	 *  Persistiert Blob + Manifest write-ahead. */
+	capture(runId: string, teamId: string, createdAt: number, path: string, existedBefore: boolean, preContent: string | null): Promise<void>;
+	/** Post-Run-Hashes nachtragen + Retention auf keepLast Läufe prunen. */
+	finalize(runId: string, postHashes: Record<string, string>, keepLast: number): Promise<void>;
+	load(runId: string): Promise<SnapshotManifest | null>;
+	readBlob(runId: string, blob: string): Promise<string>;
+	discard(runId: string): Promise<void>;
+	list(): Promise<string[]>;
 }
 
 export type RunEvent =

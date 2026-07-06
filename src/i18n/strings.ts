@@ -53,6 +53,9 @@ export const EN: Record<string, string> = {
   "settings.safety.wallClockMinutes.name": "Wall-clock limit (minutes)",
   "settings.safety.wallClockMinutes.desc":
     "Plugin-wide maximum runtime for a single run. The run is aborted once this is exceeded, regardless of the team file.",
+  "settings.safety.undoHistoryDepth.name": "Undo history depth",
+  "settings.safety.undoHistoryDepth.desc":
+    "How many recent runs keep an undo snapshot. Older snapshots are pruned automatically. Snapshots live in a hidden plugin folder, not in your notes.",
 
   // --- Settings — Advanced -------------------------------------------------
   "settings.advanced.heading": "Advanced",
@@ -101,18 +104,17 @@ export const EN: Record<string, string> = {
   "notice.errorKind.aborted": "The run was aborted.",
   "notice.errorKind.io": "A file operation failed unexpectedly.",
 
-  // --- Undo confirmation modal (Spec §6.1: Team, Zeitpunkt, Commit, Dateien) --
+  // --- Undo confirmation modal (Snapshot-Undo: Team, Zeitpunkt, Dateien) ------
   "undo.title": "Undo last run?",
   "undo.field.team": "Team",
   "undo.field.time": "Time",
-  "undo.field.commit": "Commit",
   "undo.field.files": "Files",
-  "undo.warnDiscard": "These files revert to their pre-run state — later unsaved edits to them are discarded.",
+  "undo.warnDiscard": "Changed notes revert to their pre-run state and notes the run created are moved to trash — later unsaved edits are discarded.",
+  "undo.warnConflict": "{0} file(s) were changed after the run — roll back anyway?",
   "undo.confirmButton": "Undo",
-  "notice.undo.ok": "Undo complete — reverted commit {0}.",
-  "notice.undo.conflict": "Undo failed — {0} file(s) have local changes.",
-  "notice.undo.restoreOffer": "Restore original files",
-  "notice.undo.restored": "Restored {0} file(s) to the state before the run.",
+  "undo.logMarker": "> [!warning] This run was undone.",
+  "notice.undo.ok": "Undo complete — restored {0} file(s) to the state before the run.",
+  "notice.undo.failed": "Undo failed — no changes were made.",
 
   // --- Run-panel vocabulary (Spec §6.2, Task 17) ---------------------------
   "panel.header.idle": "Crews",
@@ -141,7 +143,6 @@ export const EN: Record<string, string> = {
   "panel.idle.run": "Run",
   "panel.idle.never": "Never run",
   "panel.done.filesWritten": "{0} file(s) written",
-  "panel.done.commit": "Commit {0}",
   "panel.done.duration": "{0}s",
   "panel.relative.justNow": "Just now",
   "panel.relative.minutesAgo": "{0}m ago",
@@ -164,7 +165,7 @@ export const EN: Record<string, string> = {
 
   // --- Crash-recovery modal (Spec §7 "Obsidian-Crash mid-run", Task 17) ----
   "recovery.title": "Recover interrupted run",
-  "recovery.finish": "Finish orphaned run (commit partial state)",
+  "recovery.finish": "Finish orphaned run (keep partial changes)",
   "recovery.explain":
     "Obsidian closed unexpectedly during a run of “{0}”. Finishing commits everything written so far, so nothing is lost.",
 };
@@ -212,6 +213,9 @@ export const DE: Record<string, string> = {
   "settings.safety.wallClockMinutes.name": "Zeitlimit (Minuten)",
   "settings.safety.wallClockMinutes.desc":
     "Plugin-weite Höchstlaufzeit für einen einzelnen Lauf. Der Lauf wird abgebrochen, sobald sie überschritten ist — unabhängig von der Team-Datei.",
+  "settings.safety.undoHistoryDepth.name": "Undo-Verlauf-Tiefe",
+  "settings.safety.undoHistoryDepth.desc":
+    "Wie viele der letzten Läufe einen Undo-Snapshot behalten. Ältere werden automatisch geprunt. Snapshots liegen in einem versteckten Plugin-Ordner, nicht in deinen Notizen.",
 
   // --- Settings — Advanced -------------------------------------------------
   "settings.advanced.heading": "Erweitert",
@@ -259,18 +263,17 @@ export const DE: Record<string, string> = {
   "notice.errorKind.aborted": "Der Lauf wurde abgebrochen.",
   "notice.errorKind.io": "Eine Dateioperation ist unerwartet fehlgeschlagen.",
 
-  // --- Undo-Bestätigungs-Modal (Spec §6.1: Team, Zeitpunkt, Commit, Dateien) --
+  // --- Undo-Bestätigungs-Modal (Snapshot-Undo: Team, Zeitpunkt, Dateien) ------
   "undo.title": "Letzten Lauf rückgängig machen?",
   "undo.field.team": "Team",
   "undo.field.time": "Zeitpunkt",
-  "undo.field.commit": "Commit",
   "undo.field.files": "Dateien",
-  "undo.warnDiscard": "Diese Dateien werden auf den Stand vor dem Lauf zurückgesetzt — spätere ungespeicherte Änderungen daran gehen verloren.",
+  "undo.warnDiscard": "Geänderte Notizen werden auf den Stand vor dem Lauf zurückgesetzt und vom Lauf erzeugte Notizen in den Papierkorb verschoben — spätere ungespeicherte Änderungen gehen verloren.",
+  "undo.warnConflict": "{0} Datei(en) wurden nach dem Lauf geändert — trotzdem zurückrollen?",
   "undo.confirmButton": "Rückgängig machen",
-  "notice.undo.ok": "Rückgängig gemacht — Commit {0} zurückgesetzt.",
-  "notice.undo.conflict": "Rückgängig fehlgeschlagen — {0} Datei(en) wurden lokal geändert.",
-  "notice.undo.restoreOffer": "Ursprüngliche Dateien wiederherstellen",
-  "notice.undo.restored": "{0} Datei(en) auf den Stand vor dem Lauf zurückgesetzt.",
+  "undo.logMarker": "> [!warning] Dieser Lauf wurde rückgängig gemacht.",
+  "notice.undo.ok": "Rückgängig gemacht — {0} Datei(en) auf den Stand vor dem Lauf zurückgesetzt.",
+  "notice.undo.failed": "Rückgängig fehlgeschlagen — nichts geändert.",
 
   // --- Run-Panel-Vokabular (Spec §6.2, Task 17) ----------------------------
   "panel.header.idle": "Crews",
@@ -297,7 +300,6 @@ export const DE: Record<string, string> = {
   "panel.idle.run": "Ausführen",
   "panel.idle.never": "Noch nie gelaufen",
   "panel.done.filesWritten": "{0} Datei(en) geschrieben",
-  "panel.done.commit": "Commit {0}",
   "panel.done.duration": "{0}s",
   "panel.relative.justNow": "Gerade eben",
   "panel.relative.minutesAgo": "vor {0} Min.",
@@ -320,7 +322,7 @@ export const DE: Record<string, string> = {
 
   // --- Crash-Recovery-Modal (Spec §7 „Obsidian-Crash mid-run", Task 17) ----
   "recovery.title": "Unterbrochenen Lauf wiederherstellen",
-  "recovery.finish": "Verwaisten Lauf abschließen (Teilstand committen)",
+  "recovery.finish": "Verwaisten Lauf abschließen (Teilstand behalten)",
   "recovery.explain":
     "Obsidian wurde während eines Laufs von „{0}“ unerwartet beendet. Der Abschluss committet alles bisher Geschriebene, damit nichts verloren geht.",
 };

@@ -52,7 +52,7 @@ export interface RunSummary {
   teamName: string;
   status: RunStatus;
   runId: string;
-  commitSha: string | null;
+  undoable: boolean;
   when: number;
   writes: number;
   durationS: number;
@@ -138,10 +138,11 @@ export interface SummaryVM {
   heading: string;
   filesText: string;
   files: string[];
-  commitText: string | null;
   durationText: string;
   abortNote: string | null;
   primaryLabel: string;
+  /** Undo nur anbieten, wenn der Lauf etwas geschrieben hat (Snapshot existiert). */
+  undoable: boolean;
   undoLabel: string;
   nextActionLabel: string;
   nextActionText: string;
@@ -267,10 +268,10 @@ function summaryFromResult(result: RunResult, writes: string[], abortRequested: 
     heading: t(`panel.status.${result.status}`),
     filesText: t("panel.done.filesWritten", result.writes),
     files: writes,
-    commitText: result.commitSha === null ? null : t("panel.done.commit", shortSha(result.commitSha)),
     durationText: t("panel.done.duration", result.durationS),
     abortNote: abortNote(result.status, abortRequested),
     primaryLabel: result.status === "ok" ? t("panel.openLog") : t("panel.viewFailure"),
+    undoable: result.undoable,
     undoLabel: t("panel.undo"),
     nextActionLabel: t("panel.nextAction"),
     nextActionText: nextActionText(result.status, result.errorKind),
@@ -283,10 +284,10 @@ function summaryFromLastRun(s: RunSummary): SummaryVM {
     heading: t(`panel.status.${s.status}`),
     filesText: t("panel.done.filesWritten", s.writes),
     files: [],
-    commitText: s.commitSha === null ? null : t("panel.done.commit", shortSha(s.commitSha)),
     durationText: t("panel.done.duration", s.durationS),
     abortNote: null,
     primaryLabel: s.status === "ok" ? t("panel.openLog") : t("panel.viewFailure"),
+    undoable: s.undoable,
     undoLabel: t("panel.undo"),
     nextActionLabel: t("panel.nextAction"),
     nextActionText: nextActionText(s.status, s.errorKind),
@@ -306,7 +307,6 @@ function nextActionText(status: RunStatus, errorKind: ErrorKind | null): string 
   return status === "ok" ? t("panel.nextAction.ok") : t("panel.nextAction.partial");
 }
 
-function shortSha(sha: string): string { return sha.slice(0, 7); }
 
 export function formatRelative(nowMs: number, whenMs: number): string {
   const diffS = Math.max(0, Math.round((nowMs - whenMs) / 1000));

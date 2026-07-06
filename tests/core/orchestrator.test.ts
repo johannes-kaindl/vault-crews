@@ -1,13 +1,13 @@
 // tests/core/orchestrator.test.ts
 import { describe, expect, it } from 'vitest';
 import { executeRun, type RunDeps } from '../../src/core/orchestrator';
-import type { CommitPlan, LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, RunEvent } from '../../src/core/ports';
+import type { LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, RunEvent } from '../../src/core/ports';
 import type { RunLimits } from '../../src/core/types';
 import { expandTarget } from '../../src/core/paths';
 import { InMemoryVaultPort, FixtureMetadataPort } from '../helpers/in-memory-vault';
 import { FakeClock } from '../helpers/fake-clock';
 import { RecorderReporter } from '../helpers/recorder-reporter';
-import { RecorderGitPort } from '../helpers/recorder-git';
+import { FakeSnapshotStore, FinalizeFailsSnapshotStore } from '../helpers/fake-snapshot';
 import { ScriptLlmClient, type ScriptedCall } from '../helpers/script-llm';
 
 const START_MS = 1_700_000_000_000;
@@ -26,7 +26,7 @@ function baseSettings(overrides: Partial<Settings> = {}): Settings {
   return {
     crewRoot: '_crews', defaultModel: 'test-model', configDir: '.obsidian',
     endpoints: ['http://localhost:1234'], deniedEndpoints: [],
-    limits: LIMITS, ...overrides,
+    limits: LIMITS, undoHistoryDepth: 15, ...overrides,
   };
 }
 
@@ -51,7 +51,7 @@ interface HarnessOpts {
   files?: Record<string, string>;
   agents?: Record<string, { fm: Record<string, unknown>; body: string }>;
   llm?: LlmClient;
-  git?: RecorderGitPort;
+  snapshot?: FakeSnapshotStore;
   clock?: FakeClock;
   abort?: AbortSignal;
   settings?: Partial<Settings>;
@@ -63,7 +63,7 @@ interface Harness {
   meta: FixtureMetadataPort;
   clock: FakeClock;
   reporter: RecorderReporter;
-  git: RecorderGitPort;
+  snapshot: FakeSnapshotStore;
   llm: LlmClient;
   deps: RunDeps;
   teamPath: string;
@@ -91,12 +91,12 @@ async function harness(opts: HarnessOpts = {}): Promise<Harness> {
 
   const clock = opts.clock ?? new FakeClock(START_MS);
   const reporter = new RecorderReporter();
-  const git = opts.git ?? new RecorderGitPort();
+  const snapshot = opts.snapshot ?? new FakeSnapshotStore();
   const llm = opts.llm ?? new ScriptLlmClient([{ content: TRIAGE_OK }]);
   const abort = opts.abort ?? new AbortController().signal;
 
-  const deps: RunDeps = { vault, meta, llm, git, clock, reporter, settings: baseSettings(opts.settings), abort };
-  return { vault, meta, clock, reporter, git, llm, deps, teamPath };
+  const deps: RunDeps = { vault, meta, llm, snapshot, clock, reporter, settings: baseSettings(opts.settings), abort };
+  return { vault, meta, clock, reporter, snapshot, llm, deps, teamPath };
 }
 
 /** Non-token event types (token events are frequent and asserted separately). */
@@ -128,17 +128,6 @@ class ClockAdvancingLlm implements LlmClient {
   }
 }
 
-/** GitPort double for M9 (commit()-failure resilience): status() behaves like
- *  RecorderGitPort, applyPlan() always rejects — models a git commit that fails
- *  after writes were already applied to the vault. */
-class ApplyPlanFailsGitPort extends RecorderGitPort {
-  override async applyPlan(plan: CommitPlan): Promise<string> {
-    this.plans.push(plan);
-    this.log.push('applyPlan:reject');
-    throw new Error('git commit failed: pre-commit hook rejected');
-  }
-}
-
 class AbortMidStreamLlm implements LlmClient {
   async ping(): Promise<boolean> { return true; }
   setBase(): void { /* single-endpoint test double: no-op */ }
@@ -158,13 +147,13 @@ describe('executeRun — ok (happy triage path)', () => {
 
     expect(result.status).toBe('ok');
     expect(result.errorKind).toBeNull();
-    expect(result.commitSha).toBe('sha-1');
+    expect(result.undoable).toBe(true);
     expect(result.writes).toBe(1);
     expect(result.runId).toMatch(/^\d{4}-\d{2}-\d{2}-\d{4}-task-triage$/);
 
-    // git: exactly one status (preflight) + one applyPlan (committing)
-    expect(h.git.log).toEqual(['status', 'applyPlan:sha-1']);
-    expect(h.git.plans[0]?.paths).toContain('10_Aufgaben/a.md');
+    // Snapshot: der geänderte Pfad wurde vor dem Write erfasst + der Lauf finalisiert.
+    expect(h.snapshot.finalized).toEqual([result.runId]);
+    expect(h.snapshot.paths(result.runId)).toContain('10_Aufgaben/a.md');
 
     // the note was patched (no slug table → literal value)
     expect(await h.vault.read('10_Aufgaben/a.md')).toContain('priority: mittel');
@@ -189,7 +178,7 @@ describe('executeRun — ok (happy triage path)', () => {
     const runDir = `_crews/runs/${result.runId}`;
     const runMd = await h.vault.read(`${runDir}/run.md`);
     expect(runMd).toContain('status: ok');
-    expect(runMd).toContain('commit: sha-1');
+    expect(runMd).toContain('undoable: true');
     const state = JSON.parse(await h.vault.read(`${runDir}/state.json`)) as { status: string; llmCalls: number };
     expect(state.status).toBe('ok');
     expect(state.llmCalls).toBe(1);
@@ -203,10 +192,10 @@ describe('executeRun — repair loop', () => {
     const result = await executeRun(h.teamPath, h.deps);
     expect(result.status).toBe('ok');
     expect(llm.calls).toHaveLength(2);
-    expect(h.git.log).toContain('applyPlan:sha-1');
+    expect(h.snapshot.finalized).toContain(result.runId);
   });
 
-  it('repair-fail-abort: invalid twice, on_error abort → failed invalid_output, partial commit', async () => {
+  it('repair-fail-abort: invalid twice, on_error abort → failed invalid_output, no writes → not undoable', async () => {
     const llm = new ScriptLlmClient([{ content: 'kaputt' }, { content: 'immer noch kaputt' }]);
     const h = await harness({ llm });
     const result = await executeRun(h.teamPath, h.deps);
@@ -214,9 +203,9 @@ describe('executeRun — repair loop', () => {
     expect(result.errorKind).toBe('invalid_output');
     expect(result.errorTask).toBe('analyse');
     expect(result.writes).toBe(0);
-    // always commits (protocol commit), even on failure
-    expect(h.git.log).toContain('applyPlan:sha-1');
-    expect(result.commitSha).toBe('sha-1');
+    // Kein Write → kein Snapshot, nichts rückgängig zu machen (Lauf ist trotzdem sicher geloggt).
+    expect(result.undoable).toBe(false);
+    expect(h.snapshot.finalized).toEqual([]);
   });
 
   it('repair-fail-skip: on_error skip → task skipped, downstream skipped, status partial', async () => {
@@ -234,7 +223,7 @@ describe('executeRun — repair loop', () => {
     expect(result.errorKind).toBeNull();
     expect(result.writes).toBe(0);
     expect(backbone(h.reporter)).toContain('runFinished');
-    expect(h.git.log).toContain('applyPlan:sha-1');
+    expect(result.undoable).toBe(false);
     const runDir = `_crews/runs/${result.runId}`;
     const state = JSON.parse(await h.vault.read(`${runDir}/state.json`)) as { tasks: { taskId: string; status: string }[] };
     expect(state.tasks.map((t) => t.status)).toEqual(['ok', 'skipped', 'skipped']);
@@ -249,7 +238,7 @@ describe('executeRun — llm call errors', () => {
     expect(result.status).toBe('failed');
     expect(result.errorKind).toBe('timeout');
     expect(result.errorTask).toBe('analyse');
-    expect(h.git.log).toContain('applyPlan:sha-1');
+    expect(result.undoable).toBe(false);
   });
 
   it('stall → failed with errorKind stalled', async () => {
@@ -278,7 +267,7 @@ describe('executeRun — abort + watchdog', () => {
     expect(result.status).toBe('aborted');
     expect(result.errorKind).toBe('aborted');
     expect(result.errorTask).toBe('analyse');
-    expect(h.git.log).toContain('applyPlan:sha-1');
+    expect(result.undoable).toBe(false);
     expect(h.reporter.events.some((e) => e.type === 'token')).toBe(true);
   });
 
@@ -293,12 +282,12 @@ describe('executeRun — abort + watchdog', () => {
     expect(result.status).toBe('aborted');
     expect(result.errorKind).toBe('aborted');
     expect(result.errorTask).toBe('apply');
-    expect(h.git.log).toContain('applyPlan:sha-1');
+    expect(result.undoable).toBe(false);
   });
 });
 
 describe('executeRun — executor failures', () => {
-  it('write_limit: too many patches → failed write_limit, partial writes committed', async () => {
+  it('write_limit: too many patches → failed write_limit, partial writes snapshotted', async () => {
     const llm = new ScriptLlmClient([{
       content: '{"items":[{"path":"10_Aufgaben/a.md","set":{"priority":"mittel"}},{"path":"10_Aufgaben/b.md","set":{"priority":"hoch"}}]}',
     }]);
@@ -309,7 +298,9 @@ describe('executeRun — executor failures', () => {
     expect(result.errorKind).toBe('write_limit');
     expect(result.errorTask).toBe('apply');
     expect(result.writes).toBe(1);
-    expect(h.git.log).toContain('applyPlan:sha-1');
+    // Der eine erlaubte Write wurde snapshottet → undo-bar, obwohl der Lauf fehlschlug.
+    expect(result.undoable).toBe(true);
+    expect(h.snapshot.finalized).toContain(result.runId);
   });
 
   it('consistency: >50% actions rejected → failed consistency, no writes', async () => {
@@ -325,41 +316,18 @@ describe('executeRun — executor failures', () => {
     expect(result.status).toBe('failed');
     expect(result.errorKind).toBe('consistency');
     expect(result.writes).toBe(0);
-    expect(h.git.log).toContain('applyPlan:sha-1');
+    expect(result.undoable).toBe(false);
   });
 });
 
 describe('executeRun — preflight refusals', () => {
-  it('git-refused: not a repo → refused git_refused, NO commit, run.md written', async () => {
-    const git = new RecorderGitPort();
-    git.statusInfo = { isRepo: false, inMergeOrRebase: false, hasIndexLock: false, headSha: null, dirty: false };
-    const h = await harness({ git });
-    const result = await executeRun(h.teamPath, h.deps);
-    expect(result.status).toBe('refused');
-    expect(result.errorKind).toBe('git_refused');
-    expect(result.commitSha).toBeNull();
-    expect(h.git.log).toEqual(['status']); // no applyPlan
-    const runDir = `_crews/runs/${result.runId}`;
-    expect(await h.vault.read(`${runDir}/run.md`)).toContain('status: refused');
-  });
-
-  it('git index.lock persists → refused git_refused after 4 status polls (3×2s retry)', async () => {
-    const git = new RecorderGitPort();
-    git.statusInfo = { isRepo: true, inMergeOrRebase: false, hasIndexLock: true, headSha: 'base', dirty: false };
-    const clock = new FakeClock(START_MS);
-    const h = await harness({ git, clock });
-    const result = await runToCompletion(executeRun(h.teamPath, h.deps), clock);
-    expect(result.status).toBe('refused');
-    expect(result.errorKind).toBe('git_refused');
-    expect(h.git.log.filter((x) => x === 'status')).toHaveLength(4);
-  });
-
-  it('endpoint unreachable (no candidates) → refused endpoint_unreachable, git untouched', async () => {
+  it('endpoint unreachable (no candidates) → refused endpoint_unreachable, no snapshot', async () => {
     const h = await harness({ settings: { endpoints: [] } });
     const result = await executeRun(h.teamPath, h.deps);
     expect(result.status).toBe('refused');
     expect(result.errorKind).toBe('endpoint_unreachable');
-    expect(h.git.log).toEqual([]); // refused before git check
+    expect(result.undoable).toBe(false);
+    expect(h.snapshot.finalized).toEqual([]);
   });
 
   it('model missing → refused model_missing', async () => {
@@ -367,7 +335,7 @@ describe('executeRun — preflight refusals', () => {
     const result = await executeRun(h.teamPath, h.deps);
     expect(result.status).toBe('refused');
     expect(result.errorKind).toBe('model_missing');
-    expect(h.git.log).toEqual([]);
+    expect(h.snapshot.finalized).toEqual([]);
   });
 
   it('crew invalid (unknown agent) → refused crew_invalid, nothing executed', async () => {
@@ -382,7 +350,7 @@ describe('executeRun — preflight refusals', () => {
     const result = await executeRun(h.teamPath, h.deps);
     expect(result.status).toBe('refused');
     expect(result.errorKind).toBe('crew_invalid');
-    expect(h.git.log).toEqual([]);
+    expect(h.snapshot.finalized).toEqual([]);
   });
 });
 
@@ -416,7 +384,7 @@ describe('executeRun — endpoint failover + preflight crash-safety (review C1)'
 
     expect(result.status).toBe('refused');
     expect(result.errorKind).toBe('endpoint_unreachable');
-    expect(h.git.log).toEqual([]); // refused before git check, same as other endpoint refusals
+    expect(h.snapshot.finalized).toEqual([]); // refused before any write, no snapshot
     // proves finishRefused's log path ran (not an uncaught throw bypassing run.md/lock)
     const runDir = `_crews/runs/${result.runId}`;
     expect(await h.vault.read(`${runDir}/run.md`)).toContain('status: refused');
@@ -439,7 +407,7 @@ describe('executeRun — run lock', () => {
     const h = await harness({ seedLock });
     const result = await executeRun(h.teamPath, h.deps);
     expect(result.status).toBe('refused');
-    expect(h.git.log).not.toContain('applyPlan:sha-1');
+    expect(h.snapshot.finalized).toEqual([]);
   });
 
   it('lock-cycle: a run completes (releaseLock runs) → a SECOND executeRun right after is not refused by a stuck lock (acquire→release→re-acquire, end to end)', async () => {
@@ -461,7 +429,6 @@ describe('executeRun — run lock', () => {
 
     expect(second.status).not.toBe('refused');
     expect(second.errorKind).not.toBe('io');
-    expect(second.errorKind).not.toBe('git_refused');
   });
 });
 
@@ -493,7 +460,7 @@ describe('executeRun — target threading (briefing-v1 → section.replace)', ()
     const daily = await h.vault.read(dailyPath);
     expect(daily).toContain('## Heute');
     expect(daily).toContain('<!-- crew:task-triage -->');
-    expect(h.git.plans[0]?.paths).toContain(dailyPath);
+    expect(h.snapshot.paths(result.runId)).toContain(dailyPath);
   });
 });
 
@@ -511,13 +478,12 @@ describe('executeRun — raw-output artifacts on validation failure (V1 §2.4/§
     expect(await h.vault.read(`${runDir}/artifacts/analyse-2.txt`)).toBe('immer noch kaputt');
 
     // artifacts are plugin-internal run output, not an LLM vault write: no writes happened,
-    // so they cannot have inflated the write register / max_writes.
+    // so they cannot have inflated the write register / max_writes — und werden NICHT
+    // gesnapshottet (der preWrite-Hook feuert nur für Executor-Writes, nicht für Artefakte).
     expect(result.writes).toBe(0);
-    const paths = h.git.plans[0]?.paths ?? [];
-    expect(paths).not.toContain(`${runDir}/artifacts/analyse-1.txt`);
-    expect(paths).not.toContain(`${runDir}/artifacts/analyse-2.txt`);
-    // the runDir directory pathspec still stages artifacts/ for the commit automatically.
-    expect(paths).toContain(runDir);
+    expect(result.undoable).toBe(false);
+    expect(h.snapshot.paths(result.runId)).not.toContain(`${runDir}/artifacts/analyse-1.txt`);
+    expect(h.snapshot.finalized).toEqual([]); // writes 0 → finalize nie aufgerufen
   });
 
   it('primary invalid, repair valid → only the primary raw output is saved (no -2 artifact)', async () => {
@@ -542,26 +508,25 @@ describe('executeRun — raw-output artifacts on validation failure (V1 §2.4/§
   });
 });
 
-describe('executeRun — commit()-failure resilience (M9)', () => {
-  it('git.applyPlan rejects after writes were applied → resolves (never throws), errorKind io, protocolFailure task recorded, run.md/state.json reflect the real final status + writes', async () => {
-    const git = new ApplyPlanFailsGitPort();
-    const h = await harness({ git });
+describe('executeRun — snapshot-finalize-failure resilience (M9)', () => {
+  it('snapshot.finalize rejects after writes were applied → resolves (never throws), errorKind io, protocolFailure task recorded, run.md/state.json reflect the real final status + writes', async () => {
+    const snapshot = new FinalizeFailsSnapshotStore();
+    const h = await harness({ snapshot });
 
     // Awaiting directly (no try/catch) already proves executeRun resolves rather than rejects.
     const result = await executeRun(h.teamPath, h.deps);
 
-    expect(result.status).toBe('ok');        // finalStatus() was computed before the commit attempt
-    expect(result.commitSha).toBeNull();      // applyPlan threw before a sha could be assigned
+    expect(result.status).toBe('ok');        // finalStatus() was computed before the finalize attempt
     expect(result.errorKind).toBe('io');
     expect(result.writes).toBe(1);            // the actual vault write already happened and is not undone
+    expect(result.undoable).toBe(true);       // Writes existieren → undo-bar (Pre-Images sind write-ahead da)
     expect(await h.vault.read('10_Aufgaben/a.md')).toContain('priority: mittel');
-    expect(h.git.log).toContain('applyPlan:reject');
+    expect(h.snapshot.log).toContain(`finalize:reject:${result.runId}`);
 
     const runDir = `_crews/runs/${result.runId}`;
     const runMd = await h.vault.read(`${runDir}/run.md`);
     expect(runMd).toContain('status: ok');
     expect(runMd).toContain('error_kind: io');
-    expect(runMd).not.toContain('commit:');
 
     const state = JSON.parse(await h.vault.read(`${runDir}/state.json`)) as {
       status: string;
@@ -577,19 +542,23 @@ describe('executeRun — commit()-failure resilience (M9)', () => {
     expect(protocolTask).toBeDefined();
     expect(protocolTask?.status).toBe('failed');
     expect(protocolTask?.kind).toBe('collector');
-    expect(protocolTask?.error?.message).toContain('Commit fehlgeschlagen');
+    expect(protocolTask?.error?.message).toContain('Snapshot-Finalize fehlgeschlagen');
   });
 
-  it('commit failure preserves an already-set errorKind rather than overwriting it with io', async () => {
-    const git = new ApplyPlanFailsGitPort();
-    const llm = new ScriptLlmClient([{ error: 'timeout' }]);
-    const h = await harness({ git, llm });
+  it('finalize failure preserves an already-set errorKind rather than overwriting it with io', async () => {
+    // write_limit-Lauf: EIN Write (→ finalize läuft) mit bereits gesetztem errorKind.
+    const snapshot = new FinalizeFailsSnapshotStore();
+    const llm = new ScriptLlmClient([{
+      content: '{"items":[{"path":"10_Aufgaben/a.md","set":{"priority":"mittel"}},{"path":"10_Aufgaben/b.md","set":{"priority":"hoch"}}]}',
+    }]);
+    const teamFm = triageTeamFm({ limits: { max_writes: 1 } });
+    const h = await harness({ snapshot, llm, teamFm, files: { '10_Aufgaben/a.md': TASK_NOTE, '10_Aufgaben/b.md': TASK_NOTE } });
 
     const result = await executeRun(h.teamPath, h.deps);
 
     expect(result.status).toBe('failed');
-    expect(result.errorKind).toBe('timeout');    // the pre-existing kind wins, not clobbered by the commit-io path
-    expect(result.commitSha).toBeNull();
+    expect(result.errorKind).toBe('write_limit');    // the pre-existing kind wins, not clobbered by the finalize-io path
+    expect(result.writes).toBe(1);
 
     const runDir = `_crews/runs/${result.runId}`;
     const state = JSON.parse(await h.vault.read(`${runDir}/state.json`)) as {

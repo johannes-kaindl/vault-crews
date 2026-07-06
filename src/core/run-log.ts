@@ -14,6 +14,12 @@ function iso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
+/** Undo-bar = terminaler Lauf, der etwas geschrieben hat (Snapshot existiert). Während
+ *  eines laufenden `running`-Zustands noch nicht anbieten — der Lauf kann noch scheitern. */
+function isUndoable(state: RunState): boolean {
+  return state.status !== 'running' && state.writeRegister.length > 0;
+}
+
 function firstLine(s: string): string {
   return s.split('\n')[0] ?? '';
 }
@@ -22,7 +28,7 @@ function frontmatterLines(state: RunState): string[] {
   const lines: string[] = ['crew-kind: run', `team: ${state.teamId}`, `started: ${iso(state.startedAt)}`];
   if (state.endedAt !== null) lines.push(`ended: ${iso(state.endedAt)}`);
   lines.push(`status: ${state.status}`);
-  if (state.commitSha !== null) lines.push(`commit: ${state.commitSha}`);
+  if (isUndoable(state)) lines.push('undoable: true');
   lines.push(`writes: ${state.writeRegister.length}`, `llm_calls: ${state.llmCalls}`);
   if (state.endedAt !== null) lines.push(`duration_s: ${Math.round((state.endedAt - state.startedAt) / 1000)}`);
   lines.push(`model: ${state.model}`);
@@ -52,7 +58,7 @@ function taskSection(rec: TaskRecord): string[] {
 export function buildRunMd(state: RunState): string {
   const parts: string[] = ['---', ...frontmatterLines(state), '---', '', `# Run ${state.runId}`];
   for (const rec of state.tasks) parts.push('', ...taskSection(rec));
-  if (state.commitSha !== null) parts.push('', `Commit: ${state.commitSha} — Undo: git revert ${state.commitSha}`);
+  if (isUndoable(state)) parts.push('', 'Rückgängig: über das Vault-Crews-Panel (Verlauf → Rückgängig).');
   return `${parts.join('\n')}\n`;
 }
 

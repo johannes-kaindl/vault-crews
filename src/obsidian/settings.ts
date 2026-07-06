@@ -15,6 +15,7 @@ export interface PluginSettings {
   wallClockMinutes: number;
   callTimeoutS: number;
   stallTimeoutS: number;
+  undoHistoryDepth: number;
   verboseLogging: boolean;
 }
 
@@ -27,6 +28,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   wallClockMinutes: 10,
   callTimeoutS: 300,
   stallTimeoutS: 60,
+  undoHistoryDepth: 15,
   verboseLogging: false,
 };
 
@@ -180,6 +182,17 @@ export class SettingsTab extends PluginSettingTab {
       .addText((c) =>
         c.setValue(String(this.host.settings.wallClockMinutes)).onChange(async (v) => {
           this.host.settings.wallClockMinutes = parseIntSafe(v, this.host.settings.wallClockMinutes);
+          await this.host.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName(t("settings.safety.undoHistoryDepth.name"))
+      .setDesc(t("settings.safety.undoHistoryDepth.desc"))
+      .addText((c) =>
+        c.setValue(String(this.host.settings.undoHistoryDepth)).onChange(async (v) => {
+          // Mindestens 1 aufheben (0 würde jeden Snapshot sofort wegprunen).
+          this.host.settings.undoHistoryDepth = Math.max(1, parseIntSafe(v, this.host.settings.undoHistoryDepth));
           await this.host.saveSettings();
         }),
       );
