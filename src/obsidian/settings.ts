@@ -15,6 +15,7 @@ export interface PluginSettings {
   wallClockMinutes: number;
   callTimeoutS: number;
   stallTimeoutS: number;
+  undoHistoryDepth: number;
   verboseLogging: boolean;
 }
 
@@ -27,6 +28,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   wallClockMinutes: 10,
   callTimeoutS: 300,
   stallTimeoutS: 60,
+  undoHistoryDepth: 15,
   verboseLogging: false,
 };
 

@@ -105,8 +105,6 @@ export interface RunState {
 	status: RunStatus | 'running';
 	startedAt: number;
 	endedAt: number | null;
-	baseSha: string | null;
-	commitSha: string | null;
 	model: string;
 	contextLength: number | null;
 	writeRegister: string[];
@@ -118,7 +116,7 @@ export interface RunState {
 export interface RunResult {
 	runId: string;
 	status: RunStatus;
-	commitSha: string | null;
+	undoable: boolean;
 	writes: number;
 	durationS: number;
 	errorTask: string | null;

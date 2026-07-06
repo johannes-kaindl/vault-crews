@@ -84,6 +84,7 @@ describe("DEFAULT_SETTINGS", () => {
       wallClockMinutes: 10,
       callTimeoutS: 300,
       stallTimeoutS: 60,
+      undoHistoryDepth: 15,
       verboseLogging: false,
     });
   });

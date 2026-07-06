@@ -52,7 +52,7 @@ function driveEvents(view: RunPanelView, events: RunEvent[]): void {
 }
 
 const okResult = (o: Partial<RunResult> = {}): RunResult => ({
-  runId: "r1", status: "ok", commitSha: "abcdef1234567890", writes: 1, durationS: 12, errorTask: null, errorKind: null, ...o,
+  runId: "r1", status: "ok", undoable: true, writes: 1, durationS: 12, errorTask: null, errorKind: null, ...o,
 });
 
 describe("RunPanelView — identity & shell", () => {
@@ -197,13 +197,12 @@ describe("RunPanelView — done state", () => {
     const links = findAll(view.contentEl, (e) => e.tagName === "A");
     expect(links.map((l) => l.getAttribute("href"))).toEqual(["Inbox/foo.md"]);
     expect(findAll(view.contentEl, (e) => e.tagName === "BUTTON" && e.hasClass("mod-warning"))).toHaveLength(0);
-    expect(view.contentEl.textContent).toContain("Commit abcdef1");
   });
 
   it("failed renders one primary 'View failure'", () => {
     const host = makeHost();
     const view = new RunPanelView(makeLeaf(), host);
-    done(view, okResult({ status: "failed", errorKind: "io", commitSha: "sha1234", writes: 0 }));
+    done(view, okResult({ status: "failed", errorKind: "io", undoable: false, writes: 0 }));
     const primary = findAll(view.contentEl, (e) => e.tagName === "BUTTON" && e.hasClass("mod-cta"));
     expect(primary[0]?.textContent).toBe("View failure");
   });
@@ -233,7 +232,7 @@ describe("RunPanelView — done state", () => {
 
 describe("RunPanelView — history tab", () => {
   const latest: RunSummary = {
-    teamName: "Task triage", status: "ok", runId: "r9", commitSha: "abcdef1234567890",
+    teamName: "Task triage", status: "ok", runId: "r9", undoable: true,
     when: 0, writes: 3, durationS: 7, errorKind: null,
   };
   const teams: PanelTeam[] = [
@@ -252,7 +251,7 @@ describe("RunPanelView — history tab", () => {
     (historyTab as unknown as HTMLElement).click();
 
     expect(view.contentEl.textContent).toContain("Task triage");
-    expect(view.contentEl.textContent).toContain("Commit abcdef1");
+    expect(buttons(view.contentEl, "Undo")).toHaveLength(1); // undoable → Rückgängig-Button
 
     const [row] = findAll(view.contentEl, (e) => e.hasClass("vault-crews-history-row"));
     row?.click();

@@ -4,10 +4,10 @@
  *  (`src/obsidian/example-assets.ts`, byte-identisch zu `assets/examples/**`,
  *  s. `tests/obsidian/install-examples.test.ts`) end-to-end durch den echten
  *  `executeRun` — mit denselben Test-Doubles wie `tests/core/orchestrator.test.ts`
- *  (InMemoryVaultPort/FixtureMetadataPort, ScriptLlmClient, RecorderGitPort,
- *  FakeClock, RecorderReporter) — und vergleicht drei Artefakte byte-exakt gegen
- *  inline golden values: (1) die gepatchte Daily Note, (2) run.md, (3) den am
- *  RecorderGitPort aufgezeichneten CommitPlan.
+ *  (InMemoryVaultPort/FixtureMetadataPort, ScriptLlmClient, FakeSnapshotStore,
+ *  FakeClock, RecorderReporter) — und vergleicht zwei Artefakte byte-exakt gegen
+ *  inline golden values ((1) die gepatchte Daily Note, (2) run.md) und prüft
+ *  (3) den am FakeSnapshotStore erfassten Undo-Snapshot.
  *
  *  Normalisierung (s. Report .superpowers/sdd/task-19-report.md): `{{today}}`
  *  (paths.ts:expandTarget) und der Lauf-`runId` (orchestrator.ts:formatRunId)
@@ -44,7 +44,7 @@ import type { RunLimits } from '../../src/core/types';
 import { BRIEFING_AUTOR_AGENT, DAILY_BRIEFING_TEAM } from '../../src/obsidian/example-assets';
 import { FakeClock } from '../helpers/fake-clock';
 import { FixtureMetadataPort, InMemoryVaultPort } from '../helpers/in-memory-vault';
-import { RecorderGitPort } from '../helpers/recorder-git';
+import { FakeSnapshotStore } from '../helpers/fake-snapshot';
 import { RecorderReporter } from '../helpers/recorder-reporter';
 import { ScriptLlmClient } from '../helpers/script-llm';
 
@@ -127,7 +127,7 @@ describe('Golden-Run: ausgelieferte Daily-Briefing-Crew, end-to-end', () => {
 		await vault.create(dailyPath, EXISTING_DAILY);
 
 		const reporter = new RecorderReporter();
-		const git = new RecorderGitPort();
+		const snapshot = new FakeSnapshotStore();
 		const llm = new ScriptLlmClient([{ content: BRIEFING_LLM_OUTPUT }], 8192);
 
 		const settings: RunDeps['settings'] = {
@@ -137,9 +137,10 @@ describe('Golden-Run: ausgelieferte Daily-Briefing-Crew, end-to-end', () => {
 			endpoints: ['http://localhost:1234'],
 			deniedEndpoints: [],
 			limits: LIMITS,
+			undoHistoryDepth: 15,
 		};
 		const deps: RunDeps = {
-			vault, meta, llm, git, clock, reporter, settings,
+			vault, meta, llm, snapshot, clock, reporter, settings,
 			abort: new AbortController().signal,
 		};
 
@@ -150,7 +151,7 @@ describe('Golden-Run: ausgelieferte Daily-Briefing-Crew, end-to-end', () => {
 		expect(result.errorKind).toBeNull();
 		expect(result.errorTask).toBeNull();
 		expect(result.writes).toBe(1);
-		expect(result.commitSha).toBe('sha-1');
+		expect(result.undoable).toBe(true);
 		expect(result.runId).toMatch(/^\d{4}-\d{2}-\d{2}-\d{4}-daily-briefing$/);
 		expect(llm.calls).toHaveLength(1); // kein Repair nötig — Modell liefert gültiges briefing-v1 auf Anhieb
 		// runStarted…runFinished-Rahmen, genau ein taskStarted/taskFinished-Paar pro Task.
@@ -179,13 +180,9 @@ describe('Golden-Run: ausgelieferte Daily-Briefing-Crew, end-to-end', () => {
 		expect(state.llmCalls).toBe(1);
 		expect(state.writeRegister).toEqual([dailyPath]);
 
-		// ---- (3) CommitPlan am RecorderGitPort, byte-exakt -----------------------
-		expect(git.log).toEqual(['status', 'applyPlan:sha-1']);
-		const plan = git.plans[0];
-		expect(plan).toBeDefined();
-		if (plan === undefined) return;
-		expect(normalize(plan.message, result.runId, todayMdName)).toBe(GOLDEN_COMMIT_MESSAGE);
-		expect(plan.paths.map((p) => normalize(p, result.runId, todayMdName))).toEqual(GOLDEN_COMMIT_PATHS);
+		// ---- (3) Snapshot: der geänderte Pfad wurde erfasst + der Lauf finalisiert ---
+		expect(snapshot.finalized).toEqual([result.runId]);
+		expect(snapshot.paths(result.runId)).toEqual([dailyPath]);
 	});
 });
 
@@ -221,7 +218,7 @@ team: daily-briefing
 started: 2023-11-14T22:13:20.000Z
 ended: 2023-11-14T22:13:20.000Z
 status: ok
-commit: sha-1
+undoable: true
 writes: 1
 llm_calls: 1
 duration_s: 0
@@ -323,17 +320,5 @@ model: test-model
 
 - ✓ section.replace 30_Chronos/10_Tage/<TODAY>.md
 
-Commit: sha-1 — Undo: git revert sha-1
+Rückgängig: über das Vault-Crews-Panel (Verlauf → Rückgängig).
 `;
-
-const GOLDEN_COMMIT_MESSAGE = `crew(daily-briefing): run <RUN_ID> — ok, 1 Dateien
-
-- 30_Chronos/10_Tage/<TODAY>.md
-Run: _crews/runs/<RUN_ID>/run.md
-
-Crew-Run: <RUN_ID>`;
-
-const GOLDEN_COMMIT_PATHS: string[] = [
-	'30_Chronos/10_Tage/<TODAY>.md',
-	'_crews/runs/<RUN_ID>',
-];

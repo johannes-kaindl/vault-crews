@@ -15,9 +15,8 @@
 // abgeschlossenem state.json wäre nur ein schlecht getimter Read (kein Crash), und
 // "running" mit released Lock kann laut dieser Schreibreihenfolge nicht vorkommen.
 import { Modal, type App } from "obsidian";
-import type { GitPort, VaultPort } from "../core/ports";
+import type { VaultPort } from "../core/ports";
 import type { RunState } from "../core/types";
-import { buildCommitPlan } from "../core/git-plan";
 import { buildRunMd, buildStateJson } from "../core/run-log";
 import { t } from "../vendor/kit/i18n";
 
@@ -86,13 +85,14 @@ export async function checkOrphanedRun(vault: VaultPort, crewRoot: string): Prom
 
 export interface RecoveryDeps {
   vault: VaultPort;
-  git: GitPort;
 }
 
 /**
  * Zeigt den verwaisten Lauf und genau EINE empfohlene Handlung: „Verwaisten Lauf
- * abschließen (Teilstand committen)". Deps (vault/git) sind injiziert — kein Zugriff
- * auf ein Plugin-Singleton (main.ts, nächster Task, konstruiert diese Klasse selbst).
+ * abschließen". Deps (vault) sind injiziert — kein Zugriff auf ein Plugin-Singleton
+ * (main.ts konstruiert diese Klasse selbst). Kein git mehr: die Partial-Writes des
+ * abgestürzten Laufs liegen im Vault, ihr write-ahead-Snapshot ebenfalls → der Lauf
+ * ist über den normalen Undo-Pfad rollbar (postHash=null → ohne Konfliktwarnung).
  */
 export class RecoveryModal extends Modal {
   constructor(
@@ -131,26 +131,16 @@ export class RecoveryModal extends Modal {
    *  bliebe für immer "running" hängen, weil es nie neu geschrieben würde.
    */
   async finish(): Promise<void> {
-    const { vault, git } = this.deps;
+    const { vault } = this.deps;
     const { runDir, state } = this.orphan;
 
     const finished: RunState = { ...state, status: "aborted", endedAt: state.endedAt ?? Date.now() };
 
-    // Wirkung + Protokoll VOR dem Commit auf die Platte bringen.
+    // Log final schreiben (Status aborted) + Lock freigeben. Kein Commit — die bereits
+    // im Vault liegenden Partial-Writes bleiben stehen und sind über den Snapshot undo-bar.
     await vault.modify(`${runDir}/run.md`, buildRunMd(finished));
     await vault.modify(`${runDir}/state.json`, buildStateJson(finished));
-
-    // Lock liegt außerhalb runDir, geht also nie in den Commit — Freigabe-Zeitpunkt
-    // relativ zum Commit ist unkritisch, hier vor dem Commit (wie oben beschrieben).
     await vault.modify(lockPathFor(runDir), JSON.stringify({ active: false }));
-
-    const plan = buildCommitPlan(finished, runDir);
-    const commitSha = await git.applyPlan(plan);
-    finished.commitSha = commitSha;
-
-    // Post-Commit: SHA nur für Menschen in run.md nachtragen — bewusst uncommitted,
-    // exakt wie der zweite `persist()`-Aufruf in `orchestrator.commit()`.
-    await vault.modify(`${runDir}/run.md`, buildRunMd(finished));
 
     this.close();
   }

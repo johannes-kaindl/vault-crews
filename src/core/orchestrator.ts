@@ -10,12 +10,12 @@ import { buildPrompt } from './prompt-builder';
 import { BUILTIN_SCHEMAS } from './schemas';
 import { buildRepairPrompt, validateOutput } from './output-validator';
 import { executeActions, type ExecutorContext } from './action-executor';
-import { buildCommitPlan } from './git-plan';
 import { buildRunMd, buildStateJson } from './run-log';
+import { fnv1a } from './collectors';
 import { normalizeEndpoint, resolveActiveEndpoint } from '../vendor/kit/endpoint';
 import { LlmCallError } from './ports';
 import type {
-	ClockPort, GitPort, LlmClient, LlmMessage, LlmParams, LlmStreamResult, MetadataPort, RunReporter, VaultPort,
+	ClockPort, LlmClient, LlmMessage, LlmParams, LlmStreamResult, MetadataPort, RunReporter, SnapshotStore, VaultPort,
 } from './ports';
 import type {
 	Action, ActionsTaskDef, AgentDef, Artifact, CollectorTaskDef, ErrorKind, LlmTaskDef,
@@ -26,7 +26,7 @@ export interface RunDeps {
 	vault: VaultPort;
 	meta: MetadataPort;
 	llm: LlmClient;
-	git: GitPort;
+	snapshot: SnapshotStore;
 	clock: ClockPort;
 	reporter: RunReporter;
 	/** configDir: injiziert (Vault#configDir) für die Denylist — nicht im Skelett-RunDeps,
@@ -38,6 +38,7 @@ export interface RunDeps {
 		endpoints: string[];
 		deniedEndpoints: string[];
 		limits: RunLimits;
+		undoHistoryDepth: number;
 	};
 	abort: AbortSignal;
 }
@@ -45,8 +46,6 @@ export interface RunDeps {
 type TaskStatus = TaskRecord['status'];
 interface Refusal { kind: ErrorKind; message: string; }
 
-const INDEX_LOCK_RETRIES = 3;
-const INDEX_LOCK_WAIT_MS = 2000;
 const BUDGET_RESERVE = 0.15;
 const CONTEXT_FALLBACK = 8192;
 
@@ -73,7 +72,6 @@ class RunFsm {
 		this.state = {
 			runId: formatRunId(now, teamId), teamId, teamPath,
 			status: 'running', startedAt: now, endedAt: null,
-			baseSha: null, commitSha: null,
 			model: deps.settings.defaultModel, contextLength: null,
 			writeRegister: [], llmCalls: 0, tasks: [], errorTask: null, errorKind: null,
 		};
@@ -85,7 +83,7 @@ class RunFsm {
 
 		this.deps.reporter.emit({ type: 'runStarted', runId: this.state.runId, teamId: this.state.teamId });
 		await this.taskLoop();
-		await this.commit();
+		await this.finalize();
 
 		const result = this.result();
 		this.deps.reporter.emit({ type: 'runFinished', result });
@@ -98,7 +96,6 @@ class RunFsm {
 		return (
 			(await this.parseTeamAndAgents())
 			?? (await this.checkEndpointAndModel())
-			?? (await this.checkGit())
 			?? (await this.acquireLock())
 			?? (await this.openRun())
 		);
@@ -162,21 +159,6 @@ class RunFsm {
 		}
 		this.state.contextLength = this.modelCtx.get(this.deps.settings.defaultModel) ?? null;
 		return null;
-	}
-
-	private async checkGit(): Promise<Refusal | null> {
-		for (let attempt = 0; ; attempt++) {
-			const status = await this.deps.git.status();
-			if (!status.isRepo) return { kind: 'git_refused', message: 'Kein Git-Repository im Vault-Root' };
-			if (status.inMergeOrRebase) return { kind: 'git_refused', message: 'Merge/Rebase aktiv — erst abschließen' };
-			if (status.hasIndexLock) {
-				if (attempt >= INDEX_LOCK_RETRIES) return { kind: 'git_refused', message: 'index.lock bleibt bestehen (3 Versuche à 2 s)' };
-				await this.delay(INDEX_LOCK_WAIT_MS);
-				continue;
-			}
-			this.state.baseSha = status.headSha;
-			return null;
-		}
 	}
 
 	private async acquireLock(): Promise<Refusal | null> {
@@ -321,6 +303,13 @@ class RunFsm {
 			sources: inputs.flatMap((a) => a.files),
 			slugTables: mergeSlugTables(inputs),
 			denylist: this.denylist,
+			// Copy-on-Write: Pre-Image sichern, BEVOR der Executor schreibt (first-write-wins
+			// macht der Store). Ein Throw hier → Aktion failed, nie Write ohne Sicherheitsnetz.
+			preWrite: async (path) => {
+				const existed = await this.deps.vault.exists(path);
+				const pre = existed ? await this.deps.vault.read(path) : null;
+				await this.deps.snapshot.capture(this.state.runId, this.state.teamId, this.state.startedAt, path, existed, pre);
+			},
 		};
 		const { outcomes, writes, taskFailed } = await executeActions(actions, ctx, this.deps.vault);
 		rec.outcomes = outcomes;
@@ -337,21 +326,29 @@ class RunFsm {
 
 	// ── COMMITTING ─────────────────────────────────────────────────────────────
 
-	private async commit(): Promise<void> {
-		await this.releaseLock();                 // nie committen (Lock liegt außerhalb runDir)
+	private async finalize(): Promise<void> {
+		await this.releaseLock();                 // Lock liegt außerhalb runDir
 		this.state.status = this.finalStatus();
 		this.state.endedAt = this.deps.clock.now();
-		await this.persist();                      // run.md/state.json mit finalem Status → gehen in den Commit
+		await this.persist();                      // run.md/state.json mit finalem Status (undoable steht drin)
 
-		try {
-			const plan = buildCommitPlan(this.state, this.runDir());
-			this.state.commitSha = await this.deps.git.applyPlan(plan);
-		} catch (e) {
-			// Commit-Fehler ist nachgelagert; Wirkung ist schon im Vault. Protokollieren, nicht crashen.
-			if (this.state.errorKind === null) { this.state.errorKind = 'io'; }
-			this.state.tasks.push(protocolFailure(this.deps.clock.now(), 'io', `Commit fehlgeschlagen: ${errMsg(e)}`));
+		const written = this.uniqueWrites();
+		if (written.length > 0) {
+			// Post-Run-Hashes je geschriebenem Pfad für die Konflikt-Erkennung beim Undo
+			// (Note nach dem Lauf manuell editiert?). Ein seither entfernter Pfad → kein postHash.
+			const postHashes: Record<string, string> = {};
+			for (const p of written) {
+				try { postHashes[p] = fnv1a(await this.deps.vault.read(p)); } catch { /* seither entfernt */ }
+			}
+			try {
+				await this.deps.snapshot.finalize(this.state.runId, postHashes, this.deps.settings.undoHistoryDepth);
+			} catch (e) {
+				// Snapshot-Finalize ist nachgelagert; Wirkung ist im Vault. Protokollieren, nicht crashen.
+				if (this.state.errorKind === null) { this.state.errorKind = 'io'; }
+				this.state.tasks.push(protocolFailure(this.deps.clock.now(), 'io', `Snapshot-Finalize fehlgeschlagen: ${errMsg(e)}`));
+				await this.persist();
+			}
 		}
-		await this.persist();                      // Rewrite mit commit-SHA (post-commit, nur für den Menschen)
 	}
 
 	// ── Terminierung ────────────────────────────────────────────────────────
@@ -381,7 +378,7 @@ class RunFsm {
 		return {
 			runId: this.state.runId,
 			status,
-			commitSha: this.state.commitSha,
+			undoable: this.uniqueWrites().length > 0,
 			writes: this.uniqueWrites().length,
 			durationS: this.state.endedAt === null ? 0 : Math.round((this.state.endedAt - this.state.startedAt) / 1000),
 			errorTask: this.state.errorTask,
@@ -505,10 +502,6 @@ class RunFsm {
 		const dir = `${this.runDir()}/artifacts`;
 		try { await this.deps.vault.mkdir(dir); } catch { /* existiert bereits */ }
 		await this.writeFile(`${dir}/${taskId}-${attempt}.txt`, content);
-	}
-
-	private delay(ms: number): Promise<void> {
-		return new Promise((resolve) => { this.deps.clock.setTimeout(() => { resolve(); }, ms); });
 	}
 }
 

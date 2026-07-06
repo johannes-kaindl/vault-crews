@@ -9,7 +9,7 @@ function makeState(overrides: Partial<RunState> = {}): RunState {
     runId: '2026-07-02-0714-task-triage', teamId: 'task-triage',
     teamPath: '_crews/teams/task-triage.md', status: 'ok',
     startedAt: 1_780_000_000_000, endedAt: 1_780_000_060_000,
-    baseSha: 'aaa1111', commitSha: null, model: 'qwen/qwen3.6-35b-a3b', contextLength: 32_768,
+    model: 'qwen/qwen3.6-35b-a3b', contextLength: 32_768,
     writeRegister: ['10_Aufgaben/b.md', '10_Aufgaben/a.md'], llmCalls: 2, tasks: [],
     errorTask: null, errorKind: null, ...overrides,
   };

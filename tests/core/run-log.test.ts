@@ -18,7 +18,7 @@ const patchB: Action = { type: 'frontmatter.patch', path: '10_Aufgaben/b.md', se
 const okState: RunState = {
   runId: '2026-07-02-0714-task-triage', teamId: 'task-triage',
   teamPath: '_crews/teams/task-triage.md', status: 'ok',
-  startedAt: started, endedAt: started + 83_000, baseSha: 'aaa1111', commitSha: 'abc1234',
+  startedAt: started, endedAt: started + 83_000,
   model: 'qwen/qwen3.6-35b-a3b', contextLength: 32_768,
   writeRegister: ['10_Aufgaben/a.md', '10_Aufgaben/b.md'], llmCalls: 2,
   tasks: [
@@ -48,7 +48,7 @@ describe('buildRunMd', () => {
       'started: 2026-07-02T05:14:00.000Z',
       'ended: 2026-07-02T05:15:23.000Z',
       'status: ok',
-      'commit: abc1234',
+      'undoable: true',
       'writes: 2',
       'llm_calls: 2',
       'duration_s: 83',
@@ -94,18 +94,18 @@ describe('buildRunMd', () => {
       '- ✓ frontmatter.patch 10_Aufgaben/a.md',
       "- ↷ frontmatter.patch 10_Aufgaben/b.md — Wert 'dringend' für 'priority' nicht in enumerierter Wertemenge",
       '',
-      'Commit: abc1234 — Undo: git revert abc1234',
+      'Rückgängig: über das Vault-Crews-Panel (Verlauf → Rückgängig).',
     ].join('\n') + '\n';
     expect(buildRunMd(okState)).toBe(expected);
   });
 
   it('läuft inkrementell: running-Zustand lässt null-Felder und Undo-Zeile weg', () => {
-    const md = buildRunMd({ ...okState, status: 'running', endedAt: null, commitSha: null, tasks: [] });
+    const md = buildRunMd({ ...okState, status: 'running', endedAt: null, tasks: [] });
     expect(md).toContain('status: running');
     expect(md).not.toContain('ended:');
-    expect(md).not.toContain('commit:');
+    expect(md).not.toContain('undoable:');
     expect(md).not.toContain('duration_s:');
-    expect(md).not.toContain('Undo:');
+    expect(md).not.toContain('Rückgängig:');
   });
 
   it('failed-Lauf trägt error_task/error_kind und Ein-Zeilen-Fehler im Task-Abschnitt', () => {
