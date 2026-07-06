@@ -5,7 +5,8 @@ Conventions for AI assistants working in this repo.
 ## What this is
 Obsidian-Plugin **Vault Crews** (`vault-crews`): autonome lokale LLM-Agenten-Teams
 (LM Studio, `localhost:1234`) laufen als deterministische Pipelines auf dem Vault —
-collector → llm → actions, constrain-then-verify, ein Git-Commit pro Lauf.
+collector → llm → actions, constrain-then-verify, ein git-freies Snapshot-Undo pro Lauf
+(write-ahead Pre-Images über die Vault-/Adapter-API, kein `child_process`/`node:fs`).
 
 ## Verbindliche Quellen (in dieser Reihenfolge lesen)
 1. Spec: `docs/superpowers/specs/2026-07-02-vault-crews-design.md`
@@ -53,8 +54,8 @@ collector → llm → actions, constrain-then-verify, ein Git-Commit pro Lauf.
 ## Smoke checklist
 Manueller Release-Smoke-Test (Spec §8: „Kein Live-LLM in CI" — dies ist das
 Gate danach). Läuft **immer** gegen einen Wegwerf-Klon, **nie** gegen den
-echten Vault — `scripts/clone-vault.sh` schreibt/löscht nie im Quell-Vault,
-der Klon ist ein eigenständiges Git-Repo.
+echten Vault — `scripts/clone-vault.sh` schreibt/löscht nie im Quell-Vault.
+Der Klon muss **kein git-Repo** mehr sein (Snapshot-Undo, 0.2.0).
 
 1. `scripts/clone-vault.sh` (Default: Pallas → `/tmp/vault-crews-smoke`;
    Quelle/Ziel optional als Argumente).
@@ -64,11 +65,13 @@ der Klon ist ein eigenständiges Git-Repo.
 3. Command **„Install example crews"** ausführen.
 4. **BEIDE** Beispiel-Crews laufen lassen (Task-Triage **und** Daily-Briefing —
    nicht nur eine).
-5. Git-Commit pro Lauf verifizieren (`git log` im Klon zeigt genau einen
-   `crew(...)`-Commit pro Lauf) **und** „Undo last run" testen (Revert sauber,
-   Dateien wieder im Vorzustand).
-6. „Abort current run" **mitten in einem Lauf** auslösen — Partial-Commit
-   entsteht, run.md zeigt `status: aborted` + `error_kind: aborted`.
+5. **Undo** testen (Panel → Verlauf → Rückgängig): geänderte Notes wieder im
+   Vorzustand, vom Lauf erzeugte Notes im Papierkorb. Der Snapshot-Ordner
+   `.obsidian/plugins/vault-crews/undo/<runId>/` existiert nach dem Lauf und
+   verschwindet nach dem Undo. Zusatz: eine Note **nach** dem Lauf manuell
+   editieren, dann Undo → Konfliktwarnung erscheint.
+6. „Abort current run" **mitten in einem Lauf** auslösen — Partial bleibt im
+   Vault (undo-bar), run.md zeigt `status: aborted` + `error_kind: aborted`.
 
 ## V1 limitations
 Kurzfassung von README.md „V1 limitations" — bei Rückfragen dort das Detail:

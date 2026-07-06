@@ -2,8 +2,8 @@
 
 Autonome lokale LLM-Agenten-Teams („Crews") auf deinem Obsidian-Vault laufen lassen,
 angetrieben von einem lokalen [LM Studio](https://lmstudio.ai/)-Modell — mit einer
-deterministischen, orchestrator-geführten Pipeline und einem Git-Sicherheitsnetz unter
-jedem Lauf.
+deterministischen, orchestrator-geführten Pipeline und einem Snapshot-Sicherheitsnetz
+unter jedem Lauf.
 
 Lokale Modelle werden als schwache, unzuverlässige Ausführende behandelt. Der
 Orchestrator entscheidet *Ablauf, Pfade und Schreibzugriffe*; das Modell entscheidet
@@ -21,9 +21,11 @@ wird erst eingeschränkt, dann verifiziert, bevor sie den Vault berührt.
   gegen ein eingebautes, versioniertes Schema validiert und quellgebunden — ein Modell
   kann keinen Pfad und keinen Enum-Wert erfinden, der nicht schon im gesammelten
   Material existierte. Ein Reparatur-Durchlauf (ein Retry) fängt kaputtes JSON ab.
-- **Ein Git-Commit pro Lauf, Ein-Klick-Undo.** Jeder Lauf — erfolgreich, teilweise oder
-  fehlgeschlagen — endet in genau einem Commit, der nur die berührten Dateien plus das
-  eigene Lauf-Log umfasst. Undo ist `git revert <commit>`, an einen Button gebunden.
+- **Git-freies Snapshot-Undo, ein Klick.** Bevor ein Lauf eine Notiz berührt, wird ihr
+  Vor-Lauf-Stand (Copy-on-Write) in einen versteckten Speicher über die
+  Obsidian-Vault-/Adapter-API gesnapshottet. „Undo last run" stellt geänderte Notizen
+  aus dem Snapshot wieder her und verschiebt vom Lauf erzeugte Notizen in den Papierkorb
+  — kein Git-Repository nötig, funktioniert in jedem Vault.
 - **Zwei mitgelieferte Beispiel-Crews**, per Befehl installierbar: **Task-Triage**
   (prüft Backlog-TaskNotes, schlägt Metadaten-Korrekturen nur auf weichen Feldern vor)
   und **Daily-Briefing** (fasst offene Aufgaben in die heutige Tagesnotiz).
@@ -32,22 +34,22 @@ wird erst eingeschränkt, dann verifiziert, bevor sie den Vault berührt.
   `state.json`, plus ein mitgeliefertes `runs.base`-Dashboard.
 - **Crash-Recovery.** Ein verwaister Lock + eine noch als `running` markierte
   `state.json` werden beim nächsten Plugin-Laden erkannt, mit einer empfohlenen Aktion:
-  den Teilstand committen.
+  den Lauf abschließen (Teilstand behalten — über den write-ahead-Snapshot undo-bar).
 - Englische/deutsche Oberfläche.
 
 ## Voraussetzungen
 
-- **Nur Desktop** (`isDesktopOnly: true` — das Plugin ruft `git` via `child_process`
-  auf und spricht mit einem lokalen HTTP-Server; beides ist auf Mobil nicht verfügbar).
+- **Nur Desktop** (`isDesktopOnly: true` — das Plugin ist um ein lokal gehostetes,
+  über HTTP bereitgestelltes LLM herum gebaut, ein Desktop-Workflow).
 - **[LM Studio](https://lmstudio.ai/)** lokal laufend, mit seiner OpenAI-kompatiblen
   API standardmäßig auf `http://localhost:1234` (konfigurierbar, mit Fallback-Liste).
 - **CORS in LM Studio aktivieren** (LM Studio → Settings → Developer → *Enable CORS*).
   Das Plugin streamt die Modellausgabe via `XMLHttpRequest` aus Obsidians
   Renderer-Prozess (`requestUrl` kann nicht streamen); ohne CORS lehnt LM Studio diese
   Anfragen ab und jeder Lauf verweigert im Preflight mit „endpoint-unreachable".
-- **Ein Git-Repository im Vault-Root — Pflicht, kein Opt-out.** PREFLIGHT verweigert den
-  Lauf komplett, wenn der Vault-Root kein Git-Repo ist. Der Commit-pro-Lauf **ist** das
-  Undo-Netz; es gibt keinen Codepfad, der ohne ihn in den Vault schreibt.
+- **Kein Git-Repository nötig.** Das Undo-Netz ist ein Pro-Lauf-Snapshot über die
+  Obsidian-Vault-/Adapter-API und funktioniert in jedem Vault — mit oder ohne Git.
+  (Frühere Versionen verlangten ein Git-Repo; ab 0.2.0 entfällt diese Pflicht.)
 
 ## Installation
 
@@ -76,14 +78,19 @@ frei editierbar.
   überschreibt jede Whitelist bedingungslos; Crews können ihre eigene Konfiguration nie
   lesen oder schreiben (kein Self-Triggering, kein Prompt-Injection-Pfad in die
   Plugin-Steuerung).
-- **Ein Git-Commit pro Lauf, immer — Ein-Klick-Undo.** Auch ein fehlgeschlagener oder
-  abgebrochener Lauf mit Teilschreibungen committet (als partial markiert). **Undo last
-  run** dreht den Commit des Laufs mit einem Klick zurück und zeigt vor der Bestätigung
-  genau, was rückgängig gemacht wird (Team, Zeit, Commit, Dateien).
+- **Ein Snapshot unter jedem Schreibzugriff — Ein-Klick-Undo.** Vor jedem Notiz-Write
+  wird der Vor-Lauf-Inhalt write-ahead in einen versteckten Pro-Lauf-Speicher (unter
+  `.obsidian/plugins/vault-crews/undo/`) erfasst. Auch ein fehlgeschlagener oder
+  abgebrochener Lauf mit Teilschreibungen bleibt vollständig undo-bar. **Undo last run**
+  stellt geänderte Notizen wieder her und verschiebt vom Lauf erzeugte in den Papierkorb
+  (nie Hard-Delete), zeigt vor der Bestätigung genau, was rückgängig gemacht wird (Team,
+  Zeit, Dateien), und warnt, wenn eine Notiz nach dem Lauf editiert wurde, statt sie
+  still zu überschreiben.
 - **Schreib- und Wanduhr-Limits.** `max_writes` pro Lauf (team-konfigurierbar, gedeckelt
   durch ein plugin-weites Maximum), ein hartes Pro-Notiz-Größenlimit, ein
   LLM-Call-Budget und ein Wanduhr-Watchdog (Standard 10 Minuten), der einen entlaufenen
-  Lauf mit Teil-Commit abbricht statt endlos zu laufen.
+  Lauf abbricht (dessen Teilschreibungen gesnapshottet und undo-bar bleiben) statt
+  endlos zu laufen.
 - **Konsistenz-Schwelle.** Werden mehr als 50 % der vorgeschlagenen Aktionen eines Tasks
   abgelehnt oder sind stale, scheitert der ganze Task, statt einen semantisch
   inkonsistenten Teilstand anzuwenden; unterhalb der Schwelle werden einzelne Aktionen
@@ -103,8 +110,9 @@ frei editierbar.
 - Port 8080 ist standardmäßig denylistet (oft von anderen lokalen Single-Consumer-
   Modellservern belegt) — ein Default-*Setting*, kein hartcodiertes Verhalten,
   änderbar.
-- `git`-Operationen laufen gegen dein lokales Vault-Repo via `child_process`; das Plugin
-  führt nie Netzwerk-Git-Operationen (fetch/push) aus.
+- Keine Shell-Ausführung und kein direkter Dateisystem-Zugriff: das Undo-Netz schreibt
+  seine Snapshots ausschließlich über die Obsidian-Vault-/Adapter-API, nie via
+  `child_process` oder `node:fs`.
 
 ## V1-Einschränkungen
 

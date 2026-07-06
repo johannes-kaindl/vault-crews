@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-07-07
+
+### Changed
+
+- **Git-free snapshot undo.** "Undo last run" no longer relies on the vault being a git
+  repository. Before a run writes a note, the plugin snapshots that note's pre-run state
+  (copy-on-write, write-ahead) into a hidden store under
+  `.obsidian/plugins/vault-crews/undo/<runId>/`, via the Obsidian vault/adapter API only.
+  Undo restores changed notes from the snapshot and moves run-created notes to the
+  Obsidian trash (never a hard delete). This works in **every** vault, not just git repos.
+- **Honest conflict warning.** If a note was edited after the run but before undo (detected
+  via content hash), the confirmation dialog warns before rolling it back — never a silent
+  overwrite.
+- **New setting "Undo history depth"** (default 15) controls how many recent runs keep an
+  undo snapshot; older snapshots are pruned automatically.
+
+### Removed
+
+- **All `child_process` and `node:fs` usage.** The git-backed undo (system `git commit` /
+  `git revert`) is gone, so the plugin no longer performs shell execution or direct
+  filesystem access — removing both Community-store review "Behavior" warnings. Vaults that
+  want a permanent versioned history can still run git themselves; the run logs
+  (`run.md`) remain the durable human-readable record.
+
 ## [0.1.0] — 2026-07-06
 
 ### Added

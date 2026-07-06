@@ -55,7 +55,7 @@ export const EN: Record<string, string> = {
     "Plugin-wide maximum runtime for a single run. The run is aborted once this is exceeded, regardless of the team file.",
   "settings.safety.undoHistoryDepth.name": "Undo history depth",
   "settings.safety.undoHistoryDepth.desc":
-    "How many recent runs keep an undo snapshot. Older snapshots are pruned. Snapshots live under .obsidian/plugins/vault-crews/undo/.",
+    "How many recent runs keep an undo snapshot. Older snapshots are pruned automatically. Snapshots live in a hidden plugin folder, not in your notes.",
 
   // --- Settings — Advanced -------------------------------------------------
   "settings.advanced.heading": "Advanced",
@@ -215,7 +215,7 @@ export const DE: Record<string, string> = {
     "Plugin-weite Höchstlaufzeit für einen einzelnen Lauf. Der Lauf wird abgebrochen, sobald sie überschritten ist — unabhängig von der Team-Datei.",
   "settings.safety.undoHistoryDepth.name": "Undo-Verlauf-Tiefe",
   "settings.safety.undoHistoryDepth.desc":
-    "Wie viele der letzten Läufe einen Undo-Snapshot behalten. Ältere werden geprunt. Snapshots liegen unter .obsidian/plugins/vault-crews/undo/.",
+    "Wie viele der letzten Läufe einen Undo-Snapshot behalten. Ältere werden automatisch geprunt. Snapshots liegen in einem versteckten Plugin-Ordner, nicht in deinen Notizen.",
 
   // --- Settings — Advanced -------------------------------------------------
   "settings.advanced.heading": "Erweitert",
