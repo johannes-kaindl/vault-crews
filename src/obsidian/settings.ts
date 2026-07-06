@@ -185,6 +185,17 @@ export class SettingsTab extends PluginSettingTab {
           await this.host.saveSettings();
         }),
       );
+
+    new Setting(containerEl)
+      .setName(t("settings.safety.undoHistoryDepth.name"))
+      .setDesc(t("settings.safety.undoHistoryDepth.desc"))
+      .addText((c) =>
+        c.setValue(String(this.host.settings.undoHistoryDepth)).onChange(async (v) => {
+          // Mindestens 1 aufheben (0 würde jeden Snapshot sofort wegprunen).
+          this.host.settings.undoHistoryDepth = Math.max(1, parseIntSafe(v, this.host.settings.undoHistoryDepth));
+          await this.host.saveSettings();
+        }),
+      );
   }
 
   private renderAdvanced(containerEl: HTMLElement): void {

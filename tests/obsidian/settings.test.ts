@@ -99,9 +99,9 @@ describe("SettingsTab.display()", () => {
     expect(() => tab.display()).not.toThrow();
 
     // Jede `new Setting(containerEl)` legt über containerEl.createDiv(...) ein Kind an
-    // (Mock-Semantik) — 4 Überschriften + 11 Felder (5 Connection, 3 Crews, 2 Safety, 4
-    // Advanced abzüglich der bereits gezählten Überschriften) = 15 Setting-Instanzen.
-    expect(tab.containerEl.children.length).toBe(15);
+    // (Mock-Semantik) — 4 Überschriften + 12 Felder (5 Connection, 3 Crews, 3 Safety inkl.
+    // Undo-Verlauf-Tiefe, 4 Advanced abzüglich der Überschriften) = 16 Setting-Instanzen.
+    expect(tab.containerEl.children.length).toBe(16);
   });
 
   it("re-rendering (repeated display() calls) clears the previous content first", () => {

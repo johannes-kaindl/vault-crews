@@ -53,6 +53,9 @@ export const EN: Record<string, string> = {
   "settings.safety.wallClockMinutes.name": "Wall-clock limit (minutes)",
   "settings.safety.wallClockMinutes.desc":
     "Plugin-wide maximum runtime for a single run. The run is aborted once this is exceeded, regardless of the team file.",
+  "settings.safety.undoHistoryDepth.name": "Undo history depth",
+  "settings.safety.undoHistoryDepth.desc":
+    "How many recent runs keep an undo snapshot. Older snapshots are pruned. Snapshots live under .obsidian/plugins/vault-crews/undo/.",
 
   // --- Settings — Advanced -------------------------------------------------
   "settings.advanced.heading": "Advanced",
@@ -210,6 +213,9 @@ export const DE: Record<string, string> = {
   "settings.safety.wallClockMinutes.name": "Zeitlimit (Minuten)",
   "settings.safety.wallClockMinutes.desc":
     "Plugin-weite Höchstlaufzeit für einen einzelnen Lauf. Der Lauf wird abgebrochen, sobald sie überschritten ist — unabhängig von der Team-Datei.",
+  "settings.safety.undoHistoryDepth.name": "Undo-Verlauf-Tiefe",
+  "settings.safety.undoHistoryDepth.desc":
+    "Wie viele der letzten Läufe einen Undo-Snapshot behalten. Ältere werden geprunt. Snapshots liegen unter .obsidian/plugins/vault-crews/undo/.",
 
   // --- Settings — Advanced -------------------------------------------------
   "settings.advanced.heading": "Erweitert",
