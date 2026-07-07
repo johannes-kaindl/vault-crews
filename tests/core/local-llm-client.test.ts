@@ -112,6 +112,30 @@ describe('LocalLlmClient.stream', () => {
 		expect(sse.lastBody.reasoning_effort).toBe('none');
 		expect(sse.lastBody.chat_template_kwargs).toEqual({ enable_thinking: false });
 	});
+});
+
+describe('LocalLlmClient thinking-Suppression', () => {
+	it('sendet reasoning_effort "none" + enable_thinking:false + reasoning_budget:0 bei thinking:off', async () => {
+		const { client, sse, clock } = make();
+		const params: LlmParams = { model: 'm', temperature: 0.1, maxTokens: 128, thinking: 'off' };
+		const p = client.stream([{ role: 'user', content: 'q' }], params, () => {}, new AbortController().signal);
+		await tickAsync(clock, 1);
+		sse.play(fixture('basic.sse'));
+		await p;
+		expect(sse.lastBody.reasoning_effort).toBe('none');
+		expect(sse.lastBody.chat_template_kwargs).toEqual({ enable_thinking: false });
+		expect(sse.lastBody.reasoning_budget).toBe(0);
+	});
+
+	it('sendet keine Suppress-Felder bei thinking:auto', async () => {
+		const { client, sse, clock } = make();
+		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
+		await tickAsync(clock, 1);
+		sse.play(fixture('basic.sse'));
+		await p;
+		expect(sse.lastBody.reasoning_effort).toBeUndefined();
+		expect(sse.lastBody.reasoning_budget).toBeUndefined();
+	});
 
 	it('Hard-Timeout ohne ersten Token → LlmCallError timeout (JIT-TTFB: Stall bleibt stumm)', async () => {
 		const { client, sse, clock } = make();

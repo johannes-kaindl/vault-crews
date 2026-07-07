@@ -6,7 +6,7 @@
 import { parseSSE } from '../vendor/kit/sse';
 import { ThinkSplitter } from '../vendor/kit/think';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
-import { parseLmStudioContext, parseOllamaContext } from './model-info';
+import { parseLmStudioContext, parseOllamaContext, suppressParams } from './model-info';
 import { LlmCallError } from './ports';
 import type {
 	ClockPort, JsonTransport, LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, SseTransport,
@@ -81,11 +81,8 @@ export class LocalLlmClient implements LlmClient {
 			temperature: params.temperature,
 			max_tokens: params.maxTokens,
 			stream: true,
+			...suppressParams(params.thinking === 'off'),
 		};
-		if (params.thinking === 'off') {
-			body.reasoning_effort = 'none';
-			body.chat_template_kwargs = { enable_thinking: false };
-		}
 
 		const ctrl = new AbortController();
 		const onCallerAbort = (): void => ctrl.abort();
