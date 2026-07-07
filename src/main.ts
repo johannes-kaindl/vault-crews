@@ -320,6 +320,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
 
   private onRunFinished(teamId: string, result: RunResult): void {
     this.showRunNotice(this.teamName(teamId), result);
+    if (result.alwaysOnThinker) new Notice(t("notice.run.alwaysOnThinker"));
     this.lastRuns[teamId] = {
       status: result.status,
       when: this.clock.now(),

@@ -107,6 +107,7 @@ export interface RunState {
 	endedAt: number | null;
 	model: string;
 	contextLength: number | null;
+	alwaysOnThinker: boolean;
 	writeRegister: string[];
 	llmCalls: number;
 	tasks: TaskRecord[];
@@ -121,6 +122,7 @@ export interface RunResult {
 	durationS: number;
 	errorTask: string | null;
 	errorKind: ErrorKind | null;
+	alwaysOnThinker: boolean;
 }
 
 export interface SlugTableData { toSlug: Record<string, string>; fromSlug: Record<string, string>; }

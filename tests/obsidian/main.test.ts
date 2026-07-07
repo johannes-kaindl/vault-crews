@@ -32,7 +32,7 @@ function makePlugin(): VaultCrewsPlugin {
 
 /** Reines Ergebnis-Objekt für den gemockten Lauf-Abschluss. */
 function okResult(): RunResult {
-  return { runId: "r1", status: "ok", undoable: false, writes: 0, durationS: 0, errorTask: null, errorKind: null };
+  return { runId: "r1", status: "ok", undoable: false, writes: 0, durationS: 0, errorTask: null, errorKind: null, alwaysOnThinker: false };
 }
 
 beforeEach(() => {

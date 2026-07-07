@@ -23,7 +23,7 @@ function drive(state: RunState, events: RunEvent[]): RunState {
 }
 
 const okResult = (o: Partial<RunResult> = {}): RunResult => ({
-  runId: "r1", status: "ok", undoable: true, writes: 1, durationS: 12, errorTask: null, errorKind: null, ...o,
+  runId: "r1", status: "ok", undoable: true, writes: 1, durationS: 12, errorTask: null, errorKind: null, alwaysOnThinker: false, ...o,
 });
 
 describe("reduceRun", () => {
