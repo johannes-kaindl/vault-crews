@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { LmStudioClient } from '../../src/core/lmstudio-client';
+import { LocalLlmClient } from '../../src/core/local-llm-client';
 import { LlmCallError } from '../../src/core/ports';
 import type { JsonTransport, LlmParams, SseTransport } from '../../src/core/ports';
 import { FakeClock } from '../helpers/fake-clock';
@@ -43,11 +43,11 @@ class FakeJson implements JsonTransport {
 	async postJson(): Promise<unknown> { return {}; }
 }
 
-function make(): { client: LmStudioClient; sse: FakeSse; json: FakeJson; clock: FakeClock } {
+function make(): { client: LocalLlmClient; sse: FakeSse; json: FakeJson; clock: FakeClock } {
 	const sse = new FakeSse();
 	const json = new FakeJson();
 	const clock = new FakeClock(1_000_000);
-	return { client: new LmStudioClient('http://localhost:1234', sse, json, clock, TIMEOUTS), sse, json, clock };
+	return { client: new LocalLlmClient('http://localhost:1234', sse, json, clock, TIMEOUTS), sse, json, clock };
 }
 
 const tickAsync = async (clock: FakeClock, ms: number): Promise<void> => {
@@ -56,7 +56,7 @@ const tickAsync = async (clock: FakeClock, ms: number): Promise<void> => {
 	await Promise.resolve();
 };
 
-describe('LmStudioClient.stream', () => {
+describe('LocalLlmClient.stream', () => {
 	it('akkumuliert content-Deltas und streamt Tokens (basic.sse)', async () => {
 		const { client, sse, clock } = make();
 		const tokens: string[] = [];
@@ -151,7 +151,7 @@ describe('LmStudioClient.stream', () => {
 	});
 });
 
-describe('LmStudioClient Metadaten', () => {
+describe('LocalLlmClient Metadaten', () => {
 	it('ping/listModels über /v1/models', async () => {
 		const { client, json } = make();
 		json.responses.set('http://localhost:1234/v1/models', { data: [{ id: 'a' }, { id: 'b' }] });

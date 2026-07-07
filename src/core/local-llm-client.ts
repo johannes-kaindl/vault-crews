@@ -15,7 +15,7 @@ const ERROR_BODY_CAP = 4096;
 
 interface Timeouts { callTimeoutMs: number; stallTimeoutMs: number; }
 
-export class LmStudioClient implements LlmClient {
+export class LocalLlmClient implements LlmClient {
 	private base: string;
 
 	constructor(

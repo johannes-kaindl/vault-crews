@@ -41,7 +41,7 @@ import { installExampleCrews } from "./obsidian/install-examples";
 import { ObsidianMetadataPort, ObsidianVaultPort } from "./obsidian/vault-port";
 import { RequestUrlJsonTransport, XhrSseTransport } from "./obsidian/transports";
 import { AdapterSnapshotStore } from "./obsidian/snapshot-store";
-import { LmStudioClient } from "./core/lmstudio-client";
+import { LocalLlmClient } from "./core/local-llm-client";
 import { executeRun, type RunDeps } from "./core/orchestrator";
 import { parseTeamDef } from "./core/crew-parser";
 import { buildDenylist } from "./core/paths";
@@ -188,7 +188,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
    *  nirgends mehr gelesen werden) für die gesamte Session eingefroren. */
   private buildLlmClient(): LlmClient {
     const base = normalizeEndpoint(this.settings.endpoints[0] ?? "http://localhost:1234");
-    return new LmStudioClient(
+    return new LocalLlmClient(
       base,
       new XhrSseTransport(),
       new RequestUrlJsonTransport(),
