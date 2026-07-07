@@ -18,6 +18,7 @@ interface Timeouts { callTimeoutMs: number; stallTimeoutMs: number; }
 
 export class LocalLlmClient implements LlmClient {
 	private base: string;
+	private streamRefused = false;
 
 	constructor(
 		base: string,
@@ -75,6 +76,8 @@ export class LocalLlmClient implements LlmClient {
 		onToken: (t: string) => void,
 		signal: AbortSignal,
 	): Promise<LlmStreamResult> {
+		if (this.streamRefused) return this.streamNonStreaming(messages, params, signal);
+
 		const body: Record<string, unknown> = {
 			model: params.model,
 			messages,
@@ -119,6 +122,7 @@ export class LocalLlmClient implements LlmClient {
 		};
 
 		let status: number;
+		let streamError: unknown = null;
 		try {
 			status = await this.sse.postStream(
 				`${this.base}/v1/chat/completions`,
@@ -136,10 +140,23 @@ export class LocalLlmClient implements LlmClient {
 				},
 				ctrl.signal,
 			);
+		} catch (e) {
+			streamError = e;
+			status = 0;
 		} finally {
 			this.clock.clearTimeout(hardTimer);
 			if (stallTimer !== null) this.clock.clearTimeout(stallTimer);
 			signal.removeEventListener('abort', onCallerAbort);
+		}
+
+		if (streamError !== null) {
+			const err = streamError instanceof Error ? streamError : new Error('Unbekannter Stream-Fehler');
+			if (err.name === 'AbortError') throw err;
+			if (err.name === 'StreamNetworkError') {
+				this.streamRefused = true;
+				return this.streamNonStreaming(messages, params, signal);
+			}
+			throw err; // unerwarteter Fehler — nicht schlucken
 		}
 
 		const tail = splitter.flush();
@@ -167,6 +184,40 @@ export class LocalLlmClient implements LlmClient {
 			throw new LlmCallError(`HTTP ${status}: ${rawBody.slice(0, 300)}`, 'http');
 		}
 		return { content, thinkTokens: thinkTokens(reasoningText), finishReason: 'stop' };
+	}
+
+	/** Non-Streaming-Fallback (CORS-frei via JsonTransport.postJson). Overflow wird aus
+	 *  dem Body-Text gesnifft — der HTTP-Status ist über postJson nicht sichtbar, wird
+	 *  hier aber (wie im Streaming-Pfad) auch nicht gebraucht. */
+	private async streamNonStreaming(
+		messages: LlmMessage[],
+		params: LlmParams,
+		signal: AbortSignal,
+	): Promise<LlmStreamResult> {
+		if (signal.aborted) return { content: '', thinkTokens: 0, finishReason: 'aborted' };
+		const body: Record<string, unknown> = {
+			model: params.model,
+			messages,
+			temperature: params.temperature,
+			max_tokens: params.maxTokens,
+			stream: false,
+			...suppressParams(params.thinking === 'off'),
+		};
+		const res = await this.json.postJson(`${this.base}/v1/chat/completions`, body);
+		if (signal.aborted) return { content: '', thinkTokens: 0, finishReason: 'aborted' };
+		const rawBody = JSON.stringify(res ?? {});
+		if (/context (length|window)|too many tokens/i.test(rawBody)) {
+			throw new LlmCallError('Kontextfenster überschritten (Non-Streaming)', 'overflow');
+		}
+		const choices = isRecord(res) && Array.isArray(res.choices) ? (res.choices as unknown[]) : [];
+		const choice = choices.length > 0 ? choices[0] : null;
+		const msg = isRecord(choice) && isRecord(choice.message) ? choice.message : null;
+		const content = msg && typeof msg.content === 'string' ? msg.content : null;
+		if (content === null) {
+			throw new LlmCallError(`Non-Streaming-Antwort ohne content: ${rawBody.slice(0, 300)}`, 'http');
+		}
+		const reasoning = msg && typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '';
+		return { content, thinkTokens: thinkTokens(reasoning), finishReason: 'stop' };
 	}
 }
 

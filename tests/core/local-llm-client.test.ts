@@ -15,6 +15,7 @@ class FakeSse implements SseTransport {
 	lastBody: Record<string, unknown> = {};
 	private onChunk: ((raw: string) => void) | null = null;
 	private resolve: ((status: number) => void) | null = null;
+	private reject: ((e: Error) => void) | null = null;
 	private status = 200;
 
 	postStream(url: string, body: unknown, onChunk: (raw: string) => void, signal: AbortSignal): Promise<number> {
@@ -22,10 +23,15 @@ class FakeSse implements SseTransport {
 		this.lastBody = body as Record<string, unknown>;
 		this.onChunk = onChunk;
 		signal.addEventListener('abort', () => this.resolve?.(this.status));
-		return new Promise((res) => { this.resolve = res; });
+		return new Promise((res, rej) => { this.resolve = res; this.reject = rej; });
 	}
 	emit(raw: string): void { this.onChunk?.(raw); }
 	end(status = 200): void { this.status = status; this.resolve?.(status); }
+	fail(name = 'StreamNetworkError'): void {
+		const e = new Error('refused');
+		e.name = name;
+		this.reject?.(e);
+	}
 	/** Fixture zeilenweise in 2er-Chunks emitten und Stream beenden. */
 	play(sse: string, status = 200): void {
 		const lines = sse.split('\n');
@@ -179,6 +185,42 @@ describe('LocalLlmClient thinking-Suppression', () => {
 		sse.emit('{"error": "this request exceeds the model context length of 8192 tokens"}');
 		sse.end(400);
 		await assertion;
+	});
+});
+
+describe('LocalLlmClient CORS-Fallback', () => {
+	it('fällt bei StreamNetworkError auf Non-Streaming (postJson) zurück', async () => {
+		const { client, sse, json } = make();
+		json.responses.set('http://localhost:1234/v1/chat/completions', {
+			choices: [{ message: { content: 'Hallo aus Fallback' }, finish_reason: 'stop' }],
+		});
+		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
+		await Promise.resolve();
+		sse.fail('StreamNetworkError');
+		const r = await p;
+		expect(r.content).toBe('Hallo aus Fallback');
+		expect(r.finishReason).toBe('stop');
+		expect(json.lastPostUrl).toBe('http://localhost:1234/v1/chat/completions');
+		expect((json.lastPostBody as { stream?: boolean }).stream).toBe(false);
+	});
+
+	it('propagiert AbortError statt zurückzufallen', async () => {
+		const { client, sse } = make();
+		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
+		await Promise.resolve();
+		sse.fail('AbortError');
+		await expect(p).rejects.toMatchObject({ name: 'AbortError' });
+	});
+
+	it('erkennt Context-Overflow im Fallback-Body', async () => {
+		const { client, sse, json } = make();
+		json.responses.set('http://localhost:1234/v1/chat/completions', {
+			error: { message: 'context length exceeded' },
+		});
+		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
+		await Promise.resolve();
+		sse.fail('StreamNetworkError');
+		await expect(p).rejects.toMatchObject({ kind: 'overflow' });
 	});
 });
 

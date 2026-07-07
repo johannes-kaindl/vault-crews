@@ -37,7 +37,11 @@ export class XhrSseTransport implements SseTransport {
       xhr.open("POST", url);
       xhr.setRequestHeader("Content-Type", "application/json");
       xhr.onprogress = (): void => pump();
-      xhr.onerror = (): void => reject(new Error(`vault-crews: Netzwerkfehler POST ${url}`));
+      xhr.onerror = (): void => {
+        const e = new Error(`vault-crews: Netzwerkfehler POST ${url}`);
+        e.name = "StreamNetworkError";
+        reject(e);
+      };
       xhr.onabort = (): void => reject(abortError());
       xhr.onload = (): void => {
         pump(); // Rest drainen, der ohne onprogress-Event ankam
