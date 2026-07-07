@@ -6,6 +6,7 @@
 import { parseSSE } from '../vendor/kit/sse';
 import { ThinkSplitter } from '../vendor/kit/think';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
+import { parseLmStudioContext, parseOllamaContext } from './model-info';
 import { LlmCallError } from './ports';
 import type {
 	ClockPort, JsonTransport, LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, SseTransport,
@@ -52,22 +53,20 @@ export class LocalLlmClient implements LlmClient {
 			.filter((id): id is string => id !== null);
 	}
 
-	/** Best-effort über LM Studios /api/v0/models: tatsächlich GELADENE Kontextlänge
-	 *  (loaded_context_length) vor konfigurierter (max_context_length). */
+	/** Best-effort Kontextlänge: erst LM Studios /api/v0/models, dann Ollamas
+	 *  POST /api/show. Wer antwortet, gewinnt; sonst contextLength = null. */
 	async modelInfo(model: string): Promise<ModelInfo | null> {
 		try {
-			const res = await this.json.getJson(`${this.base}/api/v0/models`);
-			if (!isRecord(res) || !Array.isArray(res.data)) return null;
-			for (const raw of res.data as unknown[]) {
-				if (!isRecord(raw) || raw.id !== model) continue;
-				const loaded = typeof raw.loaded_context_length === 'number' ? raw.loaded_context_length : null;
-				const max = typeof raw.max_context_length === 'number' ? raw.max_context_length : null;
-				return { id: model, contextLength: loaded ?? max };
-			}
-			return null;
-		} catch {
-			return null;
-		}
+			const lm = await this.json.getJson(`${this.base}/api/v0/models`);
+			const ctx = parseLmStudioContext(lm, model);
+			if (ctx) return { id: model, contextLength: ctx.loadedContextLength ?? ctx.maxContextLength ?? null };
+		} catch { /* nächste Sonde */ }
+		try {
+			const oll = await this.json.postJson(`${this.base}/api/show`, { model });
+			const ctx = parseOllamaContext(oll);
+			if (ctx) return { id: model, contextLength: ctx.maxContextLength ?? null };
+		} catch { /* aufgeben */ }
+		return { id: model, contextLength: null };
 	}
 
 	async stream(

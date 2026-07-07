@@ -36,11 +36,18 @@ class FakeSse implements SseTransport {
 
 class FakeJson implements JsonTransport {
 	responses = new Map<string, unknown>();
+	lastPostUrl = '';
+	lastPostBody: unknown = null;
 	async getJson(url: string): Promise<unknown> {
 		if (!this.responses.has(url)) throw new Error(`no fixture for ${url}`);
 		return this.responses.get(url);
 	}
-	async postJson(): Promise<unknown> { return {}; }
+	async postJson(url: string, body: unknown): Promise<unknown> {
+		this.lastPostUrl = url;
+		this.lastPostBody = body;
+		if (!this.responses.has(url)) return {};
+		return this.responses.get(url);
+	}
 }
 
 function make(): { client: LocalLlmClient; sse: FakeSse; json: FakeJson; clock: FakeClock } {
@@ -170,11 +177,37 @@ describe('LocalLlmClient Metadaten', () => {
 		});
 		expect(await client.modelInfo('m1')).toEqual({ id: 'm1', contextLength: 8192 });
 		expect(await client.modelInfo('m2')).toEqual({ id: 'm2', contextLength: 16_384 });
-		expect(await client.modelInfo('fehlt')).toBeNull();
+		expect(await client.modelInfo('fehlt')).toEqual({ id: 'fehlt', contextLength: null });
 	});
 
-	it('modelInfo liefert null, wenn /api/v0/models nicht verfügbar ist', async () => {
+	it('modelInfo liefert contextLength:null, wenn keine Sonde greift', async () => {
 		const { client } = make();
-		expect(await client.modelInfo('m1')).toBeNull();
+		expect(await client.modelInfo('m1')).toEqual({ id: 'm1', contextLength: null });
+	});
+});
+
+describe('LocalLlmClient.modelInfo', () => {
+	it('nimmt LM Studios loaded_context_length wenn /api/v0/models trifft', async () => {
+		const { client, json } = make();
+		json.responses.set('http://localhost:1234/api/v0/models', {
+			data: [{ id: 'qwen3-8b', max_context_length: 32768, loaded_context_length: 8192 }],
+		});
+		expect(await client.modelInfo('qwen3-8b')).toEqual({ id: 'qwen3-8b', contextLength: 8192 });
+	});
+
+	it('fällt auf Ollama /api/show zurück wenn LM Studio nichts liefert', async () => {
+		const { client, json } = make();
+		json.responses.set('http://localhost:1234/api/v0/models', { data: [] });
+		json.responses.set('http://localhost:1234/api/show', { model_info: { 'qwen3.context_length': 40960 } });
+		expect(await client.modelInfo('qwen3-8b')).toEqual({ id: 'qwen3-8b', contextLength: 40960 });
+		expect(json.lastPostUrl).toBe('http://localhost:1234/api/show');
+		expect(json.lastPostBody).toEqual({ model: 'qwen3-8b' });
+	});
+
+	it('gibt {contextLength:null} wenn keine Sonde greift', async () => {
+		const { client, json } = make();
+		json.responses.set('http://localhost:1234/api/v0/models', { data: [] });
+		json.responses.set('http://localhost:1234/api/show', {});
+		expect(await client.modelInfo('qwen3-8b')).toEqual({ id: 'qwen3-8b', contextLength: null });
 	});
 });
