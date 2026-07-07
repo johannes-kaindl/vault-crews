@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Ollama-Unterstützung ohne Provider-Setting: Kontextlängen-Sonde (`/api/show`),
+  provider-übergreifende Thinking-Suppression, CORS-Non-Stream-Fallback,
+  Always-on-Thinker-Erkennung (gpt-oss/harmony) mit run.md-Vermerk + Notice.
+
+### Changed
+
+- `LmStudioClient` → `LocalLlmClient` (provider-agnostischer Name).
+
 ## [0.2.0] — 2026-07-07
 
 ### Changed
