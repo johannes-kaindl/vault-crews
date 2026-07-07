@@ -186,9 +186,11 @@ export class LocalLlmClient implements LlmClient {
 		return { content, thinkTokens: thinkTokens(reasoningText), finishReason: 'stop' };
 	}
 
-	/** Non-Streaming-Fallback (CORS-frei via JsonTransport.postJson). Overflow wird aus
-	 *  dem Body-Text gesnifft — der HTTP-Status ist über postJson nicht sichtbar, wird
-	 *  hier aber (wie im Streaming-Pfad) auch nicht gebraucht. */
+	/** Non-Streaming-Fallback (CORS-frei via JsonTransport.postJson). Content wird zuerst
+	 *  extrahiert; nur wenn kein content vorhanden ist (echter Fehlerbody) wird auf Overflow
+	 *  gesnifft — sonst würde eine erfolgreiche Antwort, die z.B. "context window" im Text
+	 *  erwähnt, fälschlich als Overflow klassifiziert. Der HTTP-Status ist über postJson
+	 *  nicht sichtbar, wird hier aber (wie im Streaming-Pfad) auch nicht gebraucht. */
 	private async streamNonStreaming(
 		messages: LlmMessage[],
 		params: LlmParams,
@@ -205,19 +207,20 @@ export class LocalLlmClient implements LlmClient {
 		};
 		const res = await this.json.postJson(`${this.base}/v1/chat/completions`, body);
 		if (signal.aborted) return { content: '', thinkTokens: 0, finishReason: 'aborted' };
-		const rawBody = JSON.stringify(res ?? {});
-		if (/context (length|window)|too many tokens/i.test(rawBody)) {
-			throw new LlmCallError('Kontextfenster überschritten (Non-Streaming)', 'overflow');
-		}
 		const choices = isRecord(res) && Array.isArray(res.choices) ? (res.choices as unknown[]) : [];
 		const choice = choices.length > 0 ? choices[0] : null;
 		const msg = isRecord(choice) && isRecord(choice.message) ? choice.message : null;
 		const content = msg && typeof msg.content === 'string' ? msg.content : null;
-		if (content === null) {
-			throw new LlmCallError(`Non-Streaming-Antwort ohne content: ${rawBody.slice(0, 300)}`, 'http');
+		if (content !== null) {
+			const reasoning = msg && typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '';
+			return { content, thinkTokens: thinkTokens(reasoning), finishReason: 'stop' };
 		}
-		const reasoning = msg && typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '';
-		return { content, thinkTokens: thinkTokens(reasoning), finishReason: 'stop' };
+		// Kein content extrahierbar → das ist ein echter Fehlerbody, hier erst auf Overflow sniffen.
+		const rawBody = JSON.stringify(res ?? {});
+		if (/context (length|window)|too many tokens/i.test(rawBody)) {
+			throw new LlmCallError('Kontextfenster überschritten (Non-Streaming)', 'overflow');
+		}
+		throw new LlmCallError(`Non-Streaming-Antwort ohne content: ${rawBody.slice(0, 300)}`, 'http');
 	}
 }
 

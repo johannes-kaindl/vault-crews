@@ -222,6 +222,21 @@ describe('LocalLlmClient CORS-Fallback', () => {
 		sse.fail('StreamNetworkError');
 		await expect(p).rejects.toMatchObject({ kind: 'overflow' });
 	});
+
+	it('klassifiziert erfolgreichen Fallback-Content mit "context window" nicht als Overflow', async () => {
+		const { client, sse, json } = make();
+		json.responses.set('http://localhost:1234/v1/chat/completions', {
+			choices: [
+				{ message: { content: 'Das context window beschreibt die maximale Tokenanzahl.' }, finish_reason: 'stop' },
+			],
+		});
+		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
+		await Promise.resolve();
+		sse.fail('StreamNetworkError');
+		const r = await p;
+		expect(r.content).toBe('Das context window beschreibt die maximale Tokenanzahl.');
+		expect(r.finishReason).toBe('stop');
+	});
 });
 
 describe('LocalLlmClient Metadaten', () => {

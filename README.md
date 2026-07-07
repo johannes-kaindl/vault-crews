@@ -43,7 +43,9 @@ ever touches your vault.
   [Ollama](https://ollama.ai/) (default port `11434`), serving an OpenAI-compatible API.
   The endpoint is configurable in the plugin settings; just enter the URL (e.g.,
   `http://localhost:1234/v1` for LM Studio or `http://localhost:11434/v1` for Ollama).
-  No provider selection needed — the plugin auto-detects context length and capabilities.
+  You can list several endpoints (one per line), and the plugin uses the first
+  reachable one at each preflight. No provider selection needed — the plugin
+  auto-detects context length and capabilities.
 - **Enable CORS** on your LLM server. The plugin streams model output via `XMLHttpRequest`
   from inside Obsidian's renderer process (`requestUrl` cannot stream). **LM Studio:**
   Settings → Developer → *Enable CORS*. **Ollama:** set the environment variable
