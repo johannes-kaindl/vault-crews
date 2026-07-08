@@ -12,6 +12,7 @@ import { buildRepairPrompt, validateOutput } from './output-validator';
 import { executeActions, type ExecutorContext } from './action-executor';
 import { buildRunMd, buildStateJson } from './run-log';
 import { fnv1a } from './collectors';
+import { isAlwaysOnThinker } from './model-info';
 import { normalizeEndpoint, resolveActiveEndpoint } from '../vendor/kit/endpoint';
 import { LlmCallError } from './ports';
 import type {
@@ -72,7 +73,7 @@ class RunFsm {
 		this.state = {
 			runId: formatRunId(now, teamId), teamId, teamPath,
 			status: 'running', startedAt: now, endedAt: null,
-			model: deps.settings.defaultModel, contextLength: null,
+			model: deps.settings.defaultModel, contextLength: null, alwaysOnThinker: false,
 			writeRegister: [], llmCalls: 0, tasks: [], errorTask: null, errorKind: null,
 		};
 	}
@@ -149,6 +150,7 @@ class RunFsm {
 				if (!available.has(model)) return { kind: 'model_missing', message: `Modell nicht geladen: ${model}` };
 				const info = await this.deps.llm.modelInfo(model);
 				this.modelCtx.set(model, info?.contextLength ?? null);
+				if (isAlwaysOnThinker(model)) this.state.alwaysOnThinker = true;
 			}
 		} catch (e) {
 			// Defense in depth: ein unerwarteter Netzwerk-Throw hier darf niemals uncaught
@@ -383,6 +385,7 @@ class RunFsm {
 			durationS: this.state.endedAt === null ? 0 : Math.round((this.state.endedAt - this.state.startedAt) / 1000),
 			errorTask: this.state.errorTask,
 			errorKind: this.state.errorKind,
+			alwaysOnThinker: this.state.alwaysOnThinker,
 		};
 	}
 

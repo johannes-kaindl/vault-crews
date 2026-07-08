@@ -6,6 +6,7 @@
 import { parseSSE } from '../vendor/kit/sse';
 import { ThinkSplitter } from '../vendor/kit/think';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
+import { parseLmStudioContext, parseOllamaContext, suppressParams } from './model-info';
 import { LlmCallError } from './ports';
 import type {
 	ClockPort, JsonTransport, LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, SseTransport,
@@ -15,8 +16,9 @@ const ERROR_BODY_CAP = 4096;
 
 interface Timeouts { callTimeoutMs: number; stallTimeoutMs: number; }
 
-export class LmStudioClient implements LlmClient {
+export class LocalLlmClient implements LlmClient {
 	private base: string;
+	private streamRefused = false;
 
 	constructor(
 		base: string,
@@ -52,22 +54,20 @@ export class LmStudioClient implements LlmClient {
 			.filter((id): id is string => id !== null);
 	}
 
-	/** Best-effort über LM Studios /api/v0/models: tatsächlich GELADENE Kontextlänge
-	 *  (loaded_context_length) vor konfigurierter (max_context_length). */
+	/** Best-effort Kontextlänge: erst LM Studios /api/v0/models, dann Ollamas
+	 *  POST /api/show. Wer antwortet, gewinnt; sonst contextLength = null. */
 	async modelInfo(model: string): Promise<ModelInfo | null> {
 		try {
-			const res = await this.json.getJson(`${this.base}/api/v0/models`);
-			if (!isRecord(res) || !Array.isArray(res.data)) return null;
-			for (const raw of res.data as unknown[]) {
-				if (!isRecord(raw) || raw.id !== model) continue;
-				const loaded = typeof raw.loaded_context_length === 'number' ? raw.loaded_context_length : null;
-				const max = typeof raw.max_context_length === 'number' ? raw.max_context_length : null;
-				return { id: model, contextLength: loaded ?? max };
-			}
-			return null;
-		} catch {
-			return null;
-		}
+			const lm = await this.json.getJson(`${this.base}/api/v0/models`);
+			const ctx = parseLmStudioContext(lm, model);
+			if (ctx) return { id: model, contextLength: ctx.loadedContextLength ?? ctx.maxContextLength ?? null };
+		} catch { /* nächste Sonde */ }
+		try {
+			const oll = await this.json.postJson(`${this.base}/api/show`, { model });
+			const ctx = parseOllamaContext(oll);
+			if (ctx) return { id: model, contextLength: ctx.maxContextLength ?? null };
+		} catch { /* aufgeben */ }
+		return { id: model, contextLength: null };
 	}
 
 	async stream(
@@ -76,17 +76,16 @@ export class LmStudioClient implements LlmClient {
 		onToken: (t: string) => void,
 		signal: AbortSignal,
 	): Promise<LlmStreamResult> {
+		if (this.streamRefused) return this.streamNonStreaming(messages, params, signal);
+
 		const body: Record<string, unknown> = {
 			model: params.model,
 			messages,
 			temperature: params.temperature,
 			max_tokens: params.maxTokens,
 			stream: true,
+			...suppressParams(params.thinking === 'off'),
 		};
-		if (params.thinking === 'off') {
-			body.reasoning_effort = 'none';
-			body.chat_template_kwargs = { enable_thinking: false };
-		}
 
 		const ctrl = new AbortController();
 		const onCallerAbort = (): void => ctrl.abort();
@@ -123,6 +122,7 @@ export class LmStudioClient implements LlmClient {
 		};
 
 		let status: number;
+		let streamError: unknown = null;
 		try {
 			status = await this.sse.postStream(
 				`${this.base}/v1/chat/completions`,
@@ -140,10 +140,23 @@ export class LmStudioClient implements LlmClient {
 				},
 				ctrl.signal,
 			);
+		} catch (e) {
+			streamError = e;
+			status = 0;
 		} finally {
 			this.clock.clearTimeout(hardTimer);
 			if (stallTimer !== null) this.clock.clearTimeout(stallTimer);
 			signal.removeEventListener('abort', onCallerAbort);
+		}
+
+		if (streamError !== null) {
+			const err = streamError instanceof Error ? streamError : new Error('Unbekannter Stream-Fehler');
+			if (err.name === 'AbortError') throw err;
+			if (err.name === 'StreamNetworkError') {
+				this.streamRefused = true;
+				return this.streamNonStreaming(messages, params, signal);
+			}
+			throw err; // unerwarteter Fehler — nicht schlucken
 		}
 
 		const tail = splitter.flush();
@@ -171,6 +184,43 @@ export class LmStudioClient implements LlmClient {
 			throw new LlmCallError(`HTTP ${status}: ${rawBody.slice(0, 300)}`, 'http');
 		}
 		return { content, thinkTokens: thinkTokens(reasoningText), finishReason: 'stop' };
+	}
+
+	/** Non-Streaming-Fallback (CORS-frei via JsonTransport.postJson). Content wird zuerst
+	 *  extrahiert; nur wenn kein content vorhanden ist (echter Fehlerbody) wird auf Overflow
+	 *  gesnifft — sonst würde eine erfolgreiche Antwort, die z.B. "context window" im Text
+	 *  erwähnt, fälschlich als Overflow klassifiziert. Der HTTP-Status ist über postJson
+	 *  nicht sichtbar, wird hier aber (wie im Streaming-Pfad) auch nicht gebraucht. */
+	private async streamNonStreaming(
+		messages: LlmMessage[],
+		params: LlmParams,
+		signal: AbortSignal,
+	): Promise<LlmStreamResult> {
+		if (signal.aborted) return { content: '', thinkTokens: 0, finishReason: 'aborted' };
+		const body: Record<string, unknown> = {
+			model: params.model,
+			messages,
+			temperature: params.temperature,
+			max_tokens: params.maxTokens,
+			stream: false,
+			...suppressParams(params.thinking === 'off'),
+		};
+		const res = await this.json.postJson(`${this.base}/v1/chat/completions`, body);
+		if (signal.aborted) return { content: '', thinkTokens: 0, finishReason: 'aborted' };
+		const choices = isRecord(res) && Array.isArray(res.choices) ? (res.choices as unknown[]) : [];
+		const choice = choices.length > 0 ? choices[0] : null;
+		const msg = isRecord(choice) && isRecord(choice.message) ? choice.message : null;
+		const content = msg && typeof msg.content === 'string' ? msg.content : null;
+		if (content !== null) {
+			const reasoning = msg && typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '';
+			return { content, thinkTokens: thinkTokens(reasoning), finishReason: 'stop' };
+		}
+		// Kein content extrahierbar → das ist ein echter Fehlerbody, hier erst auf Overflow sniffen.
+		const rawBody = JSON.stringify(res ?? {});
+		if (/context (length|window)|too many tokens/i.test(rawBody)) {
+			throw new LlmCallError('Kontextfenster überschritten (Non-Streaming)', 'overflow');
+		}
+		throw new LlmCallError(`Non-Streaming-Antwort ohne content: ${rawBody.slice(0, 300)}`, 'http');
 	}
 }
 

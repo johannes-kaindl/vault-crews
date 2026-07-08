@@ -32,6 +32,7 @@ function frontmatterLines(state: RunState): string[] {
   lines.push(`writes: ${state.writeRegister.length}`, `llm_calls: ${state.llmCalls}`);
   if (state.endedAt !== null) lines.push(`duration_s: ${Math.round((state.endedAt - state.startedAt) / 1000)}`);
   lines.push(`model: ${state.model}`);
+  if (state.alwaysOnThinker) lines.push('always_on_thinker: true');
   if (state.errorTask !== null) lines.push(`error_task: ${state.errorTask}`);
   if (state.errorKind !== null) lines.push(`error_kind: ${state.errorKind}`);
   return lines;

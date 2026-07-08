@@ -19,7 +19,7 @@ const okState: RunState = {
   runId: '2026-07-02-0714-task-triage', teamId: 'task-triage',
   teamPath: '_crews/teams/task-triage.md', status: 'ok',
   startedAt: started, endedAt: started + 83_000,
-  model: 'qwen/qwen3.6-35b-a3b', contextLength: 32_768,
+  model: 'qwen/qwen3.6-35b-a3b', contextLength: 32_768, alwaysOnThinker: false,
   writeRegister: ['10_Aufgaben/a.md', '10_Aufgaben/b.md'], llmCalls: 2,
   tasks: [
     rec({ taskId: 'collect', endedAt: started + 1200, artifactJson: { count: 2 } }),
@@ -135,6 +135,16 @@ describe('buildRunMd', () => {
     });
     expect(md).toContain('- ✗ frontmatter.patch 10_Aufgaben/a.md — io: kaputt');
     expect(md).toContain('- ⊘ frontmatter.patch 10_Aufgaben/b.md — Datei seit Collect geändert: 10_Aufgaben/b.md');
+  });
+
+  it('schreibt always_on_thinker:true in die Frontmatter wenn gesetzt', () => {
+    const state = { ...okState, alwaysOnThinker: true };
+    expect(buildRunMd(state)).toContain('always_on_thinker: true');
+  });
+
+  it('lässt always_on_thinker weg wenn false', () => {
+    const state = { ...okState, alwaysOnThinker: false };
+    expect(buildRunMd(state)).not.toContain('always_on_thinker');
   });
 });
 

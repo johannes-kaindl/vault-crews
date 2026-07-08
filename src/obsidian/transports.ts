@@ -6,7 +6,7 @@ import type { JsonTransport, SseTransport } from "../core/ports";
  * Obsidians `requestUrl` kann nicht streamen, natives `fetch` ist lint-gesperrt —
  * XHR ist der erlaubte Streaming-Primitive. `responseText` akkumuliert; über
  * `lastIndex` wird nur der neue Tail als ROH-Delta an `onChunk` gereicht
- * (SSE-Parsing macht der LmStudioClient über das vendorte parseSSE).
+ * (SSE-Parsing macht der LocalLlmClient über das vendorte parseSSE).
  *
  * Vertrag: resolved mit dem HTTP-Status — AUCH bei Nicht-2xx (der Client braucht
  * z. B. den 400 samt Error-Body für den Context-Overflow-Retry, Spec §3.3).
@@ -37,7 +37,11 @@ export class XhrSseTransport implements SseTransport {
       xhr.open("POST", url);
       xhr.setRequestHeader("Content-Type", "application/json");
       xhr.onprogress = (): void => pump();
-      xhr.onerror = (): void => reject(new Error(`vault-crews: Netzwerkfehler POST ${url}`));
+      xhr.onerror = (): void => {
+        const e = new Error(`vault-crews: Netzwerkfehler POST ${url}`);
+        e.name = "StreamNetworkError";
+        reject(e);
+      };
       xhr.onabort = (): void => reject(abortError());
       xhr.onload = (): void => {
         pump(); // Rest drainen, der ohne onprogress-Event ankam
@@ -61,7 +65,7 @@ function parseBody(text: string): unknown {
  * Non-Streaming-JSON über Obsidians `requestUrl` (CORS-frei) mit `throw: false`:
  * HTTP-Fehlerstatus wirft nicht, der (Fehler-)Body wird geparst durchgereicht.
  * Netzwerk-Fehler (Server weg) rejecten weiterhin — genau die Unterscheidung,
- * die der LmStudioClient für ping/listModels/modelInfo braucht.
+ * die der LocalLlmClient für ping/listModels/modelInfo braucht.
  */
 export class RequestUrlJsonTransport implements JsonTransport {
   async getJson(url: string): Promise<unknown> {

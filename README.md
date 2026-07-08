@@ -1,8 +1,8 @@
 # Vault Crews
 
 Run autonomous local LLM agent teams ("crews") on your Obsidian vault, powered by a
-local [LM Studio](https://lmstudio.ai/) model — with a deterministic, orchestrator-led
-pipeline and a snapshot safety net under every run.
+local LLM model ([LM Studio](https://lmstudio.ai/) or [Ollama](https://ollama.ai/)) — with a
+deterministic, orchestrator-led pipeline and a snapshot safety net under every run.
 
 Local models are treated as weak, unreliable executors. The orchestrator decides
 *flow, paths and writes*; the model only ever decides *content*, inside narrow,
@@ -39,13 +39,18 @@ ever touches your vault.
 
 - **Desktop only** (`isDesktopOnly: true` — the plugin is built around a locally-hosted
   LLM served over HTTP, a desktop workflow).
-- **[LM Studio](https://lmstudio.ai/)** running locally, serving its OpenAI-compatible
-  API at `http://localhost:1234` by default (configurable, with a fallback list).
-- **Enable CORS in LM Studio** (LM Studio → Settings → Developer → *Enable CORS*).
-  The plugin streams model output via `XMLHttpRequest` from inside Obsidian's
-  renderer process (`requestUrl` cannot stream); without CORS enabled, LM Studio
-  rejects those requests and every run refuses at preflight with an
-  endpoint-unreachable error.
+- **A local LLM server:** [LM Studio](https://lmstudio.ai/) (default port `1234`) or
+  [Ollama](https://ollama.ai/) (default port `11434`), serving an OpenAI-compatible API.
+  The endpoint is configurable in the plugin settings; just enter the URL (e.g.,
+  `http://localhost:1234/v1` for LM Studio or `http://localhost:11434/v1` for Ollama).
+  You can list several endpoints (one per line), and the plugin uses the first
+  reachable one at each preflight. No provider selection needed — the plugin
+  auto-detects context length and capabilities.
+- **Enable CORS** on your LLM server. The plugin streams model output via `XMLHttpRequest`
+  from inside Obsidian's renderer process (`requestUrl` cannot stream). **LM Studio:**
+  Settings → Developer → *Enable CORS*. **Ollama:** set the environment variable
+  `OLLAMA_ORIGINS=<your-obsidian-app-url>` (optional; without it, the plugin falls back
+  to non-streaming mode, and results still arrive).
 - **No git repository required.** The undo net is a per-run snapshot taken via the
   Obsidian vault/adapter API, so it works in any vault — git repo or not. (Earlier
   versions required a git repo; as of 0.2.0 that requirement is gone.)
@@ -100,9 +105,10 @@ overwritten by a second run — edit them freely afterwards.
 
 ## Network disclosure
 
-- The plugin talks to exactly one network endpoint: your local LM Studio instance
-  (default `http://localhost:1234`, user-configurable with a fallback list). No other
-  host is ever contacted, no telemetry, no analytics, no update-check pings.
+- The plugin talks to exactly one network endpoint: your local LLM server
+  (LM Studio `http://localhost:1234/v1` or Ollama `http://localhost:11434/v1` by default,
+  user-configurable). No other host is ever contacted, no telemetry, no analytics, no
+  update-check pings.
 - Port 8080 is denylisted by default (commonly reserved by other local
   single-consumer model servers) — this is a default *setting*, not a hardcoded
   behavior, and can be changed.

@@ -36,6 +36,7 @@ function runningState(overrides: Partial<RunState> = {}): RunState {
     endedAt: null,
     model: "some-model",
     contextLength: 8192,
+    alwaysOnThinker: false,
     writeRegister: ["Inbox/foo.md"],
     llmCalls: 1,
     tasks: [],

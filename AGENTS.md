@@ -37,9 +37,11 @@ collector → llm → actions, constrain-then-verify, ein git-freies Snapshot-Un
 - **Denylist:** `buildDenylist(configDir)` — configDir wird injiziert
   (`Vault#configDir`, obsidianmd-Lint). `**/.*/**` deckt Inhalte unter
   Dot-Ordnern (Property-Test-Fund).
-- **LM Studio:** Kontextlänge aus `/api/v0/models`
-  (`loaded_context_length ?? max_context_length`); Thinking-Suppression via
-  `reasoning_effort: "none"` + `chat_template_kwargs.enable_thinking: false`;
+- **LM Studio / Ollama:** Kontextlänge aus `/api/v0/models` (LM Studio) oder
+  `POST /api/show` (Ollama, unter `model_info["<arch>.context_length"]`);
+  Thinking-Suppression provider-übergreifend via `suppressParams`
+  (`reasoning_effort: "none"` + `enable_thinking: false` + `reasoning_budget: 0`);
+  bei Ollama ggf. `OLLAMA_ORIGINS` für Streaming, sonst greift der Non-Stream-Fallback;
   Stall-Timeout erst NACH erstem Token (JIT-TTFB). NIE Port 8080 als Backend
   (OpenClaw-Mono-Consumer-Lock).
 - **Kein `json_schema`-API-Modus** (bricht an LM Studio bei Reasoning-Modellen):
@@ -70,7 +72,10 @@ Der Klon muss **kein git-Repo** mehr sein (Snapshot-Undo, 0.2.0).
    `.obsidian/plugins/vault-crews/undo/<runId>/` existiert nach dem Lauf und
    verschwindet nach dem Undo. Zusatz: eine Note **nach** dem Lauf manuell
    editieren, dann Undo → Konfliktwarnung erscheint.
-6. „Abort current run" **mitten in einem Lauf** auslösen — Partial bleibt im
+6. **(Optional) Gegen laufendes Ollama testen** (`http://localhost:11434/v1`):
+   Endpoint in den Settings eintragen, eine Crew laufen lassen. Ohne `OLLAMA_ORIGINS`
+   erscheint kein Live-Token-Ticker (Non-Stream-Fallback), Ergebnis kommt trotzdem.
+7. „Abort current run" **mitten in einem Lauf** auslösen — Partial bleibt im
    Vault (undo-bar), run.md zeigt `status: aborted` + `error_kind: aborted`.
 
 ## V1 limitations
