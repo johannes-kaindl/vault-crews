@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-07-08
+
 ### Added
 
 - Ollama-Unterstützung ohne Provider-Setting: Kontextlängen-Sonde (`/api/show`),
