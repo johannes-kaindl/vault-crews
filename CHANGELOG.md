@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Endpoint-Management-UI in den Settings: Zeilen-Editor für Endpunkte (Hinzufügen/Entfernen,
+  Per-Zeile-Verbindungsstatus mit Fehlerklassen, aktiv-Marker, nicht-blockierende
+  Eingabe-Warnungen, Ein-Klick-Presets für LM Studio und Ollama) und für gesperrte Endpunkte.
+- Standardmodell als Dropdown, geladen aus dem aktiven Endpoint (`Modelle laden`), mit
+  Freitext-Fallback offline; eine gespeicherte, aktuell nicht gelistete Modell-Auswahl bleibt
+  als Option erhalten.
+
+### Changed
+
+- Verbindungstest läuft jetzt pro Endpunkt-Zeile (Live-Status) statt über einen globalen Button.
+- `endpoint_diagnostics` (Status-Klassifikation, Presets, Eingabe-Prüfung) aus `obsidian-kit`
+  vendored; `endpoint.ts` auf Kit-Stand gehoben (`parseEndpointList`).
+
 ## [0.3.0] — 2026-07-08
 
 ### Added
