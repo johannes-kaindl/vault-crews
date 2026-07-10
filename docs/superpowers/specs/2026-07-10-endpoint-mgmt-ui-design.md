@@ -71,8 +71,13 @@ Obsidian-frei, node-testbar. Enthält:
   `resolveActiveEndpoint`-Semantik (erster erreichbarer gewinnt), rein aus den Per-Zeile-Probes
   abgeleitet — kein separater Resolver-Call fürs Markieren nötig.
 - `modelFieldMode(models: string[], saved: string): "dropdown" | "freetext"`
-  — `"dropdown"` wenn `models.length > 0 && (saved === "" || models.includes(saved))`; sonst
-  `"freetext"`.
+  — `"dropdown"` sobald `models.length > 0`; sonst `"freetext"`. **Korrektur (2026-07-10, aus
+  Smoke-Fund):** die ursprüngliche Bedingung `saved === "" || models.includes(saved)` war
+  falsch — ein gespeichertes Modell, das der aktive (erste erreichbare) Endpoint nicht listet
+  (z.B. es liegt auf einem zweiten Endpoint), versteckte den Dropdown komplett, obwohl „Modelle
+  laden" 11 Modelle geliefert hatte. Jetzt: Dropdown immer bei geladenen Modellen; die
+  Render-Schicht bewahrt einen nicht-gelisteten `saved`-Wert als zusätzliche Option (nie
+  verlieren, aber wählbar machen). Freetext ist nur noch der Offline-/Noch-nicht-geladen-Fall.
 - `statusKindKey(kind: EndpointStatusKind): string` → i18n-Key (`settings.endpoint.status.<kind>`).
 - `warnRuleKey(rule: string): string` → i18n-Key (`settings.endpoint.warn.<rule>`).
 
@@ -131,10 +136,10 @@ Beide Host-Methoden bauen — wie das heutige `testConnection` — einen **frisc
 - Zustand: die Tab-Instanz cached `{ models: string[] }` aus dem letzten `loadModels()`
   (initial leer → startet im Freitext-Modus; **kein** Auto-Netz-Hit beim Öffnen der Settings).
 - `modelFieldMode(cachedModels, saved)`:
-  - `"dropdown"` → `addDropdown`, Optionen = Modelle (+ leere „— wählen —" wenn `saved===""`);
-    Auswahl setzt `defaultModel`.
-  - `"freetext"` → `addText` (heutiges Verhalten) + Hinweiszeile („kein erreichbares Modell /
-    nicht in Liste").
+  - `"dropdown"` (Modelle geladen) → `addDropdown`, Optionen = geladene Modelle. Zusatz-Option:
+    leere „— wählen —" wenn `saved===""`, ODER der gespeicherte Wert selbst, wenn er nicht in
+    der Liste ist (bewahrt eine Auswahl auf einem anderen Endpoint). Auswahl setzt `defaultModel`.
+  - `"freetext"` (keine Modelle geladen) → `addText` (heutiges Verhalten).
 - **„Modelle laden"-Button** (immer sichtbar): `host.loadModels()` → cache setzen → `this.display()`.
   Zeigt bei `endpoint===null` eine kurze Notice („kein erreichbarer Endpunkt").
 

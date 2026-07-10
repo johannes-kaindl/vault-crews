@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ButtonComponent,
+  DropdownComponent,
   ExtraButtonComponent,
   TextComponent,
   ToggleComponent,
@@ -235,6 +236,34 @@ describe("SettingsTab — default model field", () => {
 
     expect(host.loadModels).toHaveBeenCalledTimes(1);
     expect(Notice.instances).toHaveLength(0);
+  });
+
+  it("keeps a saved model as a dropdown option even when the active endpoint does not list it", async () => {
+    const plugin = makeFakePlugin();
+    const host = makeFakeHost({
+      settings: { ...DEFAULT_SETTINGS, defaultModel: "gemma4:e4b" },
+      loadModels: vi.fn().mockResolvedValue({ endpoint: "http://a", models: ["m1", "m2"] }),
+    });
+    const options: string[] = [];
+    vi.spyOn(DropdownComponent.prototype, "addOption").mockImplementation(function (
+      this: InstanceType<typeof DropdownComponent>,
+      value: string,
+      display: string,
+    ) {
+      this.options[value] = display;
+      options.push(value);
+      return this;
+    });
+    const clicks = captureButtonClicks();
+    const tab = new SettingsTab(plugin, host);
+    tab.display();
+
+    await clicks[3]?.(); // „Modelle laden" → Re-Render als Dropdown
+
+    // Der gespeicherte, nicht-gelistete Wert bleibt wählbar, die geladenen kommen dazu.
+    expect(options).toContain("gemma4:e4b");
+    expect(options).toContain("m1");
+    expect(options).toContain("m2");
   });
 
   it("the load-models button warns via a notice when no endpoint is reachable", async () => {

@@ -65,8 +65,8 @@ describe("modelFieldMode", () => {
     expect(modelFieldMode(["gemma", "qwen"], "qwen")).toBe("dropdown");
   });
 
-  it("freetext, wenn das gespeicherte Modell nicht in der Liste ist", () => {
-    expect(modelFieldMode(["gemma", "qwen"], "llama")).toBe("freetext");
+  it("dropdown auch wenn das gespeicherte Modell NICHT in der Liste ist (der Wert wird als Option bewahrt, statt den Dropdown zu verstecken)", () => {
+    expect(modelFieldMode(["gemma", "qwen"], "llama")).toBe("dropdown");
   });
 });
 

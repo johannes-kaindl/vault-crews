@@ -231,6 +231,9 @@ export class SettingsTab extends PluginSettingTab {
     if (modelFieldMode(this.loadedModels, saved) === "dropdown") {
       setting.addDropdown((d) => {
         if (saved === "") d.addOption("", t("settings.connection.model.choose"));
+        // Gespeicherten Wert bewahren, falls die aktive Endpoint-Liste ihn nicht führt
+        // (z.B. Modell auf einem anderen Endpoint) — sonst würde die Auswahl still verworfen.
+        else if (!this.loadedModels.includes(saved)) d.addOption(saved, saved);
         for (const m of this.loadedModels) d.addOption(m, m);
         d.setValue(saved).onChange(async (v) => {
           this.host.settings.defaultModel = v;

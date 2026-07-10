@@ -32,12 +32,13 @@ export function activeIndexFromStatuses(statuses: (EndpointStatusKind | null)[])
   return statuses.findIndex((s) => s === "ok");
 }
 
-/** Modus des Standardmodell-Feldes: `dropdown`, sobald Modelle geladen sind und das
- *  gespeicherte Modell leer oder in der Liste ist; sonst `freetext` (offline oder das
- *  gespeicherte Modell listet die API nicht) — nie ein toter Zustand. */
+/** Modus des Standardmodell-Feldes: `dropdown`, sobald überhaupt Modelle geladen sind;
+ *  sonst `freetext` (offline / noch nicht geladen). Ein gespeichertes Modell, das die
+ *  aktive Endpoint-Liste NICHT enthält (z.B. auf einem anderen, nicht-ersten Endpoint),
+ *  versteckt den Dropdown NICHT — die Render-Schicht bewahrt es als zusätzliche Option
+ *  (nie verlieren, aber wählbar machen). Freetext ist nur der Offline-Fall. */
 export function modelFieldMode(models: string[], saved: string): "dropdown" | "freetext" {
-  if (models.length === 0) return "freetext";
-  return saved === "" || models.includes(saved) ? "dropdown" : "freetext";
+  return models.length > 0 ? "dropdown" : "freetext";
 }
 
 /** i18n-Key für einen Endpoint-Status-Kind (Render-Schicht ruft `t(key)`). */
