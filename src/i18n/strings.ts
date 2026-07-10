@@ -24,17 +24,33 @@ export const EN: Record<string, string> = {
   "settings.connection.heading": "Connection",
   "settings.connection.endpoints.name": "Endpoints",
   "settings.connection.endpoints.desc":
-    "LM Studio server addresses, one per line. Tried in order until one responds.",
+    "Local LLM server addresses (LM Studio, Ollama). Tried in order until one responds; the reachable one is marked active.",
+  "settings.connection.endpoints.add": "Add an endpoint…",
+  "settings.connection.remove": "Remove",
+  "settings.connection.presetAdd": "+ {0}",
+  "settings.connection.probe": "Check connections",
   "settings.connection.deniedEndpoints.name": "Denied endpoints",
   "settings.connection.deniedEndpoints.desc":
-    "Endpoints that are never used, even if listed above. Port 8080 is included by default because it is reserved for a mono-consumer local server (OpenClaw), which only ever accepts one connection.",
+    "Endpoints that are never used, even if listed above. Port 8080 is denied by default because it is reserved for a mono-consumer local server (OpenClaw), which only ever accepts one connection.",
   "settings.connection.defaultModel.name": "Default model",
   "settings.connection.defaultModel.desc":
     "Model id used when a team does not name one. Leave empty to require every team to set its own model.",
-  "settings.connection.testConnection.name": "Test connection",
-  "settings.connection.testConnection.desc":
-    "Pings the endpoints in order and lists the models available on the first one that responds.",
-  "settings.connection.testConnection.button": "Test connection",
+  "settings.connection.model.load": "Load models",
+  "settings.connection.model.none": "No reachable endpoint — enter the model manually.",
+  "settings.connection.model.choose": "— choose —",
+
+  // --- Settings — Endpoint status & input warnings (kind/rule → localized text) -----
+  "settings.endpoint.status.ok": "Connected",
+  "settings.endpoint.status.refused": "Connection refused — server not running or wrong port.",
+  "settings.endpoint.status.unknown-host": "Unknown host — typo in the address?",
+  "settings.endpoint.status.timeout": "Timed out — network unreachable (wrong network / VPN off?).",
+  "settings.endpoint.status.not-an-llm-api":
+    "Responds, but is not an OpenAI-compatible endpoint — wrong path/service?",
+  "settings.endpoint.status.unknown": "Not reachable.",
+  "settings.endpoint.warn.scheme": "Address needs http:// or https://",
+  "settings.endpoint.warn.malformed": "Address is not a valid URL",
+  "settings.endpoint.warn.port": "Local LLM servers almost always need a port (e.g. :1234)",
+  "settings.endpoint.warn.placeholder-ip": "Looks like an example/placeholder address",
 
   // --- Settings — Crews ---------------------------------------------------
   "settings.crews.heading": "Crews",
@@ -69,9 +85,7 @@ export const EN: Record<string, string> = {
   "settings.advanced.verboseLogging.desc":
     "Log extra detail to the developer console — useful when troubleshooting a run.",
 
-  // --- Notices — connection test / install --------------------------------
-  "notice.testConnection.ok": "Connection ok — {0} model(s) available: {1}.",
-  "notice.testConnection.failed": "Connection failed — is LM Studio running?",
+  // --- Notices — install --------------------------------------------------
   "notice.install.ok": "Example crews installed ({0} file(s)).",
   "notice.install.exists": "Example crews are already installed.",
   "notice.install.useCommand": "Use the “Install example crews” command from the command palette.",
@@ -184,17 +198,33 @@ export const DE: Record<string, string> = {
   "settings.connection.heading": "Verbindung",
   "settings.connection.endpoints.name": "Endpunkte",
   "settings.connection.endpoints.desc":
-    "Adressen des LM-Studio-Servers, eine pro Zeile. Werden der Reihe nach probiert, bis einer antwortet.",
+    "Adressen lokaler LLM-Server (LM Studio, Ollama). Werden der Reihe nach probiert, bis einer antwortet; der erreichbare wird als aktiv markiert.",
+  "settings.connection.endpoints.add": "Endpunkt hinzufügen…",
+  "settings.connection.remove": "Entfernen",
+  "settings.connection.presetAdd": "+ {0}",
+  "settings.connection.probe": "Verbindungen prüfen",
   "settings.connection.deniedEndpoints.name": "Gesperrte Endpunkte",
   "settings.connection.deniedEndpoints.desc":
     "Endpunkte, die niemals verwendet werden, selbst wenn sie oben aufgeführt sind. Port 8080 ist standardmäßig gesperrt, weil er für einen Mono-Consumer-Lokalserver (OpenClaw) reserviert ist, der immer nur eine Verbindung gleichzeitig annimmt.",
   "settings.connection.defaultModel.name": "Standardmodell",
   "settings.connection.defaultModel.desc":
     "Modell-Id, die verwendet wird, wenn ein Team keine eigene angibt. Leer lassen, um jedes Team zur eigenen Modell-Angabe zu zwingen.",
-  "settings.connection.testConnection.name": "Verbindung testen",
-  "settings.connection.testConnection.desc":
-    "Probiert die Endpunkte der Reihe nach und listet die Modelle des ersten antwortenden Endpunkts.",
-  "settings.connection.testConnection.button": "Verbindung testen",
+  "settings.connection.model.load": "Modelle laden",
+  "settings.connection.model.none": "Kein erreichbarer Endpunkt — Modell manuell eintragen.",
+  "settings.connection.model.choose": "— wählen —",
+
+  // --- Settings — Endpunkt-Status & Eingabe-Warnungen (kind/rule → lokalisiert) -----
+  "settings.endpoint.status.ok": "Verbunden",
+  "settings.endpoint.status.refused": "Verbindung abgelehnt — Server läuft nicht oder Port falsch.",
+  "settings.endpoint.status.unknown-host": "Hostname unbekannt — Tippfehler in der Adresse?",
+  "settings.endpoint.status.timeout": "Zeitüberschreitung — Netz nicht erreichbar (falsches Netz / VPN aus?).",
+  "settings.endpoint.status.not-an-llm-api":
+    "Antwortet, ist aber kein OpenAI-kompatibler Endpunkt — falscher Pfad/Dienst?",
+  "settings.endpoint.status.unknown": "Nicht erreichbar.",
+  "settings.endpoint.warn.scheme": "Adresse braucht http:// oder https://",
+  "settings.endpoint.warn.malformed": "Adresse ist keine gültige URL",
+  "settings.endpoint.warn.port": "Lokale LLM-Server brauchen fast immer einen Port (z. B. :1234)",
+  "settings.endpoint.warn.placeholder-ip": "Sieht aus wie eine Beispiel-/Platzhalter-Adresse",
 
   // --- Settings — Crews ---------------------------------------------------
   "settings.crews.heading": "Crews",
@@ -229,9 +259,7 @@ export const DE: Record<string, string> = {
   "settings.advanced.verboseLogging.desc":
     "Schreibt zusätzliche Details in die Entwicklerkonsole — hilfreich zur Fehlersuche.",
 
-  // --- Notices — connection test / install --------------------------------
-  "notice.testConnection.ok": "Verbindung ok — {0} Modell(e) verfügbar: {1}.",
-  "notice.testConnection.failed": "Verbindung fehlgeschlagen — läuft LM Studio?",
+  // --- Notices — Installation ---------------------------------------------
   "notice.install.ok": "Beispiel-Crews installiert ({0} Datei(en)).",
   "notice.install.exists": "Beispiel-Crews sind bereits installiert.",
   "notice.install.useCommand": "Nutze den Befehl „Beispiel-Crews installieren“ aus der Befehlspalette.",

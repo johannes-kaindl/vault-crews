@@ -20,7 +20,8 @@ import {
   type WorkspaceLeaf,
 } from "obsidian";
 import { pickLang, setLang, t } from "./vendor/kit/i18n";
-import { normalizeEndpoint } from "./vendor/kit/endpoint";
+import { normalizeEndpoint, resolveActiveEndpoint } from "./vendor/kit/endpoint";
+import { classifyEndpointStatus, type EndpointStatus, type ProbeInput } from "./vendor/kit/endpoint_diagnostics";
 import { mergeSettings } from "./vendor/kit/settings";
 import { registerI18n } from "./i18n/strings";
 import {
@@ -151,16 +152,40 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
    *  Ein Test während/nach einem Lauf würde also Endpoint A pingen, aber Endpoint B's
    *  Modell-Liste melden. Der lokale Client bindet ping()+listModels() an DENSELBEN
    *  Endpoint und rührt `this.llm` nie an, kann also nie mit einem Lauf racen. */
-  async testConnection(endpoint: string): Promise<{ ok: boolean; models: string[] }> {
+  /** Probt EINEN Endpoint (Settings-Zeilen-Editor) und klassifiziert das Ergebnis in
+   *  einen benannten Status (`ok`/`refused`/`unknown-host`/`timeout`/`not-an-llm-api`/`unknown`).
+   *  Nutzt einen EPHEMEREN JsonTransport statt `this.llm` → kann nie mit einem laufenden
+   *  Run racen (der den geteilten Client via setBase umbiegt). `getJson` nutzt `throw:false`:
+   *  ein antwortender Server resolvet (→ Response-Pfad), nur echte Netzfehler rejecten
+   *  (→ Error-Pfad mit roher Meldung für die Regex-Klassifikation). */
+  async probeEndpoint(endpoint: string): Promise<EndpointStatus> {
     const target = normalizeEndpoint(endpoint);
-    const client = this.buildLlmClient();
-    client.setBase(target);
-    const ok = await client.ping(target);
-    if (!ok) return { ok: false, models: [] };
+    const json = new RequestUrlJsonTransport();
+    let input: ProbeInput;
     try {
-      return { ok: true, models: await client.listModels() };
+      const body = await json.getJson(`${target}/v1/models`);
+      // Der Transport verwirft den HTTP-Status; ein Resolve heißt „Server hat geantwortet".
+      // classifyEndpointStatus braucht 200 nur, um `ok` von `not-an-llm-api` zu trennen —
+      // fehlt die data-Liste, ist es ohnehin not-an-llm-api, unabhängig vom echten Status.
+      input = { kind: "response", status: 200, body };
+    } catch (e) {
+      input = { kind: "error", message: e instanceof Error ? e.message : String(e) };
+    }
+    return classifyEndpointStatus(input);
+  }
+
+  /** Löst den ersten erreichbaren Endpoint auf und listet seine Modelle (Settings-Modell-
+   *  Dropdown). Ephemerer Client wie `probeEndpoint`; bei keinem erreichbaren Endpoint
+   *  `{ endpoint: null, models: [] }` (die UI fällt dann auf Freitext zurück). */
+  async loadModels(): Promise<{ endpoint: string | null; models: string[] }> {
+    const client = this.buildLlmClient();
+    const active = await resolveActiveEndpoint(this.settings.endpoints, (e) => client.ping(e));
+    if (!active) return { endpoint: null, models: [] };
+    client.setBase(active);
+    try {
+      return { endpoint: active, models: await client.listModels() };
     } catch {
-      return { ok: true, models: [] };
+      return { endpoint: active, models: [] };
     }
   }
 

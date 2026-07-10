@@ -1,4 +1,4 @@
-// vendored from obsidian-kit#0.2.0, src/pure/endpoint.ts
+// vendored from obsidian-kit#0.4.0, src/pure/endpoint.ts
 /** Normalisiert eine Endpoint-Eingabe: trailing Slashes + ein trailing `/v1` strippen.
  *  Die Clients hängen `/v1/...` selbst an — enthielte der konfigurierte Endpoint bereits
  *  ein `/v1`, entstünde `…/v1/v1/...` (manche Server, z.B. LM Studio, antworten darauf mit
@@ -34,4 +34,19 @@ export async function resolveActiveEndpoint(
     if (await ping(ep)) return ep;
   }
   return null;
+}
+
+/** Parst die Settings-Textarea (ein Endpoint pro Zeile) in eine geordnete, getrimmte,
+ *  deduplizierte, leerzeilen-freie Liste für `resolveActiveEndpoint`.
+ *  Bewusst OHNE Normalisierung: `resolveActiveEndpoint` normalisiert selbst pro Eintrag,
+ *  und die Settings-Anzeige bleibt roundtrip-treu (der Nutzer sieht seine Roheingabe).
+ *
+ *  @example parseEndpointList("http://a:1\n http://b:2 \n\nhttp://a:1") // → ["http://a:1", "http://b:2"] */
+export function parseEndpointList(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.split(/\r\n|\n|\r/)) {
+    const v = raw.trim();
+    if (v && !out.includes(v)) out.push(v);
+  }
+  return out;
 }

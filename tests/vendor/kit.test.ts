@@ -3,7 +3,12 @@
 import { describe, expect, it } from 'vitest';
 import { parseSSE } from '../../src/vendor/kit/sse';
 import { ThinkSplitter } from '../../src/vendor/kit/think';
-import { normalizeEndpoint, resolveActiveEndpoint } from '../../src/vendor/kit/endpoint';
+import { normalizeEndpoint, parseEndpointList, resolveActiveEndpoint } from '../../src/vendor/kit/endpoint';
+import {
+	ENDPOINT_PRESETS,
+	classifyEndpointStatus,
+	validateEndpointInput,
+} from '../../src/vendor/kit/endpoint_diagnostics';
 import { defineStrings, setLang, t } from '../../src/vendor/kit/i18n';
 
 describe('vendored parseSSE', () => {
@@ -55,6 +60,59 @@ describe('vendored endpoint', () => {
 		);
 		expect(ep).toBe('http://b:2');
 		expect(seen).toEqual(['http://a:1', 'http://b:2']);
+	});
+
+	it('parseEndpointList trimmt, dedupliziert und lässt Leerzeilen weg', () => {
+		expect(parseEndpointList('http://a:1\n http://b:2 \n\nhttp://a:1')).toEqual([
+			'http://a:1',
+			'http://b:2',
+		]);
+	});
+});
+
+describe('vendored endpoint_diagnostics', () => {
+	it('classify: 200 mit {data:[]} ist ok', () => {
+		const s = classifyEndpointStatus({ kind: 'response', status: 200, body: { data: [] } });
+		expect(s.kind).toBe('ok');
+		expect(s.reachable).toBe(true);
+	});
+
+	it('classify: 200 ohne data-Liste ist not-an-llm-api', () => {
+		const s = classifyEndpointStatus({ kind: 'response', status: 200, body: { hello: 1 } });
+		expect(s.kind).toBe('not-an-llm-api');
+		expect(s.reachable).toBe(false);
+	});
+
+	it('classify: ECONNREFUSED ist refused', () => {
+		expect(classifyEndpointStatus({ kind: 'error', message: 'connect ECONNREFUSED 127.0.0.1:1234' }).kind).toBe(
+			'refused',
+		);
+	});
+
+	it('classify: ENOTFOUND ist unknown-host', () => {
+		expect(classifyEndpointStatus({ kind: 'error', message: 'getaddrinfo ENOTFOUND nope' }).kind).toBe(
+			'unknown-host',
+		);
+	});
+
+	it('classify: timeout-Signal ist timeout', () => {
+		expect(classifyEndpointStatus({ kind: 'timeout' }).kind).toBe('timeout');
+	});
+
+	it('classify: unbekannter Fehler behält die rohe Meldung', () => {
+		const s = classifyEndpointStatus({ kind: 'error', message: 'weird boom' });
+		expect(s.kind).toBe('unknown');
+		expect(s.raw).toBe('weird boom');
+	});
+
+	it('ENDPOINT_PRESETS enthält LM Studio und Ollama', () => {
+		expect(ENDPOINT_PRESETS.map((p) => p.label)).toEqual(['LM Studio', 'Ollama']);
+	});
+
+	it('validateEndpointInput warnt bei fehlendem Schema und fehlendem Port', () => {
+		expect(validateEndpointInput('localhost:1234').map((w) => w.rule)).toContain('scheme');
+		expect(validateEndpointInput('http://localhost').map((w) => w.rule)).toContain('port');
+		expect(validateEndpointInput('http://localhost:1234')).toEqual([]);
 	});
 });
 
