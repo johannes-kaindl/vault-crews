@@ -123,42 +123,104 @@ describe("VaultCrewsPlugin — one-run mutex", () => {
   });
 });
 
-describe("VaultCrewsPlugin.testConnection", () => {
+describe("VaultCrewsPlugin.probeEndpoint", () => {
   afterEach(() => {
-    // Default-Verhalten (immer 200 + leerer Body) für nachfolgende Tests wiederherstellen.
     requestUrl.mockImplementation(() => Promise.resolve({
       status: 200, headers: {}, text: "", json: {}, arrayBuffer: new ArrayBuffer(0),
     }));
   });
 
-  it("pings/lists via an ephemeral client pinned to the tested endpoint, never the shared this.llm", async () => {
-    const bodyFor = (id: string): string => JSON.stringify({ data: [{ id }] });
+  it("classifies a reachable OpenAI-compatible endpoint as ok", async () => {
     requestUrl.mockClear();
-    requestUrl.mockImplementation((opts: unknown) => {
-      const url = typeof opts === "string" ? opts : (opts as { url: string }).url;
-      if (url.startsWith("http://race-endpoint:5555")) {
-        return Promise.resolve({ status: 200, headers: {}, text: bodyFor("race-model"), json: {}, arrayBuffer: new ArrayBuffer(0) });
-      }
-      if (url.startsWith("http://endpoint-b:9999")) {
-        return Promise.resolve({ status: 200, headers: {}, text: bodyFor("model-b"), json: {}, arrayBuffer: new ArrayBuffer(0) });
-      }
-      return Promise.resolve({ status: 500, headers: {}, text: "", json: {}, arrayBuffer: new ArrayBuffer(0) });
-    });
-
+    requestUrl.mockImplementation(() => Promise.resolve({
+      status: 200, headers: {}, text: JSON.stringify({ data: [{ id: "m1" }] }), json: {}, arrayBuffer: new ArrayBuffer(0),
+    }));
     const plugin = makePlugin();
     await plugin.onload();
 
-    // Simuliert das Preflight-Failover eines LAUFENDEN Runs, der den geteilten
-    // this.llm bereits auf einen dritten Endpoint umgebogen hat (setBase()).
+    const status = await plugin.probeEndpoint("http://endpoint-b:9999");
+
+    expect(status.kind).toBe("ok");
+    expect(status.reachable).toBe(true);
+  });
+
+  it("classifies a responding non-LLM server as not-an-llm-api", async () => {
+    requestUrl.mockClear();
+    requestUrl.mockImplementation(() => Promise.resolve({
+      status: 200, headers: {}, text: JSON.stringify({ hello: "world" }), json: {}, arrayBuffer: new ArrayBuffer(0),
+    }));
+    const plugin = makePlugin();
+    await plugin.onload();
+
+    const status = await plugin.probeEndpoint("http://endpoint-b:9999");
+
+    expect(status.kind).toBe("not-an-llm-api");
+    expect(status.reachable).toBe(false);
+  });
+
+  it("classifies a network-refused endpoint as refused", async () => {
+    requestUrl.mockClear();
+    requestUrl.mockImplementation(() => Promise.reject(new Error("connect ECONNREFUSED 127.0.0.1:1234")));
+    const plugin = makePlugin();
+    await plugin.onload();
+
+    const status = await plugin.probeEndpoint("http://endpoint-b:9999");
+
+    expect(status.kind).toBe("refused");
+    expect(status.reachable).toBe(false);
+  });
+
+  it("never touches the shared this.llm client (probe is isolated from a running run)", async () => {
+    requestUrl.mockClear();
+    requestUrl.mockImplementation(() => Promise.resolve({
+      status: 200, headers: {}, text: JSON.stringify({ data: [{ id: "race-model" }] }), json: {}, arrayBuffer: new ArrayBuffer(0),
+    }));
+    const plugin = makePlugin();
+    await plugin.onload();
     const sharedLlm = (plugin as unknown as { llm: LlmClient }).llm;
     sharedLlm.setBase("http://race-endpoint:5555");
 
-    const result = await plugin.testConnection("http://endpoint-b:9999");
+    await plugin.probeEndpoint("http://endpoint-b:9999");
 
-    expect(result).toEqual({ ok: true, models: ["model-b"] });
-    // Der geteilte Client darf von testConnection nie berührt worden sein — er zeigt
-    // weiterhin auf den vom (simulierten) Lauf gesetzten race-endpoint, nicht auf
-    // endpoint-b und auch nicht zurück auf den onload-Default.
+    // Der geteilte Client zeigt unverändert auf den vom (simulierten) Lauf gesetzten Endpoint.
     await expect(sharedLlm.listModels()).resolves.toEqual(["race-model"]);
+  });
+});
+
+describe("VaultCrewsPlugin.loadModels", () => {
+  afterEach(() => {
+    requestUrl.mockImplementation(() => Promise.resolve({
+      status: 200, headers: {}, text: "", json: {}, arrayBuffer: new ArrayBuffer(0),
+    }));
+  });
+
+  it("resolves the first reachable endpoint and lists its models", async () => {
+    requestUrl.mockClear();
+    requestUrl.mockImplementation((opts: unknown) => {
+      const url = typeof opts === "string" ? opts : (opts as { url: string }).url;
+      if (url.startsWith("http://live:2")) {
+        return Promise.resolve({ status: 200, headers: {}, text: JSON.stringify({ data: [{ id: "model-x" }] }), json: {}, arrayBuffer: new ArrayBuffer(0) });
+      }
+      return Promise.reject(new Error("connect ECONNREFUSED"));
+    });
+    const plugin = makePlugin();
+    await plugin.onload();
+    (plugin as unknown as { settings: { endpoints: string[] } }).settings.endpoints = ["http://dead:1", "http://live:2"];
+
+    const result = await plugin.loadModels();
+
+    expect(result).toEqual({ endpoint: "http://live:2", models: ["model-x"] });
+  });
+
+  it("returns a null endpoint and empty list when nothing is reachable", async () => {
+    requestUrl.mockClear();
+    requestUrl.mockImplementation(() => Promise.reject(new Error("connect ECONNREFUSED")));
+    const plugin = makePlugin();
+    await plugin.onload();
+    (plugin as unknown as { settings: { endpoints: string[] } }).settings.endpoints = ["http://dead:1"];
+
+    const result = await plugin.loadModels();
+
+    expect(result).toEqual({ endpoint: null, models: [] });
   });
 });

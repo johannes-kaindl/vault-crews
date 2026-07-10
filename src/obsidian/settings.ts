@@ -1,5 +1,18 @@
-import { Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { Notice, Plugin, PluginSettingTab, Setting, setIcon } from "obsidian";
 import { t } from "../vendor/kit/i18n";
+import {
+  ENDPOINT_PRESETS,
+  validateEndpointInput,
+  type EndpointStatus,
+  type EndpointStatusKind,
+} from "../vendor/kit/endpoint_diagnostics";
+import {
+  activeIndexFromStatuses,
+  applyEndpointEdit,
+  modelFieldMode,
+  statusKindKey,
+  warnRuleKey,
+} from "./endpoint-editor-model";
 
 /**
  * User-facing Plugin-Settings (Sekunden/Minuten, nicht ms). Die Umrechnung in
@@ -35,19 +48,15 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 /**
  * Schmaler Vertrag statt eines main.ts-Imports (Entkopplung PROF-OBS: SettingsTab
  * kennt nie die konkrete Plugin-Klasse). main.ts (Task 16b) übergibt sein
- * Plugin-Objekt, das diese drei Mitglieder implementiert.
+ * Plugin-Objekt, das diese Mitglieder implementiert.
  */
 export interface SettingsHost {
   settings: PluginSettings;
   saveSettings(): Promise<void>;
-  testConnection(endpoint: string): Promise<{ ok: boolean; models: string[] }>;
-}
-
-function parseLines(raw: string): string[] {
-  return raw
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+  /** Probt EINEN Endpoint und klassifiziert das Ergebnis (Per-Zeile-Status im Editor). */
+  probeEndpoint(endpoint: string): Promise<EndpointStatus>;
+  /** Löst den ersten erreichbaren Endpoint auf und listet seine Modelle (Modell-Dropdown). */
+  loadModels(): Promise<{ endpoint: string | null; models: string[] }>;
 }
 
 function parseIntSafe(raw: string, fallback: number): number {
@@ -55,14 +64,29 @@ function parseIntSafe(raw: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+interface ListEditorOpts {
+  list: string[];
+  name: string;
+  desc: string;
+  /** Endpoints: Per-Zeile-Probe + aktiver Marker + Preset-Aktionszeile. Denied: alles aus. */
+  withProbe: boolean;
+  withPresets: boolean;
+  setList(next: string[]): void;
+}
+
 /**
  * Vier Gruppen (Spec §6.4): Connection · Crews · Safety · Advanced. Deklarative
- * Settings-API (`new Setting(containerEl)...`), keine Toggles für „ohne Git
- * erlauben"/„immer committen" (bewusst entfernt, siehe Spec). `display()` statt
+ * Settings-API (`new Setting(containerEl)...`). Der Endpoint-/Denied-Zeilen-Editor
+ * (`buildListEditor`) übernimmt das obsidian-kit/vault-rag-Muster; die reine Logik lebt
+ * obsidian-frei in `endpoint-editor-model.ts` (Ansatz A). `display()` statt
  * `getSettingDefinitions()`, weil `manifest.json` minAppVersion 1.7.2 < 1.13.0 ist
  * (obsidianmd/require-display).
  */
 export class SettingsTab extends PluginSettingTab {
+  /** Von der letzten `loadModels()`-Abfrage gecachte Modell-Liste; steuert den Modell-
+   *  Feld-Modus (dropdown vs. freetext). Initial leer → Freitext, kein Auto-Netz-Hit. */
+  private loadedModels: string[] = [];
+
   constructor(
     plugin: Plugin,
     private readonly host: SettingsHost,
@@ -87,54 +111,152 @@ export class SettingsTab extends PluginSettingTab {
   private renderConnection(containerEl: HTMLElement): void {
     new Setting(containerEl).setName(t("settings.connection.heading")).setHeading();
 
-    new Setting(containerEl)
-      .setName(t("settings.connection.endpoints.name"))
-      .setDesc(t("settings.connection.endpoints.desc"))
-      .addTextArea((c) =>
-        c.setValue(this.host.settings.endpoints.join("\n")).onChange(async (v) => {
-          this.host.settings.endpoints = parseLines(v);
-          await this.host.saveSettings();
-        }),
-      );
+    this.buildListEditor(containerEl, {
+      list: this.host.settings.endpoints,
+      name: t("settings.connection.endpoints.name"),
+      desc: t("settings.connection.endpoints.desc"),
+      withProbe: true,
+      withPresets: true,
+      setList: (next) => {
+        this.host.settings.endpoints = next;
+      },
+    });
 
-    new Setting(containerEl)
-      .setName(t("settings.connection.deniedEndpoints.name"))
-      .setDesc(t("settings.connection.deniedEndpoints.desc"))
-      .addTextArea((c) =>
-        c.setValue(this.host.settings.deniedEndpoints.join("\n")).onChange(async (v) => {
-          this.host.settings.deniedEndpoints = parseLines(v);
-          await this.host.saveSettings();
-        }),
-      );
+    this.renderModelField(containerEl);
 
-    new Setting(containerEl)
+    this.buildListEditor(containerEl, {
+      list: this.host.settings.deniedEndpoints,
+      name: t("settings.connection.deniedEndpoints.name"),
+      desc: t("settings.connection.deniedEndpoints.desc"),
+      withProbe: false,
+      withPresets: false,
+      setList: (next) => {
+        this.host.settings.deniedEndpoints = next;
+      },
+    });
+  }
+
+  /** Ein parametrisierter Zeilen-Editor für Endpoints (mit Probe/Presets/Active) und
+   *  Denied (nur Add/Remove + Eingabe-Warnungen). Letzte Leerzeile ist der Adder. */
+  private buildListEditor(containerEl: HTMLElement, opts: ListEditorOpts): void {
+    const statuses: (EndpointStatusKind | null)[] = opts.list.map(() => null);
+    const statusEls: HTMLElement[] = [];
+    const rows = [...opts.list, ""]; // letzte Leerzeile = Adder
+
+    const commit = (next: string[]): void => {
+      opts.setList(next);
+      void this.host.saveSettings().then(() => this.display());
+    };
+
+    rows.forEach((value, i) => {
+      const isAdder = i >= opts.list.length;
+      const setting = new Setting(containerEl);
+      if (i === 0) setting.setName(opts.name).setDesc(opts.desc);
+
+      if (opts.withProbe && !isAdder) {
+        const statusEl = setting.settingEl.createSpan({ cls: "vault-crews-ep-status" });
+        setIcon(statusEl, "loader");
+        statusEls.push(statusEl);
+      }
+
+      setting.addText((c) => {
+        c.setValue(value);
+        if (isAdder) c.setPlaceholder(t("settings.connection.endpoints.add"));
+        // Mutation NUR bei blur (nicht onChange): onChange feuert pro Tastendruck und
+        // würde im Adder jeden Zwischenstand (`h`, `ht`, …) anhängen.
+        c.inputEl.addEventListener("blur", () => {
+          const next = applyEndpointEdit(opts.list, i, c.getValue(), isAdder);
+          if (next.length === opts.list.length && next.every((e, k) => e === opts.list[k])) return;
+          commit(next);
+        });
+      });
+
+      // Eingabe-Warnungen (beide Listen): nicht-blockierend, nur Hinweis.
+      if (!isAdder) {
+        const warnings = validateEndpointInput(value);
+        if (warnings.length > 0) {
+          const warnEl = setting.settingEl.createSpan({ cls: "vault-crews-ep-warn" });
+          setIcon(warnEl, "alert-triangle");
+          warnEl.setAttribute("aria-label", warnings.map((w) => t(warnRuleKey(w.rule))).join(" · "));
+        }
+        setting.addExtraButton((b) =>
+          b
+            .setIcon("trash-2")
+            .setTooltip(t("settings.connection.remove"))
+            .onClick(() => commit(applyEndpointEdit(opts.list, i, "", false))),
+        );
+      }
+    });
+
+    if (opts.withPresets) {
+      const actions = new Setting(containerEl);
+      for (const preset of ENDPOINT_PRESETS) {
+        actions.addButton((b) =>
+          b.setButtonText(t("settings.connection.presetAdd", preset.label)).onClick(() => {
+            if (!opts.list.includes(preset.url)) commit([...opts.list, preset.url]);
+          }),
+        );
+      }
+      actions.addButton((b) =>
+        b.setButtonText(t("settings.connection.probe")).onClick(() => this.display()),
+      );
+    }
+
+    if (opts.withProbe) {
+      opts.list.forEach((ep, i) => {
+        void this.host.probeEndpoint(ep).then((status) => {
+          statuses[i] = status.kind;
+          const el = statusEls[i];
+          if (el) {
+            el.removeClass("is-ok", "is-error");
+            setIcon(el, status.reachable ? "circle-check" : "circle-x");
+            el.addClass(status.reachable ? "is-ok" : "is-error");
+            el.setAttribute("aria-label", t(statusKindKey(status.kind)));
+          }
+          const active = activeIndexFromStatuses(statuses);
+          statusEls.forEach((se, j) => se.toggleClass("is-active", j === active));
+        });
+      });
+    }
+  }
+
+  /** Standardmodell: Dropdown aus den zuletzt geladenen Modellen, sonst Freitext-Fallback
+   *  (offline oder gespeichertes Modell nicht in der Liste — nie ein toter Zustand). */
+  private renderModelField(containerEl: HTMLElement): void {
+    const saved = this.host.settings.defaultModel;
+    const setting = new Setting(containerEl)
       .setName(t("settings.connection.defaultModel.name"))
-      .setDesc(t("settings.connection.defaultModel.desc"))
-      .addText((c) =>
-        c.setValue(this.host.settings.defaultModel).onChange(async (v) => {
+      .setDesc(t("settings.connection.defaultModel.desc"));
+
+    if (modelFieldMode(this.loadedModels, saved) === "dropdown") {
+      setting.addDropdown((d) => {
+        if (saved === "") d.addOption("", t("settings.connection.model.choose"));
+        // Gespeicherten Wert bewahren, falls die aktive Endpoint-Liste ihn nicht führt
+        // (z.B. Modell auf einem anderen Endpoint) — sonst würde die Auswahl still verworfen.
+        else if (!this.loadedModels.includes(saved)) d.addOption(saved, saved);
+        for (const m of this.loadedModels) d.addOption(m, m);
+        d.setValue(saved).onChange(async (v) => {
+          this.host.settings.defaultModel = v;
+          await this.host.saveSettings();
+        });
+      });
+    } else {
+      setting.addText((c) =>
+        c.setValue(saved).onChange(async (v) => {
           this.host.settings.defaultModel = v;
           await this.host.saveSettings();
         }),
       );
-
-    new Setting(containerEl)
-      .setName(t("settings.connection.testConnection.name"))
-      .setDesc(t("settings.connection.testConnection.desc"))
-      .addButton((btn) =>
-        btn.setButtonText(t("settings.connection.testConnection.button")).onClick(() => this.runConnectionTest()),
-      );
-  }
-
-  /** Probiert die konfigurierten Endpoints der Reihe nach; genau eine Notice mit dem Ergebnis. */
-  private async runConnectionTest(): Promise<void> {
-    for (const endpoint of this.host.settings.endpoints) {
-      const result = await this.host.testConnection(endpoint);
-      if (result.ok) {
-        new Notice(t("notice.testConnection.ok", result.models.length, result.models.join(", ")));
-        return;
-      }
     }
-    new Notice(t("notice.testConnection.failed"));
+
+    setting.addButton((b) =>
+      b.setButtonText(t("settings.connection.model.load")).onClick(async () => {
+        const { endpoint, models } = await this.host.loadModels();
+        this.loadedModels = models;
+        if (endpoint === null) new Notice(t("settings.connection.model.none"));
+        this.display();
+      }),
+    );
   }
 
   private renderCrews(containerEl: HTMLElement): void {

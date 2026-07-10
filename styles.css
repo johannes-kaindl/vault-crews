@@ -222,3 +222,37 @@
   color: var(--text-muted);
   font-size: var(--font-ui-small);
 }
+
+/* Endpoint-Zeilen-Editor (Settings → Connection): Per-Zeile-Status + Eingabe-Warnung.
+   A11y: Status über Form (Icon) UND Farbe UND aria-label, nicht nur Farbe. */
+.vault-crews-ep-status {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 8px;
+  vertical-align: middle;
+  color: var(--text-muted);
+}
+.vault-crews-ep-status svg {
+  width: 14px;
+  height: 14px;
+}
+.vault-crews-ep-status.is-ok {
+  color: var(--text-success);
+}
+.vault-crews-ep-status.is-error {
+  color: var(--text-error);
+}
+.vault-crews-ep-status.is-active {
+  font-weight: var(--font-bold);
+}
+.vault-crews-ep-warn {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 8px;
+  vertical-align: middle;
+  color: var(--text-warning);
+}
+.vault-crews-ep-warn svg {
+  width: 14px;
+  height: 14px;
+}
