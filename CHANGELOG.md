@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-07-10
+
 ### Added
 
 - Endpoint-Management-UI in den Settings: Zeilen-Editor für Endpunkte (Hinzufügen/Entfernen,
