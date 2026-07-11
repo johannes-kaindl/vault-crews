@@ -26,7 +26,7 @@ function makeTask(overrides: Partial<ActionsTaskDef> = {}): ActionsTaskDef {
   return {
     id: 'apply', kind: 'actions', inputs: ['analyse'],
     allowedActions: ['frontmatter.patch', 'note.create', 'note.append', 'section.replace'],
-    allowedKeys: ['priority', 'kontext'], target: null, ...overrides,
+    allowedKeys: ['priority', 'kontext'], target: null, createIfMissing: false, ...overrides,
   };
 }
 

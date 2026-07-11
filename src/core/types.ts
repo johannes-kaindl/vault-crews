@@ -37,6 +37,7 @@ export interface ActionsTaskDef {
 	allowedActions: ActionType[];
 	allowedKeys: string[] | null;
 	target: string | null;
+	createIfMissing: boolean;
 }
 export type TaskDef = CollectorTaskDef | LlmTaskDef | ActionsTaskDef;
 
