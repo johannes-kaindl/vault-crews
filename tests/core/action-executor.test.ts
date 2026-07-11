@@ -448,3 +448,56 @@ describe('preWrite-Hook', () => {
     expect(await vault.read('10_Aufgaben/a.md')).toBe('alt\n'); // Original unangetastet
   });
 });
+
+describe('executeActions — section.replace create_if_missing', () => {
+  const daily = 'Daily/2026-07-11.md';
+  const marker = CREW_MARKER('task-triage');
+
+  it('legt fehlendes Ziel an (Marker-Block), Aktion applied', async () => {
+    const vault = new InMemoryVaultPort();
+    const action: Action = { type: 'section.replace', path: daily, content: 'Briefing.' };
+    const ctx = ctxOf([], { task: makeTask({ createIfMissing: true }), preWrite: async () => {} });
+    const res = await executeActions([action], ctx, vault);
+    expect(res.outcomes[0].result).toBe('applied');
+    expect(await vault.exists(daily)).toBe(true);
+    const body = await vault.read(daily);
+    expect(body).toContain(marker.start);
+    expect(body).toContain('Briefing.');
+    expect(body).toContain(marker.end);
+    expect(body.startsWith('\n')).toBe(false); // keine führende Leerzeile im frischen File
+  });
+
+  it('ohne Flag: fehlendes Ziel weiterhin failed', async () => {
+    const vault = new InMemoryVaultPort();
+    const action: Action = { type: 'section.replace', path: daily, content: 'x' };
+    const ctx = ctxOf([], { task: makeTask({ createIfMissing: false }), preWrite: async () => {} });
+    const res = await executeActions([action], ctx, vault);
+    expect(res.outcomes[0].result).toBe('failed');
+    expect(res.taskFailed).toBe(true);
+    expect(await vault.exists(daily)).toBe(false);
+  });
+
+  it('legt fehlenden Elternordner via mkdir an (nested Pfad)', async () => {
+    const vault = new InMemoryVaultPort();
+    const mkdirs: string[] = [];
+    const spied: VaultPort = { ...spyVault(vault).vault, mkdir: async (p) => { mkdirs.push(p); await vault.mkdir(p); } };
+    const nested = 'Daily/2026/07/2026-07-11.md';
+    const action: Action = { type: 'section.replace', path: nested, content: 'x' };
+    const ctx = ctxOf([], { task: makeTask({ createIfMissing: true }), preWrite: async () => {} });
+    const res = await executeActions([action], ctx, spied);
+    expect(res.outcomes[0].result).toBe('applied');
+    expect(mkdirs).toContain('Daily/2026/07');
+  });
+
+  it('preWrite wird für die neue Datei mit existedBefore=false aufgerufen (→ Undo trasht sie)', async () => {
+    const vault = new InMemoryVaultPort();
+    const seen: Array<{ path: string; existedBefore: boolean }> = [];
+    const action: Action = { type: 'section.replace', path: daily, content: 'x' };
+    const ctx = ctxOf([], {
+      task: makeTask({ createIfMissing: true }),
+      preWrite: async (p) => { seen.push({ path: p, existedBefore: await vault.exists(p) }); },
+    });
+    await executeActions([action], ctx, vault);
+    expect(seen).toContainEqual({ path: daily, existedBefore: false });
+  });
+});

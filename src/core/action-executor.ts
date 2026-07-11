@@ -140,7 +140,7 @@ async function validateAction(action: Action, ctx: ExecutorContext, vault: Vault
 		}
 	} else {
 		// section.replace
-		if (!(await vault.exists(v.path))) {
+		if (!(await vault.exists(v.path)) && ctx.task.createIfMissing !== true) {
 			v.outcome = outcomeOf(action, 'failed', `Ziel existiert nicht: ${v.path} — zuerst anlegen (create_if_missing: false)`);
 			return v;
 		}
@@ -220,6 +220,14 @@ async function applyAction(v: ValidatedAction, ctx: ExecutorContext, vault: Vaul
 		const current = await vault.read(v.path);
 		await vault.modify(v.path, appendContent(current, action.heading, action.content));
 	} else {
+		if (!(await vault.exists(v.path))) {
+			const parent = v.path.slice(0, v.path.lastIndexOf('/'));
+			if (parent !== '') await vault.mkdir(parent); // mkdir ist idempotent + rekursiv (VaultPort)
+			// replaceSection('') erzeugt einen führenden Zeilenumbruch (Append-Semantik) —
+			// im frisch angelegten File unerwünscht, daher strippen.
+			await vault.create(v.path, replaceSection('', ctx.team.id, action.content).replace(/^\n/, ''));
+			return;
+		}
 		const current = await vault.read(v.path);
 		await vault.modify(v.path, replaceSection(current, ctx.team.id, action.content));
 	}
