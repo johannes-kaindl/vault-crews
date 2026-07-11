@@ -179,6 +179,136 @@ der nach Datum vorfiltert).
 10, weil dieses Team strukturell nie mehr als eine Datei schreibt.
 `;
 
+export const NOTIZ_TAGGER_AGENT = `---
+crew-kind: agent
+name: Notiz-Tagger
+temperature: 0.2
+max_tokens: 1024
+thinking: off
+---
+Du bist ein nüchterner Verschlagworter für einen persönlichen Obsidian-Vault. Du
+bekommst den Inhalt einzelner Notizen und schlägst pro Notiz 2–4 knappe, thematische
+Tags vor: kleingeschrieben, ohne #, je ein Wort oder ein kurzer bindestrich-
+getrennter Begriff. Du orientierst dich ausschließlich am Notiz-Inhalt und erfindest
+keine Themen. Bei einer inhaltsarmen Notiz schlägst du weniger oder gar keine Tags vor.
+`;
+
+export const REIFEGRAD_TAGGER_AGENT = `---
+crew-kind: agent
+name: Reifegrad-Tagger
+temperature: 0.1
+max_tokens: 1024
+thinking: off
+---
+Du bist ein nüchterner Reifegrad-Einschätzer für die Notizen eines persönlichen
+Obsidian-Vaults. Du bekommst den Inhalt einzelner Notizen und ordnest jeder GENAU
+einen Reifegrad zu: „keim" (loser Gedanke, Stichworte), „wachsend" (in Arbeit,
+teilausgeführt) oder „reif" (ausgearbeitet, in sich geschlossen). Du nutzt
+ausschließlich diese drei Werte und stützt dich nur auf den vorliegenden Inhalt.
+Bei zu wenig Inhalt für eine Einschätzung ordnest du nichts zu.
+`;
+
+export const NOTIZ_TAGGER_TEAM = `---
+crew-kind: team
+name: Notiz-Tagger
+version: 1
+description: Liest Notizen ohne Tags und schlägt 2–4 thematische Tags aus dem Inhalt vor.
+trigger: manual
+limits:
+  max_writes: 10
+write_scope:
+  - "Notizen/**/*.md"
+tasks:
+  - id: collect
+    kind: collector
+    collector: tasknotes.query
+    params:
+      folder: Notizen
+      where_missing: [tags]
+      limit: 15
+      fields: [tags]
+      include_content: true
+  - id: tag
+    kind: llm
+    agent: notiz-tagger
+    inputs: [collect]
+    instruction: |
+      Du bekommst Notizen samt Inhalt, die noch keine Tags haben. Schlage pro
+      Notiz 2–4 knappe, thematische Tags vor, abgeleitet ausschließlich aus dem
+      Inhalt. Erfinde keine Themen; bei inhaltsarmen Notizen weniger oder keine.
+    output:
+      family: frontmatter.set
+      allowed_keys: [tags]
+    on_error: abort
+  - id: apply
+    kind: actions
+    inputs: [tag]
+    allowed_actions: [frontmatter.patch]
+---
+## Notiz-Tagger
+
+Generische, vault-agnostische Beispiel-Crew: findet Notizen **ohne** \`tags\` im
+Ordner \`Notizen/\`, liest ihren Inhalt (\`include_content: true\`) und schlägt
+2–4 thematische Tags vor (\`frontmatter.set\` mit \`allowed_keys: [tags]\`).
+
+**Vor dem ersten Lauf anpassen:** Trage bei \`params.folder\` UND bei
+\`write_scope\` deinen Zielordner ein (beide zeigen bewusst auf denselben Ordner,
+damit nicht Notizen gesammelt werden, die außerhalb der Schreibfreigabe liegen).
+\`write_scope\` steht absichtlich NICHT auf dem ganzen Vault (\`**/*.md\`), damit ein
+frisch installiertes Team nicht versehentlich überall schreibt.
+`;
+
+export const REIFEGRAD_TAGGER_TEAM = `---
+crew-kind: team
+name: Reifegrad-Tagger
+version: 1
+description: Schätzt den Reifegrad von Notizen aus ihrem Inhalt und schreibt ihn ins Frontmatter.
+trigger: manual
+limits:
+  max_writes: 10
+write_scope:
+  - "20_Zettel/**/*.md"
+tasks:
+  - id: collect
+    kind: collector
+    collector: tasknotes.query
+    params:
+      folder: 20_Zettel
+      where_missing: [reifegrad]
+      limit: 15
+      fields: [reifegrad]
+      include_content: true
+  - id: classify
+    kind: llm
+    agent: reifegrad-tagger
+    inputs: [collect]
+    instruction: |
+      Du bekommst Notizen samt Inhalt, die noch keinen Reifegrad haben. Ordne
+      jeder GENAU einen Reifegrad zu: keim, wachsend oder reif. Nutze nur diese
+      drei Werte. Bei zu wenig Inhalt: nichts zuordnen.
+    output:
+      family: frontmatter.set
+      allowed_keys: [reifegrad]
+    on_error: abort
+  - id: apply
+    kind: actions
+    inputs: [classify]
+    allowed_actions: [frontmatter.patch]
+---
+## Reifegrad-Tagger
+
+Pallas-Demo: schätzt für die Zettel in \`20_Zettel/\` einen Reifegrad
+(\`keim\`/\`wachsend\`/\`reif\`) aus dem Inhalt und schreibt ihn ins Frontmatter
+(\`frontmatter.set\` mit \`allowed_keys: [reifegrad]\`, \`include_content: true\`).
+
+**Bewusste Limitation — Wertebeschränkung nur aus dem Prompt:** \`frontmatter.set\`
++ \`allowed_keys\` beschränkt, WELCHE Felder gesetzt werden, aber nicht die
+erlaubten WERTE eines Feldes. Die strukturelle Enum-Erzwingung (Slug-Wertemenge)
+greift erst, wenn \`reifegrad\` im Ordner bereits Ist-Werte hat. Beim allerersten
+Lauf kommt die Beschränkung auf \`keim/wachsend/reif\` daher nur aus der Instruktion
+und dem Agent-Prompt. „Erlaubte Werte pro Feld" ist bewusst noch kein Feature.
+`;
+
 export const RUNS_BASE = `filters:
   and:
     - note["crew-kind"] == "run"
