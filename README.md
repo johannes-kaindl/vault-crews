@@ -162,6 +162,56 @@ Documented rather than silently missing:
   the abort took effect — nothing was aborted" rather than freezing on a spinner. There
   is deliberately no mechanism to throw away already-completed work.
 
+## Eigene Crews schreiben
+
+Eine Crew ist Markdown im Vault: ein **Team** (`crew-kind: team`) als Pipeline aus
+`collector → llm → actions`, plus **Agent**-Notes (`crew-kind: agent`, System-Prompt
+im Body). Die mitgelieferten Crews (Command „Install example crews") sind editierbare
+Beispiele — kopiere und passe sie an.
+
+### Output-Vokabular (`output:`)
+
+Ein `llm`-Task legt sein Ausgabeformat über einen `output:`-Block fest:
+
+- **`frontmatter.set`** — das Modell schlägt Frontmatter-Werte für Quell-Notizen vor.
+  `allowed_keys` beschränkt, welche Felder gesetzt werden dürfen. Pfade sind an das
+  Quellmaterial gebunden (keine Halluzination), Enum-Werte an die im Vault
+  vorhandenen Werte.
+  ```yaml
+  output:
+    family: frontmatter.set
+    allowed_keys: [tags, kategorie]
+  ```
+- **`section.write`** — das Modell schreibt Markdown-Text, der per `section.replace`
+  in das `target` des nachgelagerten `actions`-Tasks geschrieben wird. Optional
+  `max_chars` (Default 16000).
+  ```yaml
+  output:
+    family: section.write
+  ```
+
+Die älteren Namen `output_schema: triage-v1` / `briefing-v1` bleiben als Kurzform gültig.
+
+### Inhalt lesen (`include_content`)
+
+Standardmäßig liefert `tasknotes.query` nur Frontmatter. Für Crews, die den
+Notiz-**Text** brauchen (Tagger, Zusammenfasser), setze `include_content: true`:
+
+```yaml
+collector: tasknotes.query
+params:
+  folder: Notizen
+  where_missing: [tags]
+  include_content: true
+```
+
+### Schreib-Sicherheit (`write_scope`)
+
+`write_scope` ist eine Glob-Allowlist: eine Crew darf nur dort schreiben. Setze sie
+so eng wie möglich — und lass `collector`-`folder` und `write_scope` auf denselben
+Ordner zeigen, sonst werden Vorschläge außerhalb der Schreibfreigabe verworfen. Das
+Plugin-Limit „Max. Schreibvorgänge pro Lauf" deckelt zusätzlich jeden `max_writes`-Wert.
+
 ## License
 
 AGPL-3.0-or-later — see [`LICENSE`](LICENSE) for the full text.

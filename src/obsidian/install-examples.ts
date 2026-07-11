@@ -12,8 +12,9 @@ import {
 } from "./example-assets";
 
 /**
- * Installiert die beiden mitgelieferten Beispiel-Crews (Task-Triage,
- * Daily-Briefing) + ihre Agenten + das `runs.base`-Dashboard in `<root>/…`.
+ * Installiert die vier mitgelieferten Beispiel-Crews (Task-Triage,
+ * Daily-Briefing, Notiz-Tagger, Reifegrad-Tagger) + ihre Agenten + das
+ * `runs.base`-Dashboard in `<root>/…`.
  * Schreibt NUR Ziele, die noch nicht existieren (nie ein Overwrite — der Nutzer
  * editiert Beispiel-Crews nach der Installation frei, ein erneuter Aufruf des
  * Commands darf lokale Änderungen nie zurücksetzen). `root` ist der konfigurierte

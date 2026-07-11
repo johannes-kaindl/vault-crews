@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `tasknotes.query` unterstützt `include_content: true` (liefert Notiz-Inhalt für die gelieferten Notizen).
+- Zwei neue Beispiel-Crews: **Notiz-Tagger** (generisch, vault-agnostisch) und **Reifegrad-Tagger** (Pallas-Demo) — demonstrieren das `output:`-Vokabular (`frontmatter.set`) mit Inhalt.
+- README-Abschnitt „Eigene Crews schreiben" (output:-Syntax, include_content, write_scope).
+
 ## [0.5.0] — 2026-07-11
 
 ### Added
