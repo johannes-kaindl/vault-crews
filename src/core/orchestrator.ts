@@ -7,7 +7,7 @@ import { buildDenylist, expandTarget } from './paths';
 import { parseAgentDef, parseTeamDef } from './crew-parser';
 import { runCollector } from './collectors';
 import { buildPrompt } from './prompt-builder';
-import { BUILTIN_SCHEMAS } from './schemas';
+import { buildSchema } from './schemas';
 import { buildRepairPrompt, validateOutput } from './output-validator';
 import { executeActions, type ExecutorContext } from './action-executor';
 import { buildRunMd, buildStateJson } from './run-log';
@@ -242,7 +242,7 @@ class RunFsm {
 		if (agent === undefined) return this.failLlm(task, rec, 'crew_invalid', `Agent nicht geladen: ${task.agent}`);
 		rec.model = agent.model ?? this.deps.settings.defaultModel;
 
-		const schema = BUILTIN_SCHEMAS[task.outputSchema];
+		const schema = buildSchema(task.output);
 		const sources = inputs.flatMap((a) => a.files);
 		const slugTables = mergeSlugTables(inputs);
 		const target = this.resolveTarget(task);

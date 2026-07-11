@@ -3,18 +3,53 @@
  *  (`<datei>: <feld>: <problem>`), und zwar BEVOR irgendein LLM-Call passiert. */
 import { globMatch } from './paths';
 import type {
-	ActionType, AgentDef, CollectorId, LlmTaskDef, RunLimits, SchemaId, TaskDef, TeamDef,
+	ActionType, AgentDef, CollectorId, LlmTaskDef, OutputSpec, RunLimits, TaskDef, TeamDef,
 } from './types';
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
 
 const COLLECTORS: CollectorId[] = ['vault.list', 'vault.read', 'tasknotes.query'];
-const SCHEMAS: SchemaId[] = ['triage-v1', 'briefing-v1'];
 const ACTIONS: ActionType[] = ['frontmatter.patch', 'note.create', 'note.append', 'section.replace'];
 
 function slugFromPath(path: string): string {
 	const base = path.split('/').pop() ?? path;
 	return base.replace(/\.md$/, '');
+}
+
+/** Löst die Legacy-`output_schema:`-IDs auf ein OutputSpec auf. Einzige Stelle,
+ *  an der triage-v1/briefing-v1 zu Familien werden. */
+function resolveSchemaAlias(id: string): OutputSpec | null {
+	switch (id) {
+		case 'triage-v1': return { family: 'frontmatter.set', allowedKeys: '*' };
+		case 'briefing-v1': return { family: 'section.write', maxChars: 16_000 };
+		default: return null;
+	}
+}
+
+/** Parst den neuen `output:`-Block einer llm-Task auf ein OutputSpec. */
+function parseOutputBlock(
+	raw: unknown,
+	feld: string,
+	err: (feld: string, problem: string) => void,
+): OutputSpec | null {
+	if (!isRecord(raw)) { err(feld, 'ist kein Objekt (erwartet family: …)'); return null; }
+	const family = raw.family;
+	if (family === 'frontmatter.set') {
+		if (!Array.isArray(raw.allowed_keys) || raw.allowed_keys.length === 0) {
+			err(`${feld}.allowed_keys`, 'fehlt oder leer (erwartet nicht-leere String-Liste)');
+			return null;
+		}
+		const keys = raw.allowed_keys.filter((k): k is string => typeof k === 'string');
+		if (keys.length !== raw.allowed_keys.length) { err(`${feld}.allowed_keys`, 'enthält Nicht-String-Einträge'); return null; }
+		return { family: 'frontmatter.set', allowedKeys: keys };
+	}
+	if (family === 'section.write') {
+		if (raw.allowed_keys !== undefined) { err(`${feld}.allowed_keys`, 'gilt nur für frontmatter.set'); return null; }
+		const maxChars = typeof raw.max_chars === 'number' && raw.max_chars > 0 ? raw.max_chars : 16_000;
+		return { family: 'section.write', maxChars };
+	}
+	err(`${feld}.family`, `'${show(family)}' (erwartet frontmatter.set|section.write)`);
+	return null;
 }
 
 export function parseAgentDef(path: string, fm: Record<string, unknown> | null, body: string): ParseResult<AgentDef> {
@@ -110,11 +145,22 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 					if (!opts.knownAgents.includes(agent)) err(`${label}.agent`, `'${agent}' unbekannt (vorhanden: ${opts.knownAgents.join(', ') || '—'})`);
 					const instruction = typeof raw.instruction === 'string' && raw.instruction.trim() !== '' ? raw.instruction.trim() : null;
 					if (instruction === null) err(`${label}.instruction`, 'fehlt oder leer');
-					const schema = SCHEMAS.includes(raw.output_schema as SchemaId) ? (raw.output_schema as SchemaId) : null;
-					if (schema === null) err(`${label}.output_schema`, `'${show(raw.output_schema)}' (erwartet ${SCHEMAS.join('|')})`);
+					const hasBlock = raw.output !== undefined;
+					const hasLegacy = raw.output_schema !== undefined;
+					let output: OutputSpec | null = null;
+					if (hasBlock && hasLegacy) {
+						err(`${label}.output`, 'nicht beide: output und output_schema gleichzeitig gesetzt');
+					} else if (hasBlock) {
+						output = parseOutputBlock(raw.output, `${label}.output`, err);
+					} else if (hasLegacy) {
+						output = resolveSchemaAlias(typeof raw.output_schema === 'string' ? raw.output_schema : '');
+						if (output === null) err(`${label}.output_schema`, `'${show(raw.output_schema)}' (erwartet triage-v1|briefing-v1)`);
+					} else {
+						err(`${label}.output`, 'fehlt (erwartet output-Block oder output_schema)');
+					}
 					const onError = raw.on_error === 'skip' ? 'skip' : 'abort';
 					if (raw.on_error !== undefined && raw.on_error !== 'skip' && raw.on_error !== 'abort') err(`${label}.on_error`, `'${show(raw.on_error)}' (erwartet abort|skip)`);
-					const def: LlmTaskDef = { id, kind: 'llm', agent, inputs, instruction: instruction ?? '', outputSchema: schema ?? 'triage-v1', onError };
+					const def: LlmTaskDef = { id, kind: 'llm', agent, inputs, instruction: instruction ?? '', output: output ?? { family: 'frontmatter.set', allowedKeys: '*' }, onError };
 					tasks.push(def);
 					break;
 				}

@@ -15,6 +15,10 @@ export type CollectorId = 'vault.list' | 'vault.read' | 'tasknotes.query';
 export type SchemaId = 'triage-v1' | 'briefing-v1';
 export type ActionType = 'frontmatter.patch' | 'note.create' | 'note.append' | 'section.replace';
 
+export type OutputSpec =
+	| { family: 'frontmatter.set'; allowedKeys: string[] | '*' }
+	| { family: 'section.write'; maxChars: number };
+
 export interface CollectorTaskDef {
 	id: string;
 	kind: 'collector';
@@ -27,7 +31,7 @@ export interface LlmTaskDef {
 	agent: string;
 	inputs: string[];
 	instruction: string;
-	outputSchema: SchemaId;
+	output: OutputSpec;
 	onError: 'abort' | 'skip';
 }
 export interface ActionsTaskDef {

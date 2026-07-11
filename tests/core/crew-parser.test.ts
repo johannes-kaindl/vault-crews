@@ -61,7 +61,7 @@ describe('parseTeamDef', () => {
 		expect(r.value.id).toBe('task-triage');
 		expect(r.value.maxWrites).toBe(15);
 		expect(r.value.writeScope).toEqual(['10_Aufgaben/**/*.md']);
-		expect(r.value.tasks[1]).toMatchObject({ kind: 'llm', outputSchema: 'triage-v1', onError: 'abort' });
+		expect(r.value.tasks[1]).toMatchObject({ kind: 'llm', output: { family: 'frontmatter.set', allowedKeys: '*' }, onError: 'abort' });
 		expect(r.value.tasks[2]).toMatchObject({ kind: 'actions', allowedKeys: ['priority'], target: null });
 		expect(r.value.sourcePath).toBe(TEAM_PATH);
 	});
@@ -143,5 +143,91 @@ describe('parseTeamDef', () => {
 	it('lehnt leere tasks und fehlendes Frontmatter ab', () => {
 		expect(parseTeamDef(TEAM_PATH, teamFm({ tasks: [] }), OPTS).ok).toBe(false);
 		expect(parseTeamDef(TEAM_PATH, null, OPTS).ok).toBe(false);
+	});
+});
+
+describe('output: block (schema families)', () => {
+	// Nutzt die Bestandshelfer dieser Datei: teamFm(overrides) baut ein vollständiges
+	// Team-Frontmatter, `tasks` wird pro Fall überschrieben; parseTeamDef(TEAM_PATH, fm, OPTS)
+	// ist der reale Parsing-Entry-Point. OPTS kennt den Agenten 'triage-analyst'.
+
+	it('parst frontmatter.set mit allowed_keys', () => {
+		const tasks = [
+			{ id: 'collect', kind: 'collector', collector: 'vault.list', params: {} },
+			{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'x', output: { family: 'frontmatter.set', allowed_keys: ['tags', 'kategorie'] } },
+		];
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+		expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
+		if (!r.ok) return;
+		expect((r.value.tasks[1] as { output: unknown }).output).toEqual({ family: 'frontmatter.set', allowedKeys: ['tags', 'kategorie'] });
+	});
+
+	it('parst section.write mit Default max_chars', () => {
+		const tasks = [
+			{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: [], instruction: 'x', output: { family: 'section.write' } },
+			{ id: 'ap', kind: 'actions', inputs: ['l'], allowed_actions: ['section.replace'], target: '30_Chronos/heute.md' },
+		];
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+		expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
+		if (!r.ok) return;
+		expect((r.value.tasks[0] as { output: unknown }).output).toEqual({ family: 'section.write', maxChars: 16_000 });
+	});
+
+	it('lehnt unbekannte family ab', () => {
+		const tasks = [
+			{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: [], instruction: 'x', output: { family: 'note.append' } },
+		];
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+		expect(r.ok).toBe(false);
+		if (r.ok) return;
+		expect(r.errors.join('\n')).toMatch(/family.*frontmatter\.set\|section\.write/);
+	});
+
+	it('lehnt frontmatter.set ohne allowed_keys ab', () => {
+		const tasks = [
+			{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: [], instruction: 'x', output: { family: 'frontmatter.set' } },
+		];
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+		expect(r.ok).toBe(false);
+		if (r.ok) return;
+		expect(r.errors.join('\n')).toMatch(/allowed_keys/);
+	});
+
+	it('lehnt output und output_schema gleichzeitig ab', () => {
+		const tasks = [
+			{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: [], instruction: 'x', output_schema: 'triage-v1', output: { family: 'frontmatter.set', allowed_keys: ['tags'] } },
+		];
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+		expect(r.ok).toBe(false);
+		if (r.ok) return;
+		expect(r.errors.join('\n')).toMatch(/output.*output_schema|nicht beide/);
+	});
+
+	it('lehnt Task ohne output und ohne output_schema ab', () => {
+		const tasks = [
+			{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: [], instruction: 'x' },
+		];
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+		expect(r.ok).toBe(false);
+	});
+
+	it('lehnt allowed_keys auf section.write ab (artfremder Parameter)', () => {
+		const tasks = [
+			{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: [], instruction: 'x', output: { family: 'section.write', allowed_keys: ['tags'] } },
+		];
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+		expect(r.ok).toBe(false);
+		if (r.ok) return;
+		expect(r.errors.join('\n')).toMatch(/allowed_keys.*frontmatter\.set|nur für frontmatter\.set/);
+	});
+
+	it('lehnt Nicht-String-Einträge in allowed_keys ab', () => {
+		const tasks = [
+			{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: [], instruction: 'x', output: { family: 'frontmatter.set', allowed_keys: ['tags', 3] } },
+		];
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+		expect(r.ok).toBe(false);
+		if (r.ok) return;
+		expect(r.errors.join('\n')).toMatch(/allowed_keys.*Nicht-String|Nicht-String-Einträge/);
 	});
 });
