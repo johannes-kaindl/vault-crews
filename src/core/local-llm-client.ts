@@ -7,6 +7,7 @@ import { parseSSE } from '../vendor/kit/sse';
 import { ThinkSplitter } from '../vendor/kit/think';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { parseLmStudioContext, parseOllamaContext, suppressParams } from './model-info';
+import { isContextOverflow, extractChatContent } from './chat-response';
 import { LlmCallError } from './ports';
 import type {
 	ClockPort, JsonTransport, LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, SseTransport,
@@ -178,7 +179,7 @@ export class LocalLlmClient implements LlmClient {
 			);
 		}
 		if (status !== 200) {
-			if (/context (length|window)|too many tokens/i.test(rawBody)) {
+			if (isContextOverflow(rawBody)) {
 				throw new LlmCallError(`HTTP ${status}: Kontextfenster überschritten`, 'overflow');
 			}
 			throw new LlmCallError(`HTTP ${status}: ${rawBody.slice(0, 300)}`, 'http');
@@ -207,17 +208,13 @@ export class LocalLlmClient implements LlmClient {
 		};
 		const res = await this.json.postJson(`${this.base}/v1/chat/completions`, body);
 		if (signal.aborted) return { content: '', thinkTokens: 0, finishReason: 'aborted' };
-		const choices = isRecord(res) && Array.isArray(res.choices) ? (res.choices as unknown[]) : [];
-		const choice = choices.length > 0 ? choices[0] : null;
-		const msg = isRecord(choice) && isRecord(choice.message) ? choice.message : null;
-		const content = msg && typeof msg.content === 'string' ? msg.content : null;
-		if (content !== null) {
-			const reasoning = msg && typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '';
-			return { content, thinkTokens: thinkTokens(reasoning), finishReason: 'stop' };
+		const extracted = extractChatContent(res);
+		if (extracted !== null) {
+			return { content: extracted.content, thinkTokens: thinkTokens(extracted.reasoning), finishReason: 'stop' };
 		}
 		// Kein content extrahierbar → das ist ein echter Fehlerbody, hier erst auf Overflow sniffen.
 		const rawBody = JSON.stringify(res ?? {});
-		if (/context (length|window)|too many tokens/i.test(rawBody)) {
+		if (isContextOverflow(rawBody)) {
 			throw new LlmCallError('Kontextfenster überschritten (Non-Streaming)', 'overflow');
 		}
 		throw new LlmCallError(`Non-Streaming-Antwort ohne content: ${rawBody.slice(0, 300)}`, 'http');
