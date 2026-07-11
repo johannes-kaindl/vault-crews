@@ -28,6 +28,13 @@ describe('extractChatContent', () => {
 		const res = { choices: [{ message: { content: 'Hallo' } }] };
 		expect(extractChatContent(res)).toEqual({ content: 'Hallo', reasoning: '' });
 	});
+	it('extrahiert Erfolgs-Content mit "context window" sauber (kein Overflow-Trigger)', () => {
+		const res = { choices: [{ message: { content: 'Das context window beschreibt die maximale Tokenanzahl.' } }] };
+		expect(extractChatContent(res)).toEqual({
+			content: 'Das context window beschreibt die maximale Tokenanzahl.',
+			reasoning: '',
+		});
+	});
 	it('null bei fehlendem content', () => {
 		expect(extractChatContent({ choices: [{ message: {} }] })).toBeNull();
 	});
