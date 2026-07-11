@@ -500,4 +500,16 @@ describe('executeActions — section.replace create_if_missing', () => {
     await executeActions([action], ctx, vault);
     expect(seen).toContainEqual({ path: daily, existedBefore: false });
   });
+
+  it('root-level Ziel: legt keinen Geister-Ordner an (kein mkdir mit verkürztem Namen)', async () => {
+    const vault = new InMemoryVaultPort();
+    const mkdirs: string[] = [];
+    const spied: VaultPort = { ...spyVault(vault).vault, mkdir: async (p) => { mkdirs.push(p); await vault.mkdir(p); } };
+    const action: Action = { type: 'section.replace', path: 'briefing.md', content: 'x' };
+    const ctx = ctxOf([], { team: makeTeam({ writeScope: ['*.md'] }), task: makeTask({ createIfMissing: true }), preWrite: async () => {} });
+    const res = await executeActions([action], ctx, spied);
+    expect(res.outcomes[0]?.result).toBe('applied');
+    expect(await vault.exists('briefing.md')).toBe(true);
+    expect(mkdirs).toEqual([]); // kein mkdir-Aufruf für root-level Ziel
+  });
 });

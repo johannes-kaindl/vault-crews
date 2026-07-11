@@ -221,8 +221,8 @@ async function applyAction(v: ValidatedAction, ctx: ExecutorContext, vault: Vaul
 		await vault.modify(v.path, appendContent(current, action.heading, action.content));
 	} else {
 		if (!(await vault.exists(v.path))) {
-			const parent = v.path.slice(0, v.path.lastIndexOf('/'));
-			if (parent !== '') await vault.mkdir(parent); // mkdir ist idempotent + rekursiv (VaultPort)
+			const slash = v.path.lastIndexOf('/');
+			if (slash > 0) await vault.mkdir(v.path.slice(0, slash)); // mkdir ist idempotent + rekursiv (VaultPort)
 			// replaceSection('') erzeugt einen führenden Zeilenumbruch (Append-Semantik) —
 			// im frisch angelegten File unerwünscht, daher strippen.
 			await vault.create(v.path, replaceSection('', ctx.team.id, action.content).replace(/^\n/, ''));
