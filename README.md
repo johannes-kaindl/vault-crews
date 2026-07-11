@@ -175,8 +175,10 @@ Ein `llm`-Task legt sein Ausgabeformat über einen `output:`-Block fest:
 
 - **`frontmatter.set`** — das Modell schlägt Frontmatter-Werte für Quell-Notizen vor.
   `allowed_keys` beschränkt, welche Felder gesetzt werden dürfen. Pfade sind an das
-  Quellmaterial gebunden (keine Halluzination), Enum-Werte an die im Vault
-  vorhandenen Werte.
+  Quellmaterial gebunden (keine Halluzination); die strukturelle Enum-Erzwingung
+  bindet Werte an die im Vault vorhandenen Ist-Werte, greift aber erst, wenn das Feld
+  im Ordner bereits belegte Werte hat — beim allerersten Lauf (noch keine Werte, keine
+  Wertetabelle) kommt eine Wertebeschränkung nur aus Instruktion und Agent-Prompt.
   ```yaml
   output:
     family: frontmatter.set

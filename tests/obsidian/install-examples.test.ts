@@ -241,5 +241,11 @@ describe('Neue Tagger-Crews sind nicht tot (echte Parser, Default-Maxima)', () =
 		expect(r.value.maxWrites).toBeLessThanOrEqual(DEFAULT_MAXIMA.maxWrites);
 		const llmTask = r.value.tasks.find((t) => t.kind === 'llm');
 		expect(llmTask).toMatchObject({ kind: 'llm', output: { family: 'frontmatter.set', allowedKeys: keys } });
+		// Der apply-actions-Task braucht sein EIGENES allowed_keys (Ausführungs-Gate,
+		// wird NICHT vom output:-Block des llm-Tasks vererbt). Fehlt es, setzt der Parser
+		// allowedKeys:null → action-executor macht daraus eine leere Allowlist → jeder
+		// vorgeschlagene Key wird abgelehnt → die Crew schreibt zur Laufzeit NICHTS.
+		const applyTask = r.value.tasks.find((t) => t.kind === 'actions');
+		expect(applyTask).toMatchObject({ kind: 'actions', allowedActions: ['frontmatter.patch'], allowedKeys: keys });
 	});
 });

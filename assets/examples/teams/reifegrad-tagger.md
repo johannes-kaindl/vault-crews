@@ -34,6 +34,7 @@ tasks:
     kind: actions
     inputs: [classify]
     allowed_actions: [frontmatter.patch]
+    allowed_keys: [reifegrad]
 ---
 ## Reifegrad-Tagger
 

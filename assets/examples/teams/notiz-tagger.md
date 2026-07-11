@@ -34,6 +34,7 @@ tasks:
     kind: actions
     inputs: [tag]
     allowed_actions: [frontmatter.patch]
+    allowed_keys: [tags]
 ---
 ## Notiz-Tagger
 

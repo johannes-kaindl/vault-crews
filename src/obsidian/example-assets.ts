@@ -244,6 +244,7 @@ tasks:
     kind: actions
     inputs: [tag]
     allowed_actions: [frontmatter.patch]
+    allowed_keys: [tags]
 ---
 ## Notiz-Tagger
 
@@ -294,6 +295,7 @@ tasks:
     kind: actions
     inputs: [classify]
     allowed_actions: [frontmatter.patch]
+    allowed_keys: [reifegrad]
 ---
 ## Reifegrad-Tagger
 

@@ -100,6 +100,7 @@ tasks:
     kind: actions
     inputs: [tag]
     allowed_actions: [frontmatter.patch]
+    allowed_keys: [tags]
 ```
 `folder` (Collector) und `write_scope` zeigen **auf denselben** klar markierten
 Beispiel-Ordner (`Notizen` / `Notizen/**/*.md`) mit Prosa-Hinweis „beide auf deinen
