@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `create_if_missing`-Flag für `section.replace`-Tasks in Crews: legt die Zieldatei
+  (Marker-Block, kein Template) samt fehlender Elternordner an, statt kontrolliert zu
+  failen. Die Daily-Briefing-Beispiel-Crew nutzt es und braucht die heutige Daily Note
+  nicht mehr vorab. Undo entfernt die erzeugte Note (Papierkorb).
+
 ## [0.4.0] — 2026-07-10
 
 ### Added

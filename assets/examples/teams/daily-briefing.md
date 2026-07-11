@@ -45,6 +45,7 @@ tasks:
     inputs: [briefing]
     allowed_actions: [section.replace]
     target: "30_Chronos/10_Tage/{{today}}.md"
+    create_if_missing: true
 ---
 ## Daily-Briefing
 
@@ -52,10 +53,10 @@ Fasst die offenen Aufgaben aus `10_Aufgaben/` zu einem kurzen Briefing
 zusammen und schreibt es per `section.replace` in die heutige Daily Note
 (`30_Chronos/10_Tage/{{today}}.md`, Format `YYYY-MM-DD` – Pallas-Vault-
 Konvention aus `periodic-notes`/`daily-notes.json`). Der Block steht zwischen
-den Markern `<!-- crew:daily-briefing -->` … `<!-- /crew:daily-briefing -->`;
-existiert die Ziel-Datei nicht, schlägt der Task kontrolliert fehl (kein
-`create_if_missing`, Spec §4.3) – lege die heutige Daily Note vorher an
-(Periodic-Notes-Command oder von Hand).
+den Markern `<!-- crew:daily-briefing -->` … `<!-- /crew:daily-briefing -->`.
+Dank `create_if_missing: true` wird die heutige Daily Note angelegt, falls sie
+noch nicht existiert (nur der Marker-Block, kein Template). Ein Undo entfernt die
+so erzeugte Note wieder (Papierkorb).
 
 **Bewusste Vereinfachung ggü. Spec §9 (Wortlaut „Analyst-JSON → Autor-
 Markdown“):** Diese Beispiel-Crew nutzt EINEN llm-Task (Agent
