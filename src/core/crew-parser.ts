@@ -44,7 +44,7 @@ function parseOutputBlock(
 		return { family: 'frontmatter.set', allowedKeys: keys };
 	}
 	if (family === 'section.write') {
-		if (raw.allowed_keys !== undefined) err(`${feld}.allowed_keys`, 'gilt nur für frontmatter.set');
+		if (raw.allowed_keys !== undefined) { err(`${feld}.allowed_keys`, 'gilt nur für frontmatter.set'); return null; }
 		const maxChars = typeof raw.max_chars === 'number' && raw.max_chars > 0 ? raw.max_chars : 16_000;
 		return { family: 'section.write', maxChars };
 	}

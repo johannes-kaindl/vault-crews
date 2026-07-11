@@ -210,4 +210,24 @@ describe('output: block (schema families)', () => {
 		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
 		expect(r.ok).toBe(false);
 	});
+
+	it('lehnt allowed_keys auf section.write ab (artfremder Parameter)', () => {
+		const tasks = [
+			{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: [], instruction: 'x', output: { family: 'section.write', allowed_keys: ['tags'] } },
+		];
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+		expect(r.ok).toBe(false);
+		if (r.ok) return;
+		expect(r.errors.join('\n')).toMatch(/allowed_keys.*frontmatter\.set|nur für frontmatter\.set/);
+	});
+
+	it('lehnt Nicht-String-Einträge in allowed_keys ab', () => {
+		const tasks = [
+			{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: [], instruction: 'x', output: { family: 'frontmatter.set', allowed_keys: ['tags', 3] } },
+		];
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+		expect(r.ok).toBe(false);
+		if (r.ok) return;
+		expect(r.errors.join('\n')).toMatch(/allowed_keys.*Nicht-String|Nicht-String-Einträge/);
+	});
 });
