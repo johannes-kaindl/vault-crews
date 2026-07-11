@@ -26,6 +26,32 @@ function resolveSchemaAlias(id: string): OutputSpec | null {
 	}
 }
 
+/** Parst den neuen `output:`-Block einer llm-Task auf ein OutputSpec. */
+function parseOutputBlock(
+	raw: unknown,
+	feld: string,
+	err: (feld: string, problem: string) => void,
+): OutputSpec | null {
+	if (!isRecord(raw)) { err(feld, 'ist kein Objekt (erwartet family: …)'); return null; }
+	const family = raw.family;
+	if (family === 'frontmatter.set') {
+		if (!Array.isArray(raw.allowed_keys) || raw.allowed_keys.length === 0) {
+			err(`${feld}.allowed_keys`, 'fehlt oder leer (erwartet nicht-leere String-Liste)');
+			return null;
+		}
+		const keys = raw.allowed_keys.filter((k): k is string => typeof k === 'string');
+		if (keys.length !== raw.allowed_keys.length) { err(`${feld}.allowed_keys`, 'enthält Nicht-String-Einträge'); return null; }
+		return { family: 'frontmatter.set', allowedKeys: keys };
+	}
+	if (family === 'section.write') {
+		if (raw.allowed_keys !== undefined) err(`${feld}.allowed_keys`, 'gilt nur für frontmatter.set');
+		const maxChars = typeof raw.max_chars === 'number' && raw.max_chars > 0 ? raw.max_chars : 16_000;
+		return { family: 'section.write', maxChars };
+	}
+	err(`${feld}.family`, `'${show(family)}' (erwartet frontmatter.set|section.write)`);
+	return null;
+}
+
 export function parseAgentDef(path: string, fm: Record<string, unknown> | null, body: string): ParseResult<AgentDef> {
 	const errors: string[] = [];
 	const err = (feld: string, problem: string): void => { errors.push(`${path}: ${feld}: ${problem}`); };
@@ -119,8 +145,19 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 					if (!opts.knownAgents.includes(agent)) err(`${label}.agent`, `'${agent}' unbekannt (vorhanden: ${opts.knownAgents.join(', ') || '—'})`);
 					const instruction = typeof raw.instruction === 'string' && raw.instruction.trim() !== '' ? raw.instruction.trim() : null;
 					if (instruction === null) err(`${label}.instruction`, 'fehlt oder leer');
-					const output = resolveSchemaAlias(typeof raw.output_schema === 'string' ? raw.output_schema : '');
-					if (output === null) err(`${label}.output_schema`, `'${show(raw.output_schema)}' (erwartet triage-v1|briefing-v1)`);
+					const hasBlock = raw.output !== undefined;
+					const hasLegacy = raw.output_schema !== undefined;
+					let output: OutputSpec | null = null;
+					if (hasBlock && hasLegacy) {
+						err(`${label}.output`, 'nicht beide: output und output_schema gleichzeitig gesetzt');
+					} else if (hasBlock) {
+						output = parseOutputBlock(raw.output, `${label}.output`, err);
+					} else if (hasLegacy) {
+						output = resolveSchemaAlias(typeof raw.output_schema === 'string' ? raw.output_schema : '');
+						if (output === null) err(`${label}.output_schema`, `'${show(raw.output_schema)}' (erwartet triage-v1|briefing-v1)`);
+					} else {
+						err(`${label}.output`, 'fehlt (erwartet output-Block oder output_schema)');
+					}
 					const onError = raw.on_error === 'skip' ? 'skip' : 'abort';
 					if (raw.on_error !== undefined && raw.on_error !== 'skip' && raw.on_error !== 'abort') err(`${label}.on_error`, `'${show(raw.on_error)}' (erwartet abort|skip)`);
 					const def: LlmTaskDef = { id, kind: 'llm', agent, inputs, instruction: instruction ?? '', output: output ?? { family: 'frontmatter.set', allowedKeys: '*' }, onError };
