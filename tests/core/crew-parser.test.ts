@@ -66,6 +66,37 @@ describe('parseTeamDef', () => {
 		expect(r.value.sourcePath).toBe(TEAM_PATH);
 	});
 
+	it('parst create_if_missing: true auf actions-Task', () => {
+		const tasks = [
+			{ id: 'collect', kind: 'collector', collector: 'tasknotes.query', params: { folder: '10_Aufgaben' } },
+			{ id: 'analyse', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'B.', output_schema: 'triage-v1' },
+			{ id: 'apply', kind: 'actions', inputs: ['analyse'], allowed_actions: ['section.replace'], target: 'Daily/{{today}}.md', create_if_missing: true },
+		];
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+		expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
+		if (!r.ok) return;
+		expect(r.value.tasks[2]).toMatchObject({ kind: 'actions', createIfMissing: true });
+	});
+
+	it('create_if_missing fehlt → Default false', () => {
+		const r = parseTeamDef(TEAM_PATH, teamFm(), OPTS);
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		expect(r.value.tasks[2]).toMatchObject({ kind: 'actions', createIfMissing: false });
+	});
+
+	it('create_if_missing nicht-boolean → Fehler', () => {
+		const tasks = [
+			{ id: 'collect', kind: 'collector', collector: 'tasknotes.query', params: { folder: '10_Aufgaben' } },
+			{ id: 'analyse', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'B.', output_schema: 'triage-v1' },
+			{ id: 'apply', kind: 'actions', inputs: ['analyse'], allowed_actions: ['section.replace'], target: 'Daily/{{today}}.md', create_if_missing: 'yes' },
+		];
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+		expect(r.ok).toBe(false);
+		if (r.ok) return;
+		expect(r.errors.some((e) => e.includes('create_if_missing'))).toBe(true);
+	});
+
 	it('deckelt max_writes auf das Plugin-Maximum', () => {
 		const r = parseTeamDef(TEAM_PATH, teamFm({ limits: { max_writes: 999 } }), OPTS);
 		expect(r.ok).toBe(false);

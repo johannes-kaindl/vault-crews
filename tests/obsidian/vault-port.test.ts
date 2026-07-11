@@ -68,6 +68,15 @@ describe("ObsidianVaultPort", () => {
     expect(app.vault.adapter.mkdir).not.toHaveBeenCalled();
   });
 
+  it('mkdir legt fehlende Ancestor-Ordner rekursiv an (adapter.mkdir ist nicht rekursiv)', async () => {
+    const existing = new Set<string>();
+    app.vault.adapter.exists = vi.fn().mockImplementation((p: string) => Promise.resolve(existing.has(p)));
+    const made: string[] = [];
+    app.vault.adapter.mkdir = vi.fn().mockImplementation((p: string) => { made.push(p); existing.add(p); return Promise.resolve(); });
+    await new ObsidianVaultPort(app).mkdir("Daily/2026//07");
+    expect(made).toEqual(["Daily", "Daily/2026", "Daily/2026/07"]);
+  });
+
   it("patchFrontmatter setzt und entfernt Keys via fileManager.processFrontMatter", async () => {
     const file = new TFile("10_Aufgaben/t1.md");
     app.vault.getAbstractFileByPath = vi.fn().mockReturnValue(file);

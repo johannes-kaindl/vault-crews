@@ -43,7 +43,12 @@ export class ObsidianVaultPort implements VaultPort {
 
   async mkdir(path: string): Promise<void> {
     const np = normalizePath(path);
-    if (await this.app.vault.adapter.exists(np)) return; // idempotent
+    if (np === "" || (await this.app.vault.adapter.exists(np))) return; // idempotent
+    const lastSlashIndex = np.lastIndexOf("/");
+    if (lastSlashIndex > 0) {
+      const parent = np.slice(0, lastSlashIndex);
+      await this.mkdir(parent); // adapter.mkdir ist nicht rekursiv
+    }
     await this.app.vault.adapter.mkdir(np);
   }
 

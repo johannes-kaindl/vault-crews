@@ -130,7 +130,11 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 					}
 					const allowedKeys = Array.isArray(raw.allowed_keys) ? raw.allowed_keys.filter((k): k is string => typeof k === 'string') : null;
 					const target = typeof raw.target === 'string' && raw.target.trim() !== '' ? raw.target.trim() : null;
-					tasks.push({ id, kind: 'actions', inputs, allowedActions, allowedKeys, target });
+					if (raw.create_if_missing !== undefined && typeof raw.create_if_missing !== 'boolean') {
+						err(`${label}.create_if_missing`, `'${show(raw.create_if_missing)}' (erwartet true|false)`);
+					}
+					const createIfMissing = raw.create_if_missing === true;
+					tasks.push({ id, kind: 'actions', inputs, allowedActions, allowedKeys, target, createIfMissing });
 					break;
 				}
 				default:

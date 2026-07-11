@@ -174,7 +174,7 @@ describe('Beispiel-Agenten/-Teams sind nicht tot (echte Parser, Plugin-Default-M
 		const llmTask = r.value.tasks[1];
 		expect(llmTask).toMatchObject({ kind: 'llm', agent: 'briefing-autor', outputSchema: 'briefing-v1' });
 		const applyTask = r.value.tasks[2];
-		expect(applyTask).toMatchObject({ kind: 'actions', allowedActions: ['section.replace'] });
+		expect(applyTask).toMatchObject({ kind: 'actions', allowedActions: ['section.replace'], createIfMissing: true });
 		if (applyTask?.kind === 'actions') {
 			// {{today}} ist unexpandiert im geparsten Team — Expansion passiert erst zur
 			// Laufzeit im Orchestrator (paths.expandTarget), nie beim Parsen.
