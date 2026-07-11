@@ -6,7 +6,7 @@
 import type { Action, CollectedFile, FrontmatterPatchAction, OutputSpec, SchemaId, SlugTableData } from './types';
 
 export interface SchemaDef {
-	/** Familien-/Alias-Kennung für Logging (extern nicht als Enum gelesen). */
+	/** Familien-/Alias-Kennung (extern nicht gelesen; rein zur Selbstbeschreibung). */
 	id: string;
 	/** 'json': Modell antwortet mit einem ```json-Block, validate() bekommt das geparste Objekt.
 	 *  'text': Modell antwortet mit rohem Text (kein JSON-Wrapping) — validate() bekommt den
@@ -86,6 +86,12 @@ export function makeSectionWrite(maxChars: number): SchemaDef {
 	return {
 		id: 'section.write',
 		outputFormat: 'text',
+		// KOPPLUNG (Teilprojekt 1): Der Wortlaut „Briefing" ist bewusst beibehalten aus
+		// dem alten briefing-v1, weil der daily-briefing-Golden-Test auf den byte-genauen
+		// promptHash (promptContract + outputExample) prüft. Bei Teilprojekt 2 (Nicht-
+		// Briefing-section.write-Crews) promptContract zu einem makeSectionWrite-Parameter
+		// machen (Alias liefert den Briefing-Wortlaut, neue Crews neutralen) — dann bleibt
+		// der Golden grün UND neue Crews bekommen keinen irreführenden Prompt.
 		promptContract:
 			'Antworte ausschließlich mit dem fertigen Briefing als Markdown-Text — kein JSON, keine Code-Fence, keine Erklärungen davor oder danach.',
 		outputExample: '## Heute fällig\n- Beispiel-Aufgabe\n\n## Überfällig\n- …\n\n## Eine nächste Handlung\n- …',
