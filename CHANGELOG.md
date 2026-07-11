@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-07-11
+
 ### Added
 
 - `create_if_missing`-Flag für `section.replace`-Tasks in Crews: legt die Zieldatei
