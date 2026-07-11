@@ -61,7 +61,7 @@ describe('parseTeamDef', () => {
 		expect(r.value.id).toBe('task-triage');
 		expect(r.value.maxWrites).toBe(15);
 		expect(r.value.writeScope).toEqual(['10_Aufgaben/**/*.md']);
-		expect(r.value.tasks[1]).toMatchObject({ kind: 'llm', outputSchema: 'triage-v1', onError: 'abort' });
+		expect(r.value.tasks[1]).toMatchObject({ kind: 'llm', output: { family: 'frontmatter.set', allowedKeys: '*' }, onError: 'abort' });
 		expect(r.value.tasks[2]).toMatchObject({ kind: 'actions', allowedKeys: ['priority'], target: null });
 		expect(r.value.sourcePath).toBe(TEAM_PATH);
 	});

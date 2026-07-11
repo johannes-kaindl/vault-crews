@@ -31,7 +31,7 @@ export interface LlmTaskDef {
 	agent: string;
 	inputs: string[];
 	instruction: string;
-	outputSchema: SchemaId;
+	output: OutputSpec;
 	onError: 'abort' | 'skip';
 }
 export interface ActionsTaskDef {

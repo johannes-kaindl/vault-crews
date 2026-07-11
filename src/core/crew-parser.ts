@@ -3,18 +3,27 @@
  *  (`<datei>: <feld>: <problem>`), und zwar BEVOR irgendein LLM-Call passiert. */
 import { globMatch } from './paths';
 import type {
-	ActionType, AgentDef, CollectorId, LlmTaskDef, RunLimits, SchemaId, TaskDef, TeamDef,
+	ActionType, AgentDef, CollectorId, LlmTaskDef, OutputSpec, RunLimits, TaskDef, TeamDef,
 } from './types';
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
 
 const COLLECTORS: CollectorId[] = ['vault.list', 'vault.read', 'tasknotes.query'];
-const SCHEMAS: SchemaId[] = ['triage-v1', 'briefing-v1'];
 const ACTIONS: ActionType[] = ['frontmatter.patch', 'note.create', 'note.append', 'section.replace'];
 
 function slugFromPath(path: string): string {
 	const base = path.split('/').pop() ?? path;
 	return base.replace(/\.md$/, '');
+}
+
+/** Löst die Legacy-`output_schema:`-IDs auf ein OutputSpec auf. Einzige Stelle,
+ *  an der triage-v1/briefing-v1 zu Familien werden. */
+function resolveSchemaAlias(id: string): OutputSpec | null {
+	switch (id) {
+		case 'triage-v1': return { family: 'frontmatter.set', allowedKeys: '*' };
+		case 'briefing-v1': return { family: 'section.write', maxChars: 16_000 };
+		default: return null;
+	}
 }
 
 export function parseAgentDef(path: string, fm: Record<string, unknown> | null, body: string): ParseResult<AgentDef> {
@@ -110,11 +119,11 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 					if (!opts.knownAgents.includes(agent)) err(`${label}.agent`, `'${agent}' unbekannt (vorhanden: ${opts.knownAgents.join(', ') || '—'})`);
 					const instruction = typeof raw.instruction === 'string' && raw.instruction.trim() !== '' ? raw.instruction.trim() : null;
 					if (instruction === null) err(`${label}.instruction`, 'fehlt oder leer');
-					const schema = SCHEMAS.includes(raw.output_schema as SchemaId) ? (raw.output_schema as SchemaId) : null;
-					if (schema === null) err(`${label}.output_schema`, `'${show(raw.output_schema)}' (erwartet ${SCHEMAS.join('|')})`);
+					const output = resolveSchemaAlias(typeof raw.output_schema === 'string' ? raw.output_schema : '');
+					if (output === null) err(`${label}.output_schema`, `'${show(raw.output_schema)}' (erwartet triage-v1|briefing-v1)`);
 					const onError = raw.on_error === 'skip' ? 'skip' : 'abort';
 					if (raw.on_error !== undefined && raw.on_error !== 'skip' && raw.on_error !== 'abort') err(`${label}.on_error`, `'${show(raw.on_error)}' (erwartet abort|skip)`);
-					const def: LlmTaskDef = { id, kind: 'llm', agent, inputs, instruction: instruction ?? '', outputSchema: schema ?? 'triage-v1', onError };
+					const def: LlmTaskDef = { id, kind: 'llm', agent, inputs, instruction: instruction ?? '', output: output ?? { family: 'frontmatter.set', allowedKeys: '*' }, onError };
 					tasks.push(def);
 					break;
 				}

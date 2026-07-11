@@ -172,7 +172,7 @@ describe('Beispiel-Agenten/-Teams sind nicht tot (echte Parser, Plugin-Default-M
 		expect(r.value.id).toBe('daily-briefing');
 		expect(r.value.tasks.map((t) => t.id)).toEqual(['collect', 'briefing', 'apply']);
 		const llmTask = r.value.tasks[1];
-		expect(llmTask).toMatchObject({ kind: 'llm', agent: 'briefing-autor', outputSchema: 'briefing-v1' });
+		expect(llmTask).toMatchObject({ kind: 'llm', agent: 'briefing-autor', output: { family: 'section.write', maxChars: 16_000 } });
 		const applyTask = r.value.tasks[2];
 		expect(applyTask).toMatchObject({ kind: 'actions', allowedActions: ['section.replace'], createIfMissing: true });
 		if (applyTask?.kind === 'actions') {
