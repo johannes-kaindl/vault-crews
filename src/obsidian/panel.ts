@@ -130,11 +130,13 @@ export class RunPanelView extends ItemView {
           row.createSpan({ cls: "vault-crews-task-icon", text: line.icon });
           row.createSpan({ cls: "vault-crews-task-label", text: line.label });
         }
-        root.createDiv({ cls: "vault-crews-progress", text: body.streamingText });
+        // Task-5-Seam: liest jetzt streamText/thinkingLabel statt der alten Zähler-Strings;
+        // das eigentliche Live-Rendering (Platzhalter, <think>-Inhalt) folgt in Task 5.
+        root.createDiv({ cls: "vault-crews-progress", text: body.streamText });
         // <think> nur als Zähler, aufklappbar, nie aufgedrängt: natives <details> ohne
         // `open`-Attribut ist genau diese Semantik, ganz ohne eigene Toggle-Logik.
         const think = root.createEl("details", { cls: "vault-crews-think" });
-        think.createEl("summary", { text: body.thinkingText });
+        think.createEl("summary", { text: body.thinkingLabel });
         return;
       }
       case "crewsDone": {

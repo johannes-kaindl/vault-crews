@@ -6,7 +6,7 @@ import { registerI18n } from "../../src/i18n/strings";
 import { setLang } from "../../src/vendor/kit/i18n";
 import {
   buildPanelViewModel, markAborting, reduceRun, MAX_LIVE_CHARS,
-  type RunState, type TeamInfo, type RunSummary,
+  type RunState, type TeamInfo, type RunSummary, type PanelInputs,
 } from "../../src/obsidian/panel-view-model";
 import type { RunEvent } from "../../src/core/ports";
 import type { RunResult } from "../../src/core/types";
@@ -20,6 +20,14 @@ function drive(state: RunState, events: RunEvent[]): RunState {
   let s = state;
   for (const e of events) s = reduceRun(s, e);
   return s;
+}
+
+function applyEvents(events: RunEvent[]): RunState {
+  return drive({ kind: "idle" }, events);
+}
+
+function inputsWith(runState: RunState): PanelInputs {
+  return { navState: "crews", runState, teams: [], latest: null, nowMs: 0 };
 }
 
 const okResult = (o: Partial<RunResult> = {}): RunResult => ({
@@ -160,9 +168,31 @@ describe("buildPanelViewModel — crews body", () => {
     expect(vm.body.kind).toBe("crewsRunning");
     if (vm.body.kind === "crewsRunning") {
       expect(vm.body.lines[0]?.icon).toBe("✓");
-      expect(vm.body.streamingText).toContain("1");
-      expect(vm.body.thinkingText).toContain("1");
+      expect(vm.body.streamText).toBe("");
+      expect(vm.body.thinkingLabel).toContain("1");
     }
+  });
+
+  it("running body exposes live streamText/thinkText and an empty-placeholder", () => {
+    const vmEmpty = buildPanelViewModel(inputsWith(applyEvents([
+      { type: "runStarted", runId: "r1", teamId: "t" },
+      { type: "taskStarted", taskId: "a", index: 1, total: 1 },
+    ])));
+    expect(vmEmpty.body.kind).toBe("crewsRunning");
+    if (vmEmpty.body.kind !== "crewsRunning") return;
+    expect(vmEmpty.body.streamText).toBe("");
+    expect(vmEmpty.body.streamEmptyText.length).toBeGreaterThan(0);
+
+    const vm = buildPanelViewModel(inputsWith(applyEvents([
+      { type: "runStarted", runId: "r1", teamId: "t" },
+      { type: "taskStarted", taskId: "a", index: 1, total: 1 },
+      { type: "token", taskId: "a", isThink: false, text: "Hi" },
+      { type: "token", taskId: "a", isThink: true, text: "mm" },
+    ])));
+    if (vm.body.kind !== "crewsRunning") throw new Error("expected crewsRunning");
+    expect(vm.body.streamText).toBe("Hi");
+    expect(vm.body.thinkText).toBe("mm");
+    expect(vm.body.thinkingLabel).toContain("1"); // Zähler im Label
   });
 });
 

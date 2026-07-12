@@ -173,7 +173,7 @@ export interface CrewHistoryRowVM { teamId: string; text: string; }
 
 export type BodyVM =
   | { kind: "crewsIdle"; empty: boolean; emptyText: string; installLabel: string; teams: TeamRowVM[] }
-  | { kind: "crewsRunning"; lines: { icon: string; label: string }[]; streamingText: string; thinkingText: string }
+  | { kind: "crewsRunning"; lines: { icon: string; label: string }[]; streamText: string; thinkText: string; streamEmptyText: string; thinkingLabel: string }
   | { kind: "crewsDone"; summary: SummaryVM; backLabel: string }
   | { kind: "history"; empty: boolean; emptyText: string; latest: SummaryVM | null; crewsHeading: string; crews: CrewHistoryRowVM[] };
 
@@ -226,8 +226,10 @@ function buildCrewsBody(runState: RunState, teams: TeamInfo[], nowMs: number): B
         icon: TASK_ICON[l.status],
         label: `${l.taskId} — ${t(`panel.status.${l.status}`)}`,
       })),
-      streamingText: t("panel.streaming", runState.tokenCount),
-      thinkingText: t("panel.thinking", runState.thinkCount),
+      streamText: runState.streamText,
+      thinkText: runState.thinkText,
+      streamEmptyText: t("panel.streamEmpty"),
+      thinkingLabel: t("panel.thinking", runState.thinkCount),
     };
   }
   if (runState.kind === "done") {
