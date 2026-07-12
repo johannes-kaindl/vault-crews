@@ -7,7 +7,7 @@ import { parseSSE } from '../vendor/kit/sse';
 import { ThinkSplitter } from '../vendor/kit/think';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { parseLmStudioContext, parseOllamaContext, suppressParams } from './model-info';
-import { isContextOverflow, extractChatContent } from './chat-response';
+import { isContextOverflow, extractChatContent, extractErrorMessage } from './chat-response';
 import { LlmCallError } from './ports';
 import type {
 	ClockPort, JsonTransport, LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, SseTransport,
@@ -182,7 +182,8 @@ export class LocalLlmClient implements LlmClient {
 			if (isContextOverflow(rawBody)) {
 				throw new LlmCallError(`HTTP ${status}: Kontextfenster überschritten`, 'overflow');
 			}
-			throw new LlmCallError(`HTTP ${status}: ${rawBody.slice(0, 300)}`, 'http');
+			const detail = extractErrorMessage(tryJson(rawBody)) ?? rawBody.slice(0, 300);
+			throw new LlmCallError(`HTTP ${status}: ${oneLine(detail)}`, 'http');
 		}
 		return { content, thinkTokens: thinkTokens(reasoningText), finishReason: 'stop' };
 	}
@@ -217,12 +218,21 @@ export class LocalLlmClient implements LlmClient {
 		if (isContextOverflow(rawBody)) {
 			throw new LlmCallError('Kontextfenster überschritten (Non-Streaming)', 'overflow');
 		}
-		throw new LlmCallError(`Non-Streaming-Antwort ohne content: ${rawBody.slice(0, 300)}`, 'http');
+		const detail = extractErrorMessage(res) ?? oneLine(rawBody.slice(0, 300));
+		throw new LlmCallError(`Non-Streaming-Antwort ohne content: ${oneLine(detail)}`, 'http');
 	}
 }
 
 function thinkTokens(reasoningText: string): number {
 	return Math.ceil(reasoningText.length / 3.5);
+}
+
+function oneLine(s: string): string {
+	return s.replace(/\s+/g, ' ').trim();
+}
+
+function tryJson(s: string): unknown {
+	try { return JSON.parse(s) as unknown; } catch { return null; }
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {

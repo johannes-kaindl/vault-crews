@@ -118,6 +118,18 @@ describe('LocalLlmClient.stream', () => {
 		expect(sse.lastBody.reasoning_effort).toBe('none');
 		expect(sse.lastBody.chat_template_kwargs).toEqual({ enable_thinking: false });
 	});
+
+	it('400 mit pretty-printed JSON-Body → lesbare einzeilige Message (nicht "{")', async () => {
+		const { client, sse, clock } = make();
+		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
+		await tickAsync(clock, 1);
+		sse.emit('{\n  "error": {\n    "message": "model \'foo\' not loaded"\n  }\n}');
+		sse.end(400);
+		await expect(p).rejects.toMatchObject({ kind: 'http' });
+		const err = (await p.catch((e: unknown) => e as LlmCallError)) as LlmCallError;
+		expect(err.message).toContain("model 'foo' not loaded");
+		expect(err.message).not.toContain('\n');
+	});
 });
 
 describe('LocalLlmClient thinking-Suppression', () => {

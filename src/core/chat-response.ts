@@ -23,6 +23,19 @@ export function extractChatContent(res: unknown): { content: string; reasoning: 
 	return { content, reasoning };
 }
 
+/** Zieht eine sinnvolle einzeilige Fehler-Message aus einem (bereits geparsten)
+ *  JSON-Fehlerbody. Reihenfolge: error.message → error (String) → message.
+ *  null, wenn kein bekanntes Feld greift (Aufrufer nutzt dann den Rohbody).
+ *  Verhindert D2: firstLine() kollabierte pretty-printed JSON auf "{". */
+export function extractErrorMessage(body: unknown): string | null {
+	if (!isRecord(body)) return null;
+	const err = body.error;
+	if (isRecord(err) && typeof err.message === 'string') return err.message;
+	if (typeof err === 'string') return err;
+	if (typeof body.message === 'string') return body.message;
+	return null;
+}
+
 function isRecord(v: unknown): v is Record<string, unknown> {
 	return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
