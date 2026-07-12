@@ -8,6 +8,7 @@ import { ThinkSplitter } from '../vendor/kit/think';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { parseLmStudioContext, parseOllamaContext, suppressParams } from './model-info';
 import { isContextOverflow, extractChatContent, extractErrorMessage } from './chat-response';
+import { reasoningHappened } from '../vendor/kit/reasoning';
 import { LlmCallError } from './ports';
 import type {
 	ClockPort, JsonTransport, LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, SseTransport,
@@ -168,7 +169,7 @@ export class LocalLlmClient implements LlmClient {
 		reasoningText += tail.reasoning;
 
 		if (signal.aborted) {
-			return { content, thinkTokens: thinkTokens(reasoningText), finishReason: 'aborted' };
+			return { content, thinkTokens: thinkTokens(reasoningText), reasoned: reasoningHappened(content, reasoningText), finishReason: 'aborted' };
 		}
 		if (abortKind !== null) {
 			throw new LlmCallError(
@@ -185,7 +186,7 @@ export class LocalLlmClient implements LlmClient {
 			const detail = extractErrorMessage(tryJson(rawBody)) ?? rawBody.slice(0, 300);
 			throw new LlmCallError(`HTTP ${status}: ${oneLine(detail)}`, 'http');
 		}
-		return { content, thinkTokens: thinkTokens(reasoningText), finishReason: 'stop' };
+		return { content, thinkTokens: thinkTokens(reasoningText), reasoned: reasoningHappened(content, reasoningText), finishReason: 'stop' };
 	}
 
 	/** Non-Streaming-Fallback (CORS-frei via JsonTransport.postJson). Content wird zuerst
@@ -198,7 +199,7 @@ export class LocalLlmClient implements LlmClient {
 		params: LlmParams,
 		signal: AbortSignal,
 	): Promise<LlmStreamResult> {
-		if (signal.aborted) return { content: '', thinkTokens: 0, finishReason: 'aborted' };
+		if (signal.aborted) return { content: '', thinkTokens: 0, reasoned: false, finishReason: 'aborted' };
 		const body: Record<string, unknown> = {
 			model: params.model,
 			messages,
@@ -208,10 +209,15 @@ export class LocalLlmClient implements LlmClient {
 			...suppressParams(params.thinking === 'off'),
 		};
 		const res = await this.json.postJson(`${this.base}/v1/chat/completions`, body);
-		if (signal.aborted) return { content: '', thinkTokens: 0, finishReason: 'aborted' };
+		if (signal.aborted) return { content: '', thinkTokens: 0, reasoned: false, finishReason: 'aborted' };
 		const extracted = extractChatContent(res);
 		if (extracted !== null) {
-			return { content: extracted.content, thinkTokens: thinkTokens(extracted.reasoning), finishReason: 'stop' };
+			return {
+				content: extracted.content,
+				thinkTokens: thinkTokens(extracted.reasoning),
+				reasoned: reasoningHappened(extracted.content, extracted.reasoning),
+				finishReason: 'stop',
+			};
 		}
 		// Kein content extrahierbar → das ist ein echter Fehlerbody, hier erst auf Overflow sniffen.
 		const rawBody = JSON.stringify(res ?? {});

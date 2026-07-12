@@ -97,6 +97,24 @@ describe('LocalLlmClient.stream', () => {
 		expect(r.thinkTokens).toBeGreaterThan(0);
 	});
 
+	it('reasoned=true wenn das Modell gedacht hat (reasoning.sse)', async () => {
+		const { client, sse, clock } = make();
+		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
+		await tickAsync(clock, 1);
+		sse.play(fixture('reasoning.sse'));
+		const r = await p;
+		expect(r.reasoned).toBe(true);
+	});
+
+	it('reasoned=false ohne Reasoning (basic.sse)', async () => {
+		const { client, sse, clock } = make();
+		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
+		await tickAsync(clock, 1);
+		sse.play(fixture('basic.sse'));
+		const r = await p;
+		expect(r.reasoned).toBe(false);
+	});
+
 	it('splittet <think>-Tags aus dem content-Kanal (think-tags.sse)', async () => {
 		const { client, sse, clock } = make();
 		const tokens: string[] = [];

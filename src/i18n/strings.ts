@@ -96,7 +96,7 @@ export const EN: Record<string, string> = {
   "notice.run.failed": "{0}: run failed — {1}",
   "notice.run.refused": "{0}: run refused — {1}",
   "notice.run.aborted": "{0}: run aborted — {1} file(s) written before stopping.",
-  "notice.run.alwaysOnThinker": "This model keeps reasoning by design (gpt-oss/harmony) — 'thinking: off' does not fully apply.",
+  "notice.run.alwaysOnThinker": "This model kept reasoning despite 'thinking: off' — suppression does not fully apply.",
 
   // --- Notices — run-command guard states (main.ts wiring, Task 16b) -------
   "notice.run.inProgress": "A run is already in progress.",
@@ -271,7 +271,7 @@ export const DE: Record<string, string> = {
   "notice.run.failed": "{0}: Lauf fehlgeschlagen — {1}",
   "notice.run.refused": "{0}: Lauf verweigert — {1}",
   "notice.run.aborted": "{0}: Lauf abgebrochen — {1} Datei(en) vor dem Abbruch geschrieben.",
-  "notice.run.alwaysOnThinker": "Dieses Modell denkt prinzipbedingt weiter (gpt-oss/harmony) — 'thinking: off' greift nicht vollständig.",
+  "notice.run.alwaysOnThinker": "Dieses Modell hat trotz 'thinking: off' weitergedacht — die Unterdrückung greift nicht vollständig.",
 
   // --- Notices — Wächter-Zustände der Lauf-Commands (main.ts, Task 16b) ----
   "notice.run.inProgress": "Es läuft bereits ein Lauf.",
