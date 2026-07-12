@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **`output:`-Block für `llm`-Tasks**: parametrisierbare Output-Familien (`frontmatter.set`, `section.write`) mit `allowed_keys`/`max_chars` — das Crew-Output-Vokabular ist damit offen. Die bisherigen `output_schema: triage-v1|briefing-v1` bleiben als Alias byte-identisch gültig.
+- `frontmatter.set` unterstützt **Listen-Werte** (z.B. `tags: [arbeit, notiz]`); die Slug-Enum-Prüfung greift je Listen-Element.
 - `tasknotes.query` unterstützt `include_content: true` (liefert Notiz-Inhalt für die gelieferten Notizen).
 - Zwei neue Beispiel-Crews: **Notiz-Tagger** (generisch, vault-agnostisch) und **Reifegrad-Tagger** (Pallas-Demo) — demonstrieren das `output:`-Vokabular (`frontmatter.set`) mit Inhalt.
 - README-Abschnitt „Eigene Crews schreiben" (output:-Syntax, include_content, write_scope).
