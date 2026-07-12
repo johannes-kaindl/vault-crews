@@ -107,6 +107,7 @@ export const EN: Record<string, string> = {
   // --- Notices — error-kind reason text (matches core ErrorKind 1:1, Spec §7) —
   // used to fill the "{1}" of notice.run.failed/refused with one actionable line.
   "notice.errorKind.endpoint_unreachable": "Start LM Studio, then run again.",
+  "notice.errorKind.endpoint_error": "The server rejected the call — see the run log for details.",
   "notice.errorKind.model_missing": "Model not found — check the default model or the team's model field.",
   "notice.errorKind.timeout": "The call took too long and was stopped.",
   "notice.errorKind.stalled": "The model stopped producing tokens.",
@@ -280,6 +281,7 @@ export const DE: Record<string, string> = {
 
   // --- Notices — Fehlerklassen-Text (1:1 zu core-ErrorKind, Spec §7) ------
   "notice.errorKind.endpoint_unreachable": "LM Studio starten, dann erneut ausführen.",
+  "notice.errorKind.endpoint_error": "Der Server hat den Aufruf abgelehnt — Details im Run-Log.",
   "notice.errorKind.model_missing": "Modell nicht gefunden — Standardmodell oder Modell-Feld des Teams prüfen.",
   "notice.errorKind.timeout": "Der Aufruf hat zu lange gedauert und wurde abgebrochen.",
   "notice.errorKind.stalled": "Das Modell hat aufgehört, Token zu erzeugen.",

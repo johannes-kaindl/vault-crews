@@ -249,6 +249,15 @@ describe('executeRun — llm call errors', () => {
     expect(result.errorKind).toBe('stalled');
   });
 
+  it('http error → failed with errorKind endpoint_error (nicht endpoint_unreachable)', async () => {
+    const llm = new ScriptLlmClient([{ error: 'http' }]);
+    const h = await harness({ llm });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.status).toBe('failed');
+    expect(result.errorKind).toBe('endpoint_error');
+    expect(result.errorTask).toBe('analyse');
+  });
+
   it('overflow-retry-ok: overflow then valid → halve material, retry, status ok, 2 calls', async () => {
     const script: ScriptedCall[] = [{ error: 'overflow' }, { content: TRIAGE_OK }];
     const llm = new ScriptLlmClient(script);
