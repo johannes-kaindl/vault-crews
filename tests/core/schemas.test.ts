@@ -34,6 +34,30 @@ describe('makeFrontmatterSet', () => {
 		expect(r.ok).toBe(false);
 		if (!r.ok) expect(r.errors.join('\n')).toMatch(/Quellbindung/);
 	});
+
+	it('accepts a string list value', () => {
+		const schema = makeFrontmatterSet(['tags']);
+		const r = schema.validate({ items: [{ path: '10_Aufgaben/a.md', set: { tags: ['arbeit', 'notiz'] } }] }, sources, noSlugs, null);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.actions).toEqual([{ type: 'frontmatter.patch', path: '10_Aufgaben/a.md', set: { tags: ['arbeit', 'notiz'] }, remove: [] }]);
+	});
+
+	it('rejects a non-scalar list element (null)', () => {
+		const schema = makeFrontmatterSet(['tags']);
+		const r = schema.validate({ items: [{ path: '10_Aufgaben/a.md', set: { tags: ['ok', null] } }] }, sources, noSlugs, null);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.errors.join('\n')).toMatch(/Listen-Element/);
+	});
+
+	it('enforces slug-enum per list element', () => {
+		const slugs = { status: { toSlug: { '1_offen 📥': 'offen' }, fromSlug: { offen: '1_offen 📥' } } };
+		const schema = makeFrontmatterSet(['status']);
+		const ok = schema.validate({ items: [{ path: '10_Aufgaben/a.md', set: { status: ['offen'] } }] }, sources, slugs, null);
+		expect(ok.ok).toBe(true);
+		const bad = schema.validate({ items: [{ path: '10_Aufgaben/a.md', set: { status: ['offen', 'quatsch'] } }] }, sources, slugs, null);
+		expect(bad.ok).toBe(false);
+		if (!bad.ok) expect(bad.errors.join('\n')).toMatch(/quatsch/);
+	});
 });
 
 describe('makeSectionWrite', () => {
