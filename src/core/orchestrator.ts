@@ -430,7 +430,7 @@ class RunFsm {
 		this.state.llmCalls += 1;
 		return this.deps.llm.stream(
 			messages, params,
-			() => this.deps.reporter.emit({ type: 'token', taskId, isThink: false }),
+			(text, isThink) => this.deps.reporter.emit({ type: 'token', taskId, isThink, text }),
 			this.deps.abort,
 		);
 	}

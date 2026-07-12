@@ -144,7 +144,7 @@ describe("RunPanelView — running state & status line", () => {
     const view = startRunning(host);
     const [cancel] = findAll(view.contentEl, (e) => e.tagName === "BUTTON" && e.hasClass("mod-warning"));
     cancel?.click();
-    driveEvents(view, [{ type: "token", taskId: "collect", isThink: false }]);
+    driveEvents(view, [{ type: "token", taskId: "collect", isThink: false, text: "" }]);
 
     const [again] = findAll(view.contentEl, (e) => e.tagName === "BUTTON" && e.hasClass("mod-warning"));
     expect((again as unknown as { disabled: boolean }).disabled).toBe(true);
@@ -158,7 +158,7 @@ describe("RunPanelView — running state & status line", () => {
     driveEvents(view, [
       { type: "runStarted", runId: "r1", teamId: "task-triage" },
       { type: "taskStarted", taskId: "collect", index: 1, total: 1 },
-      { type: "token", taskId: "collect", isThink: true },
+      { type: "token", taskId: "collect", isThink: true, text: "" },
       { type: "taskFinished", taskId: "collect", status: "ok" },
     ]);
     expect(view.contentEl.textContent).toContain("✓");

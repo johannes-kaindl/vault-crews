@@ -89,7 +89,7 @@ export interface SnapshotStore {
 export type RunEvent =
 	| { type: 'runStarted'; runId: string; teamId: string }
 	| { type: 'taskStarted'; taskId: string; index: number; total: number }
-	| { type: 'token'; taskId: string; isThink: boolean }
+	| { type: 'token'; taskId: string; isThink: boolean; text: string }
 	| { type: 'taskFinished'; taskId: string; status: 'ok' | 'failed' | 'skipped' }
 	| { type: 'actionApplied'; outcome: ActionOutcome }
 	| { type: 'runFinished'; result: RunResult };

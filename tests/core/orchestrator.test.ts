@@ -123,8 +123,9 @@ class ClockAdvancingLlm implements LlmClient {
   async modelInfo(model: string): Promise<ModelInfo | null> { return { id: model, contextLength: 8192 }; }
   async stream(_m: LlmMessage[], _p: LlmParams, onToken: (t: string, isThink: boolean) => void): Promise<LlmStreamResult> {
     this.clock.tick(this.advanceMs);
+    onToken('reasoning-bit', true);
     onToken(this.content, false);
-    return { content: this.content, thinkTokens: 0, reasoned: false, finishReason: 'stop' };
+    return { content: this.content, thinkTokens: 3, reasoned: true, finishReason: 'stop' };
   }
 }
 
@@ -182,6 +183,19 @@ describe('executeRun — ok (happy triage path)', () => {
     const state = JSON.parse(await h.vault.read(`${runDir}/state.json`)) as { status: string; llmCalls: number };
     expect(state.status).toBe('ok');
     expect(state.llmCalls).toBe(1);
+  });
+});
+
+describe('executeRun — token streaming', () => {
+  it('emits token events carrying text and correct isThink end-to-end', async () => {
+    const clock = new FakeClock(START_MS);
+    const h = await harness({ clock, llm: new ClockAdvancingLlm(clock, 0) });
+    await executeRun(h.teamPath, h.deps);
+
+    const tokens = h.reporter.events.filter((e): e is Extract<RunEvent, { type: 'token' }> => e.type === 'token');
+    expect(tokens.length).toBeGreaterThan(0);
+    expect(tokens.some((e) => e.isThink === true && e.text === 'reasoning-bit')).toBe(true);
+    expect(tokens.some((e) => e.isThink === false && e.text.length > 0)).toBe(true);
   });
 });
 

@@ -110,8 +110,8 @@ describe("buildPanelViewModel — crews body", () => {
     const running = drive({ kind: "idle" }, [
       { type: "runStarted", runId: "r1", teamId: "t" },
       { type: "taskStarted", taskId: "collect", index: 1, total: 2 },
-      { type: "token", taskId: "collect", isThink: false },
-      { type: "token", taskId: "collect", isThink: true },
+      { type: "token", taskId: "collect", isThink: false, text: "" },
+      { type: "token", taskId: "collect", isThink: true, text: "" },
       { type: "taskFinished", taskId: "collect", status: "ok" },
     ]);
     const vm = buildPanelViewModel({ navState: "crews", runState: running, teams, latest: null, nowMs: 0 });
