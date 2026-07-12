@@ -290,6 +290,18 @@ describe('executeRun — always-on-thinker Laufzeit-Detektion', () => {
     const result = await executeRun(h.teamPath, h.deps);
     expect(result.alwaysOnThinker).toBe(false);
   });
+
+  it('thinking auto + Reasoning → alwaysOnThinker false (Suppression gar nicht angefordert)', async () => {
+    // Beweist, dass die thinking==='off'-Bedingung load-bearing ist: bei erlaubtem
+    // Denken (auto) ist Reasoning erwartet, keine Suppressions-Lücke → Flag bleibt false.
+    const llm = new ScriptLlmClient([{ content: TRIAGE_OK, reasoned: true }]);
+    const h = await harness({
+      llm,
+      agents: { 'triage-analyst': { fm: { 'crew-kind': 'agent', name: 'A', thinking: 'auto' }, body: 'x' } },
+    });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.alwaysOnThinker).toBe(false);
+  });
 });
 
 describe('executeRun — abort + watchdog', () => {
