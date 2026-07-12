@@ -9,6 +9,7 @@ import type { WorkspaceLeaf } from "obsidian";
 import { registerI18n } from "../../src/i18n/strings";
 import { setLang } from "../../src/vendor/kit/i18n";
 import { RunPanelView, VIEW_TYPE_CREWS, type PanelHost, type PanelTeam, type RunSummary } from "../../src/obsidian/panel";
+import { MAX_LIVE_CHARS } from "../../src/obsidian/panel-view-model";
 import type { RunEvent } from "../../src/core/ports";
 import type { RunResult } from "../../src/core/types";
 
@@ -308,6 +309,25 @@ describe("RunPanelView — live streaming (content + think)", () => {
     expect(byClass(view.contentEl, "vault-crews-live-think")?.textContent).toContain("th1th2");
     const [summary] = findAll(view.contentEl, (e) => e.tagName === "SUMMARY");
     expect(summary?.textContent).toContain("2");
+  });
+
+  it("caps the fast-path live-content node at MAX_LIVE_CHARS (tail kept), matching the reducer's cap", () => {
+    const view = makeView();
+    view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });
+    view.handleEvent({ type: "taskStarted", taskId: "a", index: 1, total: 1 });
+    // Erster Content-Token erzeugt den Live-Node über den vollen Render (Platzhalter→Text).
+    view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "small-first-token" });
+    // Zweiter Token nimmt den Fast-Path (appendLive) — hier greift der Cap.
+    const oversized = "a".repeat(300) + "b".repeat(MAX_LIVE_CHARS);
+    view.handleEvent({ type: "token", taskId: "a", isThink: false, text: oversized });
+
+    const live = byClass(view.contentEl, "vault-crews-live-content");
+    const text = live?.textContent ?? "";
+    expect(text.length).toBe(MAX_LIVE_CHARS);
+    expect(text).not.toContain("small-first-token");
+    expect(text).not.toContain("a");
+    expect(text.startsWith("b")).toBe(true);
+    expect(text.endsWith("b")).toBe(true);
   });
 });
 

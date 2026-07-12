@@ -10,7 +10,7 @@ import { t } from "../vendor/kit/i18n";
 import type { RunEvent } from "../core/ports";
 import type { RunStatus } from "../core/types";
 import {
-  buildPanelViewModel, markAborting, reduceRun,
+  buildPanelViewModel, markAborting, MAX_LIVE_CHARS, reduceRun,
   type BodyVM, type NavState, type PanelViewModel, type RunState,
   type RunSummary, type StatusLineVM, type SummaryVM,
 } from "./panel-view-model";
@@ -92,10 +92,15 @@ export class RunPanelView extends ItemView {
   }
 
   /** Append + Stick-to-bottom: nur mitscrollen, wenn der Nutzer schon (nahe) am
-   *  unteren Rand ist — reißt nicht runter, wenn man hochgescrollt mitliest. */
+   *  unteren Rand ist — reißt nicht runter, wenn man hochgescrollt mitliest. Kappt den
+   *  DOM-Knoten auf MAX_LIVE_CHARS (Tail behalten), analog zum Reducer (appendCapped
+   *  in panel-view-model.ts) — der Fast-Path IST der Hot-Path bei einem Amoklauf-Modell,
+   *  ohne Cap würde der Live-Knoten bis zum nächsten vollen Render unbegrenzt wachsen. */
   private appendLive(el: HTMLElement, text: string): void {
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
     el.appendText(text);
+    const current = el.textContent ?? "";
+    if (current.length > MAX_LIVE_CHARS) el.setText(current.slice(current.length - MAX_LIVE_CHARS));
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }
 
