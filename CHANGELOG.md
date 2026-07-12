@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-07-12
+
 ### Added
 
 - **`output:`-Block für `llm`-Tasks**: parametrisierbare Output-Familien (`frontmatter.set`, `section.write`) mit `allowed_keys`/`max_chars` — das Crew-Output-Vokabular ist damit offen. Die bisherigen `output_schema: triage-v1|briefing-v1` bleiben als Alias byte-identisch gültig.
