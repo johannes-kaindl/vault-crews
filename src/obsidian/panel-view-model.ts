@@ -11,6 +11,16 @@ import type { ErrorKind, RunResult, RunStatus } from "../core/types";
 
 export type NavState = "crews" | "history";
 
+/** Notbremse gegen Amoklauf-Modelle: der Live-Text pro Task wird auf die letzten
+ *  MAX_LIVE_CHARS Zeichen begrenzt (Tail behalten). „Voller Task-Output" ist der
+ *  Normalfall; der Cap greift praktisch nie. */
+export const MAX_LIVE_CHARS = 100_000;
+
+function appendCapped(buf: string, add: string): string {
+  const next = buf + add;
+  return next.length > MAX_LIVE_CHARS ? next.slice(next.length - MAX_LIVE_CHARS) : next;
+}
+
 // Festes Vokabular (Spec §6.2): ⏳ wartet · ▶ läuft · ✓ ok · ✗ fehlgeschlagen ·
 // ↷ übersprungen · ⊘ stale.
 export type TaskLineStatus = "waiting" | "running" | "ok" | "failed" | "skipped" | "stale";
@@ -30,6 +40,10 @@ export interface RunningState {
   lines: TaskLine[];
   tokenCount: number;
   thinkCount: number;
+  /** Voller Content-Output des laufenden Tasks (reset pro Task), Tail-gekappt. */
+  streamText: string;
+  /** Voller Reasoning-Output des laufenden Tasks (reset pro Task), Tail-gekappt. */
+  thinkText: string;
   /** Tatsächlich angewendete Schreibziele (actionApplied === "applied"), run-scoped. */
   writes: string[];
   /** Gesetzt, sobald der Nutzer Abbrechen geklickt hat — persistiert im Zustand, damit
@@ -70,7 +84,7 @@ export function reduceRun(state: RunState, e: RunEvent): RunState {
       return {
         kind: "running", runId: e.runId, teamId: e.teamId,
         total: 0, index: 0, currentTaskId: null, lines: [],
-        tokenCount: 0, thinkCount: 0, writes: [], aborting: false,
+        tokenCount: 0, thinkCount: 0, streamText: "", thinkText: "", writes: [], aborting: false,
       };
     case "taskStarted":
       if (state.kind === "running") {
@@ -79,6 +93,8 @@ export function reduceRun(state: RunState, e: RunEvent): RunState {
         state.currentTaskId = e.taskId;
         state.tokenCount = 0;
         state.thinkCount = 0;
+        state.streamText = "";
+        state.thinkText = "";
         const existing = state.lines.find((l) => l.taskId === e.taskId);
         if (existing) existing.status = "running";
         else state.lines.push({ taskId: e.taskId, status: "running" });
@@ -86,8 +102,13 @@ export function reduceRun(state: RunState, e: RunEvent): RunState {
       return state;
     case "token":
       if (state.kind === "running") {
-        if (e.isThink) state.thinkCount += 1;
-        else state.tokenCount += 1;
+        if (e.isThink) {
+          state.thinkCount += 1;
+          state.thinkText = appendCapped(state.thinkText, e.text);
+        } else {
+          state.tokenCount += 1;
+          state.streamText = appendCapped(state.streamText, e.text);
+        }
       }
       return state;
     case "taskFinished":

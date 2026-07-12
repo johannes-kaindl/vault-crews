@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { registerI18n } from "../../src/i18n/strings";
 import { setLang } from "../../src/vendor/kit/i18n";
 import {
-  buildPanelViewModel, markAborting, reduceRun,
+  buildPanelViewModel, markAborting, reduceRun, MAX_LIVE_CHARS,
   type RunState, type TeamInfo, type RunSummary,
 } from "../../src/obsidian/panel-view-model";
 import type { RunEvent } from "../../src/core/ports";
@@ -66,6 +66,46 @@ describe("reduceRun", () => {
     const once = markAborting(running);
     const twice = markAborting(once);
     expect(twice.kind === "running" && twice.aborting).toBe(true);
+  });
+
+  it("accumulates content into streamText and reasoning into thinkText, split by isThink", () => {
+    const s = drive({ kind: "idle" }, [
+      { type: "runStarted", runId: "r1", teamId: "t" },
+      { type: "taskStarted", taskId: "a", index: 1, total: 1 },
+      { type: "token", taskId: "a", isThink: false, text: "Hel" },
+      { type: "token", taskId: "a", isThink: false, text: "lo" },
+      { type: "token", taskId: "a", isThink: true, text: "hmm" },
+    ]);
+    expect(s.kind).toBe("running");
+    if (s.kind !== "running") return;
+    expect(s.streamText).toBe("Hello");
+    expect(s.thinkText).toBe("hmm");
+    expect(s.tokenCount).toBe(2);
+    expect(s.thinkCount).toBe(1);
+  });
+
+  it("resets streamText and thinkText on taskStarted", () => {
+    const s = drive({ kind: "idle" }, [
+      { type: "runStarted", runId: "r1", teamId: "t" },
+      { type: "taskStarted", taskId: "a", index: 1, total: 2 },
+      { type: "token", taskId: "a", isThink: false, text: "first" },
+      { type: "taskStarted", taskId: "b", index: 2, total: 2 },
+    ]);
+    if (s.kind !== "running") throw new Error("expected running");
+    expect(s.streamText).toBe("");
+    expect(s.thinkText).toBe("");
+  });
+
+  it("caps each live buffer to the last MAX_LIVE_CHARS characters", () => {
+    const big = "x".repeat(MAX_LIVE_CHARS + 500);
+    const s = drive({ kind: "idle" }, [
+      { type: "runStarted", runId: "r1", teamId: "t" },
+      { type: "taskStarted", taskId: "a", index: 1, total: 1 },
+      { type: "token", taskId: "a", isThink: false, text: big },
+    ]);
+    if (s.kind !== "running") throw new Error("expected running");
+    expect(s.streamText.length).toBe(MAX_LIVE_CHARS);
+    expect(s.streamText.endsWith("x")).toBe(true);
   });
 });
 
