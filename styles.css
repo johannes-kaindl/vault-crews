@@ -109,14 +109,29 @@
   color: var(--text-normal);
   font-size: var(--font-ui-small);
 }
-.vault-crews-progress {
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-}
 .vault-crews-think summary {
   color: var(--text-faint);
   font-size: var(--font-ui-smaller);
   cursor: pointer;
+}
+.vault-crews-live-content,
+.vault-crews-live-think {
+  margin-top: var(--size-4-2);
+  padding: var(--size-4-2);
+  max-height: 40vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border-radius: var(--radius-s);
+}
+.vault-crews-live-empty {
+  margin-top: var(--size-4-2);
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
 }
 
 /* ── Ergebnis-Karte (done + Verlauf-jüngster-Lauf) ─────────────────────────── */

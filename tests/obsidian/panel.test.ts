@@ -46,9 +46,18 @@ function findAll(el: HTMLElement, pred: (e: HTMLElement) => boolean, out: HTMLEl
 }
 const buttons = (el: HTMLElement, text: string): HTMLElement[] =>
   findAll(el, (e) => e.tagName === "BUTTON" && e.textContent === text);
+/** Erstes Element mit gegebener Klasse (Ersatz für querySelector, das der Mock nicht hat). */
+const byClass = (el: HTMLElement, cls: string): HTMLElement | undefined =>
+  findAll(el, (e) => e.hasClass(cls))[0];
 
 function driveEvents(view: RunPanelView, events: RunEvent[]): void {
   for (const e of events) view.handleEvent(e);
+}
+
+/** Default-View mit Fake-Host für die Live-Streaming-Tests (kein Sonderfall nötig,
+ *  da diese Tests nur `handleEvent` treiben und `contentEl` inspizieren). */
+function makeView(): RunPanelView {
+  return new RunPanelView(makeLeaf(), makeHost());
 }
 
 const okResult = (o: Partial<RunResult> = {}): RunResult => ({
@@ -265,6 +274,40 @@ describe("RunPanelView — history tab", () => {
     const [historyTab] = findAll(view.contentEl, (e) => e.hasClass("vault-crews-tab") && e.textContent === "History");
     (historyTab as unknown as HTMLElement).click();
     expect(view.contentEl.textContent).toContain("No runs yet");
+  });
+});
+
+describe("RunPanelView — live streaming (content + think)", () => {
+  it("shows accumulated live content text while running", () => {
+    const view = makeView();
+    view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });
+    view.handleEvent({ type: "taskStarted", taskId: "a", index: 1, total: 1 });
+    view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "Hello " });
+    view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "world" });
+
+    const live = byClass(view.contentEl, "vault-crews-live-content");
+    expect(live?.textContent).toContain("Hello world");
+  });
+
+  it("shows a placeholder before the first content token", () => {
+    const view = makeView();
+    view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });
+    view.handleEvent({ type: "taskStarted", taskId: "a", index: 1, total: 1 });
+    expect(view.contentEl.textContent).toContain("Waiting for output");
+  });
+
+  it("appends think tokens into the details and updates the counter without losing content", () => {
+    const view = makeView();
+    view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });
+    view.handleEvent({ type: "taskStarted", taskId: "a", index: 1, total: 1 });
+    view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "body" });
+    view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "th1" });
+    view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "th2" });
+
+    expect(byClass(view.contentEl, "vault-crews-live-content")?.textContent).toContain("body");
+    expect(byClass(view.contentEl, "vault-crews-live-think")?.textContent).toContain("th1th2");
+    const [summary] = findAll(view.contentEl, (e) => e.tagName === "SUMMARY");
+    expect(summary?.textContent).toContain("2");
   });
 });
 

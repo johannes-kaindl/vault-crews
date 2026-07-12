@@ -44,6 +44,11 @@ export interface PanelHost {
 export class RunPanelView extends ItemView {
   private navState: NavState = "crews";
   private runState: RunState = { kind: "idle" };
+  // Live-Node-Referenzen für den Token-Fast-Path (handleEvent): nur gültig zwischen
+  // zwei vollen Renders, siehe reset in renderViewModel.
+  private liveContentEl: HTMLElement | null = null;
+  private liveThinkEl: HTMLElement | null = null;
+  private thinkSummaryEl: HTMLElement | null = null;
 
   constructor(leaf: WorkspaceLeaf, private readonly host: PanelHost) {
     super(leaf);
@@ -65,7 +70,33 @@ export class RunPanelView extends ItemView {
    *  Funktion des Zustands), analog zu SettingsTab.display(). */
   handleEvent(e: RunEvent): void {
     this.runState = reduceRun(this.runState, e);
+    if (e.type === "token" && this.tryFastPathToken(e)) return;
     this.render();
+  }
+
+  /** Hängt ein Token an den passenden Live-Node an, ohne das Panel neu zu bauen.
+   *  Voraussetzung: der crewsRunning-Body ist gerade gerendert (Node vorhanden).
+   *  Der erste Token eines Puffers (Node noch null → Übergang Platzhalter→Text bzw.
+   *  Think-Node fehlt) fällt bewusst auf den vollen Render zurück. */
+  private tryFastPathToken(e: Extract<RunEvent, { type: "token" }>): boolean {
+    if (this.navState !== "crews" || this.runState.kind !== "running") return false;
+    if (e.isThink) {
+      if (this.liveThinkEl === null || this.thinkSummaryEl === null) return false;
+      this.appendLive(this.liveThinkEl, e.text);
+      this.thinkSummaryEl.setText(t("panel.thinking", this.runState.thinkCount));
+      return true;
+    }
+    if (this.liveContentEl === null) return false;
+    this.appendLive(this.liveContentEl, e.text);
+    return true;
+  }
+
+  /** Append + Stick-to-bottom: nur mitscrollen, wenn der Nutzer schon (nahe) am
+   *  unteren Rand ist — reißt nicht runter, wenn man hochgescrollt mitliest. */
+  private appendLive(el: HTMLElement, text: string): void {
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+    el.appendText(text);
+    if (nearBottom) el.scrollTop = el.scrollHeight;
   }
 
   private render(): void {
@@ -84,6 +115,11 @@ export class RunPanelView extends ItemView {
   private renderViewModel(vm: PanelViewModel): void {
     const root = this.contentEl;
     root.empty();
+    // root.empty() wirft alle bisherigen Live-Nodes weg — Referenzen müssen bei jedem
+    // vollen Render zurückgesetzt werden, sonst zeigt der Fast-Path auf tote Nodes.
+    this.liveContentEl = null;
+    this.liveThinkEl = null;
+    this.thinkSummaryEl = null;
     root.addClass("vault-crews-panel");
 
     root.createEl("h2", { cls: "vault-crews-title", text: vm.title });
@@ -130,13 +166,18 @@ export class RunPanelView extends ItemView {
           row.createSpan({ cls: "vault-crews-task-icon", text: line.icon });
           row.createSpan({ cls: "vault-crews-task-label", text: line.label });
         }
-        // Task-5-Seam: liest jetzt streamText/thinkingLabel statt der alten Zähler-Strings;
-        // das eigentliche Live-Rendering (Platzhalter, <think>-Inhalt) folgt in Task 5.
-        root.createDiv({ cls: "vault-crews-progress", text: body.streamText });
-        // <think> nur als Zähler, aufklappbar, nie aufgedrängt: natives <details> ohne
-        // `open`-Attribut ist genau diese Semantik, ganz ohne eigene Toggle-Logik.
+        // Content-Live-Bereich: Platzhalter solange leer, sonst scrollbarer Text.
+        if (body.streamText === "") {
+          root.createDiv({ cls: "vault-crews-live-empty", text: body.streamEmptyText });
+        } else {
+          this.liveContentEl = root.createDiv({ cls: "vault-crews-live-content", text: body.streamText });
+        }
+        // <think> aufklappbar (zu per Default). Live-Think-Node nur wenn Text da ist.
         const think = root.createEl("details", { cls: "vault-crews-think" });
-        think.createEl("summary", { text: body.thinkingLabel });
+        this.thinkSummaryEl = think.createEl("summary", { text: body.thinkingLabel });
+        if (body.thinkText !== "") {
+          this.liveThinkEl = think.createDiv({ cls: "vault-crews-live-think", text: body.thinkText });
+        }
         return;
       }
       case "crewsDone": {
