@@ -70,10 +70,13 @@ export interface Artifact {
 	slugTables: Record<string, SlugTableData>;
 }
 
+export type FmScalar = string | number | null;
+export type FmValue = FmScalar | (string | number)[];
+
 export interface FrontmatterPatchAction {
 	type: 'frontmatter.patch';
 	path: string;
-	set: Record<string, string | number | null>;
+	set: Record<string, FmValue>;
 	remove: string[];
 }
 export interface NoteCreateAction { type: 'note.create'; path: string; content: string; }

@@ -1,6 +1,6 @@
 /** Port-Interfaces (Dependency-Inversion): der pure-Layer kennt nur diese Verträge;
  *  Obsidian-/Node-Implementierungen leben in src/obsidian/. Quelle: Interface-Skelett (bindend). */
-import type { ActionOutcome, RunResult } from './types';
+import type { ActionOutcome, FmValue, RunResult } from './types';
 
 export interface VaultPort {
 	read(path: string): Promise<string>;
@@ -9,7 +9,7 @@ export interface VaultPort {
 	append(path: string, content: string): Promise<void>;
 	exists(path: string): Promise<boolean>;
 	mkdir(path: string): Promise<void>;
-	patchFrontmatter(path: string, set: Record<string, string | number | null>, remove: string[]): Promise<void>;
+	patchFrontmatter(path: string, set: Record<string, FmValue>, remove: string[]): Promise<void>;
 	/** Datei in den Obsidian-Papierkorb verschieben (fileManager.trashFile) — nie Hard-Delete. */
 	trash(path: string): Promise<void>;
 }

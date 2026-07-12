@@ -24,8 +24,8 @@ tasks:
     inputs: [collect]
     instruction: |
       Du bekommst Notizen samt Inhalt, die noch keine Tags haben. Schlage pro
-      Notiz 2–4 knappe, thematische Tags vor, abgeleitet ausschließlich aus dem
-      Inhalt. Erfinde keine Themen; bei inhaltsarmen Notizen weniger oder keine.
+      Notiz 2–4 knappe, thematische Tags **als Liste** vor, abgeleitet ausschließlich
+      aus dem Inhalt. Erfinde keine Themen; bei inhaltsarmen Notizen weniger oder keine.
     output:
       family: frontmatter.set
       allowed_keys: [tags]

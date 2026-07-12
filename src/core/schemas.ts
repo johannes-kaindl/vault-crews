@@ -3,7 +3,7 @@
  *  erzeugt daraus die deterministische Aktionsliste — ein einziger Übergabepunkt.
  *  Quellbindung macht Pfad-Halluzination strukturell unmöglich; Slug-Rück-Mapping passiert
  *  HIER (der Executor kennt keine SlugTables, Skelett-ExecutorContext). */
-import type { Action, CollectedFile, FrontmatterPatchAction, OutputSpec, SchemaId, SlugTableData } from './types';
+import type { Action, CollectedFile, FmValue, FrontmatterPatchAction, OutputSpec, SchemaId, SlugTableData } from './types';
 
 export interface SchemaDef {
 	/** Familien-/Alias-Kennung (extern nicht gelesen; rein zur Selbstbeschreibung). */
@@ -33,7 +33,7 @@ export function makeFrontmatterSet(allowedKeys: string[] | '*'): SchemaDef {
 		outputFormat: 'json',
 		promptContract:
 			'Antworte ausschließlich mit einem JSON-Objekt in einem ```json-Block, keine Erklärungen davor oder danach.',
-		outputExample: '{"items": [{"path": "10_Aufgaben/beispiel.md", "set": {"priority": "mittel"}}]}',
+		outputExample: '{"items": [{"path": "10_Aufgaben/beispiel.md", "set": {"priority": "mittel", "tags": ["arbeit", "notiz"]}}]}',
 		validate(json, sources, slugTables, _target) {
 			const errors: string[] = [];
 			if (!isRecord(json) || !Array.isArray(json.items)) {
@@ -53,10 +53,33 @@ export function makeFrontmatterSet(allowedKeys: string[] | '*'): SchemaDef {
 					continue;
 				}
 				if (!isRecord(item.set)) { errors.push(`items[${i}].set: fehlt oder ist kein Objekt`); continue; }
-				const set: Record<string, string | number | null> = {};
+				const set: Record<string, FmValue> = {};
 				for (const [key, rawValue] of Object.entries(item.set)) {
 					if (allowedKeys !== '*' && !allowedKeys.includes(key)) {
 						errors.push(`items[${i}].set.${key}: Feld nicht in allowed_keys (${allowedKeys.join(', ')})`);
+						continue;
+					}
+					if (Array.isArray(rawValue)) {
+						const table = slugTables[key];
+						const list: (string | number)[] = [];
+						let bad = false;
+						for (const el of rawValue) {
+							if (table) {
+								if (typeof el !== 'string' || !(el in table.fromSlug)) {
+									errors.push(`items[${i}].set.${key}: '${String(el)}' ist kein erlaubter Wert (${Object.keys(table.fromSlug).sort().join(', ')})`);
+									bad = true;
+									break;
+								}
+								list.push(el);
+							} else if (typeof el === 'string' || typeof el === 'number') {
+								list.push(el);
+							} else {
+								errors.push(`items[${i}].set.${key}: unzulässiges Listen-Element '${String(el)}'`);
+								bad = true;
+								break;
+							}
+						}
+						if (!bad) set[key] = list;
 						continue;
 					}
 					const table = slugTables[key];

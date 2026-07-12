@@ -3,7 +3,7 @@
  *  Slug-Rück-Mapping, Stale-Hash, Schreiblimit), erst danach entscheidet die
  *  Konsistenz-Schwelle, und erst Phase 2 schreibt. Quelle: Plan-Detail-Anhang Tasks 9-11. */
 import type {
-	Action, ActionOutcome, ActionsTaskDef, CollectedFile, RunLimits, SlugTableData, TeamDef,
+	Action, ActionOutcome, ActionsTaskDef, CollectedFile, FmValue, RunLimits, SlugTableData, TeamDef,
 } from './types';
 import type { VaultPort } from './ports';
 import { globMatch, isDenied, normalizeVaultPath } from './paths';
@@ -35,7 +35,7 @@ interface ValidatedAction {
 	action: Action;
 	path: string;
 	outcome: ActionOutcome | null; // null = Validierung bestanden, wird in Phase 2 angewendet
-	mappedSet: Record<string, string | number | null> | null; // rückgemappte Werte (frontmatter.patch)
+	mappedSet: Record<string, FmValue> | null; // rückgemappte Werte (frontmatter.patch)
 }
 
 function byteLength(s: string): number {
@@ -86,8 +86,34 @@ async function validateAction(action: Action, ctx: ExecutorContext, vault: Vault
 			v.outcome = outcomeOf(action, 'rejected', `Key nicht in allowed_keys: ${badKey}`);
 			return v;
 		}
-		const mapped: Record<string, string | number | null> = {};
+		const mapped: Record<string, FmValue> = {};
 		for (const [key, value] of Object.entries(action.set)) {
+			if (Array.isArray(value)) {
+				const table = ctx.slugTables[key];
+				const mappedList: (string | number)[] = [];
+				let rejected = false;
+				for (const el of value) {
+					if (typeof el === 'string' && byteLength(el) > ctx.limits.maxNoteBytes) {
+						v.outcome = outcomeOf(action, 'rejected', `Wert für '${key}' überschreitet maxNoteBytes (${ctx.limits.maxNoteBytes})`);
+						rejected = true;
+						break;
+					}
+					if (typeof el === 'string' && table !== undefined) {
+						const original = table.fromSlug[el];
+						if (original === undefined) {
+							v.outcome = outcomeOf(action, 'rejected', `Wert '${el}' für '${key}' nicht in enumerierter Wertemenge`);
+							rejected = true;
+							break;
+						}
+						mappedList.push(original);
+					} else {
+						mappedList.push(el);
+					}
+				}
+				if (rejected) return v;
+				mapped[key] = mappedList;
+				continue;
+			}
 			if (typeof value === 'string' && byteLength(value) > ctx.limits.maxNoteBytes) {
 				v.outcome = outcomeOf(action, 'rejected', `Wert für '${key}' überschreitet maxNoteBytes (${ctx.limits.maxNoteBytes})`);
 				return v;

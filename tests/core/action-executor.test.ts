@@ -1,6 +1,6 @@
 // tests/core/action-executor.test.ts
 import { describe, expect, it } from 'vitest';
-import type { Action, ActionsTaskDef, CollectedFile, RunLimits, TeamDef } from '../../src/core/types';
+import type { Action, ActionsTaskDef, CollectedFile, FmValue, RunLimits, TeamDef } from '../../src/core/types';
 import type { VaultPort } from '../../src/core/ports';
 import { CREW_MARKER, executeActions, type ExecutorContext } from '../../src/core/action-executor';
 import { fnv1a } from '../../src/core/collectors';
@@ -51,9 +51,9 @@ function ctxOf(sources: CollectedFile[], overrides: Partial<ExecutorContext> = {
 
 function spyVault(vault: VaultPort): {
   vault: VaultPort;
-  patches: Array<{ path: string; set: Record<string, string | number | null>; remove: string[] }>;
+  patches: Array<{ path: string; set: Record<string, FmValue>; remove: string[] }>;
 } {
-  const patches: Array<{ path: string; set: Record<string, string | number | null>; remove: string[] }> = [];
+  const patches: Array<{ path: string; set: Record<string, FmValue>; remove: string[] }> = [];
   return {
     patches,
     vault: {
@@ -91,6 +91,24 @@ describe('executeActions — frontmatter.patch', () => {
     expect(res.outcomes).toEqual([{ action, result: 'applied', reason: null }]);
     expect(res.writes).toEqual(['10_Aufgaben/a.md']);
     expect(patches).toEqual([{ path: '10_Aufgaben/a.md', set: { priority: '2_mittel_🟡' }, remove: [] }]);
+  });
+
+  it('wendet Patch mit Listen-Wert an und mappt jedes Slug-Element byte-genau auf sein Original zurück', async () => {
+    const raw = await seed({ '10_Aufgaben/a.md': TASK_MD });
+    const { vault, patches } = spyVault(raw);
+    const action: Action = { type: 'frontmatter.patch', path: '10_Aufgaben/a.md', set: { priority: ['mittel', 'niedrig'] }, remove: [] };
+    const ctx = ctxOf([source('10_Aufgaben/a.md', TASK_MD)], {
+      slugTables: {
+        priority: {
+          toSlug: { '2_mittel_🟡': 'mittel', '1_niedrig_🟢': 'niedrig' },
+          fromSlug: { mittel: '2_mittel_🟡', niedrig: '1_niedrig_🟢' },
+        },
+      },
+    });
+    const res = await executeActions([action], ctx, vault);
+    expect(res.taskFailed).toBe(false);
+    expect(res.outcomes).toEqual([{ action, result: 'applied', reason: null }]);
+    expect(patches).toEqual([{ path: '10_Aufgaben/a.md', set: { priority: ['2_mittel_🟡', '1_niedrig_🟢'] }, remove: [] }]);
   });
 
   it('verwirft Keys außerhalb allowed_keys', async () => {

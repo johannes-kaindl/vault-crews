@@ -1,5 +1,6 @@
 import { normalizePath, TFile, type App } from "obsidian";
 import type { MetadataPort, VaultPort } from "../core/ports";
+import type { FmValue } from "../core/types";
 
 /**
  * Dünner VaultPort-Adapter über app.vault / app.fileManager.
@@ -54,7 +55,7 @@ export class ObsidianVaultPort implements VaultPort {
 
   async patchFrontmatter(
     path: string,
-    set: Record<string, string | number | null>,
+    set: Record<string, FmValue>,
     remove: string[],
   ): Promise<void> {
     const f = this.file(path);
