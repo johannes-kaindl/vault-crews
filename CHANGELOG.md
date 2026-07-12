@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-07-12
+
 ### Fixed
 
 - **HTTP-Fehler ehrlich klassifizieren**: Ein Fehlerstatus vom LLM-Server (Server erreichbar, Request/Modell abgelehnt) wird jetzt als neue Fehlerklasse `endpoint_error` gemeldet statt fälschlich als `endpoint_unreachable` („keine Verbindung"). Betrifft die Next-Action-Meldung im Panel.
