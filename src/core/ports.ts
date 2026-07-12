@@ -38,7 +38,7 @@ export interface LlmClient {
 	setBase(endpoint: string): void;
 	listModels(): Promise<string[]>;
 	modelInfo(model: string): Promise<ModelInfo | null>;
-	stream(messages: LlmMessage[], params: LlmParams, onToken: (t: string) => void, signal: AbortSignal): Promise<LlmStreamResult>;
+	stream(messages: LlmMessage[], params: LlmParams, onToken: (t: string, isThink: boolean) => void, signal: AbortSignal): Promise<LlmStreamResult>;
 }
 
 /** Typisierter LLM-Call-Fehler: der Orchestrator entscheidet Fehlerpfade über `kind`

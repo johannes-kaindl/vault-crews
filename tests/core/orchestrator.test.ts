@@ -121,9 +121,9 @@ class ClockAdvancingLlm implements LlmClient {
   setBase(): void { /* single-endpoint test double: no-op */ }
   async listModels(): Promise<string[]> { return ['test-model']; }
   async modelInfo(model: string): Promise<ModelInfo | null> { return { id: model, contextLength: 8192 }; }
-  async stream(_m: LlmMessage[], _p: LlmParams, onToken: (t: string) => void): Promise<LlmStreamResult> {
+  async stream(_m: LlmMessage[], _p: LlmParams, onToken: (t: string, isThink: boolean) => void): Promise<LlmStreamResult> {
     this.clock.tick(this.advanceMs);
-    onToken(this.content);
+    onToken(this.content, false);
     return { content: this.content, thinkTokens: 0, reasoned: false, finishReason: 'stop' };
   }
 }
@@ -133,9 +133,9 @@ class AbortMidStreamLlm implements LlmClient {
   setBase(): void { /* single-endpoint test double: no-op */ }
   async listModels(): Promise<string[]> { return ['test-model']; }
   async modelInfo(model: string): Promise<ModelInfo | null> { return { id: model, contextLength: 8192 }; }
-  async stream(_m: LlmMessage[], _p: LlmParams, onToken: (t: string) => void): Promise<LlmStreamResult> {
-    onToken('{"it');
-    onToken('ems":');
+  async stream(_m: LlmMessage[], _p: LlmParams, onToken: (t: string, isThink: boolean) => void): Promise<LlmStreamResult> {
+    onToken('{"it', false);
+    onToken('ems":', false);
     return { content: '', thinkTokens: 0, reasoned: false, finishReason: 'aborted' };
   }
 }
