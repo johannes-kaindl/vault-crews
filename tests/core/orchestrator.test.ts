@@ -124,7 +124,7 @@ class ClockAdvancingLlm implements LlmClient {
   async stream(_m: LlmMessage[], _p: LlmParams, onToken: (t: string) => void): Promise<LlmStreamResult> {
     this.clock.tick(this.advanceMs);
     onToken(this.content);
-    return { content: this.content, thinkTokens: 0, finishReason: 'stop' };
+    return { content: this.content, thinkTokens: 0, reasoned: false, finishReason: 'stop' };
   }
 }
 
@@ -136,7 +136,7 @@ class AbortMidStreamLlm implements LlmClient {
   async stream(_m: LlmMessage[], _p: LlmParams, onToken: (t: string) => void): Promise<LlmStreamResult> {
     onToken('{"it');
     onToken('ems":');
-    return { content: '', thinkTokens: 0, finishReason: 'aborted' };
+    return { content: '', thinkTokens: 0, reasoned: false, finishReason: 'aborted' };
   }
 }
 
@@ -249,6 +249,15 @@ describe('executeRun — llm call errors', () => {
     expect(result.errorKind).toBe('stalled');
   });
 
+  it('http error → failed with errorKind endpoint_error (nicht endpoint_unreachable)', async () => {
+    const llm = new ScriptLlmClient([{ error: 'http' }]);
+    const h = await harness({ llm });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.status).toBe('failed');
+    expect(result.errorKind).toBe('endpoint_error');
+    expect(result.errorTask).toBe('analyse');
+  });
+
   it('overflow-retry-ok: overflow then valid → halve material, retry, status ok, 2 calls', async () => {
     const script: ScriptedCall[] = [{ error: 'overflow' }, { content: TRIAGE_OK }];
     const llm = new ScriptLlmClient(script);
@@ -257,6 +266,41 @@ describe('executeRun — llm call errors', () => {
     expect(result.status).toBe('ok');
     expect(llm.calls).toHaveLength(2);
     expect(result.writes).toBe(1);
+  });
+});
+
+describe('executeRun — always-on-thinker Laufzeit-Detektion', () => {
+  it('thinking off, aber Modell hat gedacht → alwaysOnThinker true (Name matcht Regex nicht)', async () => {
+    const llm = new ScriptLlmClient([{ content: TRIAGE_OK, reasoned: true }]);
+    const h = await harness({
+      llm,
+      agents: { 'triage-analyst': { fm: { 'crew-kind': 'agent', name: 'A', thinking: 'off' }, body: 'x' } },
+    });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.status).toBe('ok');
+    expect(result.alwaysOnThinker).toBe(true);
+  });
+
+  it('thinking off + kein Reasoning → alwaysOnThinker false', async () => {
+    const llm = new ScriptLlmClient([{ content: TRIAGE_OK, reasoned: false }]);
+    const h = await harness({
+      llm,
+      agents: { 'triage-analyst': { fm: { 'crew-kind': 'agent', name: 'A', thinking: 'off' }, body: 'x' } },
+    });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.alwaysOnThinker).toBe(false);
+  });
+
+  it('thinking auto + Reasoning → alwaysOnThinker false (Suppression gar nicht angefordert)', async () => {
+    // Beweist, dass die thinking==='off'-Bedingung load-bearing ist: bei erlaubtem
+    // Denken (auto) ist Reasoning erwartet, keine Suppressions-Lücke → Flag bleibt false.
+    const llm = new ScriptLlmClient([{ content: TRIAGE_OK, reasoned: true }]);
+    const h = await harness({
+      llm,
+      agents: { 'triage-analyst': { fm: { 'crew-kind': 'agent', name: 'A', thinking: 'auto' }, body: 'x' } },
+    });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.alwaysOnThinker).toBe(false);
   });
 });
 

@@ -28,7 +28,7 @@ export interface ClockPort {
 
 export interface LlmMessage { role: 'system' | 'user'; content: string; }
 export interface LlmParams { model: string; temperature: number; maxTokens: number; thinking: 'auto' | 'on' | 'off'; }
-export interface LlmStreamResult { content: string; thinkTokens: number; finishReason: 'stop' | 'length' | 'aborted'; }
+export interface LlmStreamResult { content: string; thinkTokens: number; reasoned: boolean; finishReason: 'stop' | 'length' | 'aborted'; }
 export interface ModelInfo { id: string; contextLength: number | null; }
 export interface LlmClient {
 	ping(endpoint: string): Promise<boolean>;

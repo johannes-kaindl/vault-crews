@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isContextOverflow, extractChatContent } from '../../src/core/chat-response';
+import { isContextOverflow, extractChatContent, extractErrorMessage } from '../../src/core/chat-response';
 
 describe('isContextOverflow', () => {
 	it('erkennt "context length"', () => {
@@ -45,5 +45,24 @@ describe('extractChatContent', () => {
 		expect(extractChatContent(null)).toBeNull();
 		expect(extractChatContent([])).toBeNull();
 		expect(extractChatContent('string')).toBeNull();
+	});
+});
+
+describe('extractErrorMessage', () => {
+	it('zieht error.message (OpenAI/LM-Studio-Shape)', () => {
+		expect(extractErrorMessage({ error: { message: "model 'foo' not loaded" } })).toBe("model 'foo' not loaded");
+	});
+	it('zieht error als String', () => {
+		expect(extractErrorMessage({ error: 'bad request' })).toBe('bad request');
+	});
+	it('zieht top-level message', () => {
+		expect(extractErrorMessage({ message: 'something failed' })).toBe('something failed');
+	});
+	it('null, wenn kein bekanntes Feld', () => {
+		expect(extractErrorMessage({ foo: 'bar' })).toBeNull();
+	});
+	it('null für Nicht-Objekt', () => {
+		expect(extractErrorMessage('plain text')).toBeNull();
+		expect(extractErrorMessage(null)).toBeNull();
 	});
 });

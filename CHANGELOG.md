@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **HTTP-Fehler ehrlich klassifizieren**: Ein Fehlerstatus vom LLM-Server (Server erreichbar, Request/Modell abgelehnt) wird jetzt als neue Fehlerklasse `endpoint_error` gemeldet statt fälschlich als `endpoint_unreachable` („keine Verbindung"). Betrifft die Next-Action-Meldung im Panel.
+- **Lesbarer Fehler-Body**: Fehlermeldungen zeigen nicht mehr nur `HTTP 400: {` — die Klartext-Message wird aus dem JSON-Fehlerbody (`error.message`/`error`/`message`) gezogen und einzeilig dargestellt.
+- **Always-on-Thinker zur Laufzeit erkennen**: Modelle, die trotz `thinking: off` weiterdenken, werden jetzt am tatsächlichen Reasoning erkannt (nicht nur am Modellnamen `gpt-oss`/`harmony`) — die Hinweis-Notice greift dadurch auch für Modelle wie ornith, und ihr Text ist modell-agnostisch.
+
 ## [0.6.0] — 2026-07-12
 
 ### Added

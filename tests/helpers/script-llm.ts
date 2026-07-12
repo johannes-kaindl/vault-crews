@@ -4,6 +4,7 @@ import { LlmCallError } from '../../src/core/ports';
 export interface ScriptedCall {
 	content?: string;
 	thinkTokens?: number;
+	reasoned?: boolean;
 	finishReason?: LlmStreamResult['finishReason'];
 	/** Fehlerinjektion statt Antwort. */
 	error?: 'overflow' | 'timeout' | 'stalled' | 'http';
@@ -26,6 +27,6 @@ export class ScriptLlmClient implements LlmClient {
 		if (step.error) throw new LlmCallError(`injected: ${step.error}`, step.error);
 		const content = step.content ?? '';
 		for (const chunk of content.match(/.{1,8}/gs) ?? []) onToken(chunk);
-		return { content, thinkTokens: step.thinkTokens ?? 0, finishReason: step.finishReason ?? 'stop' };
+		return { content, thinkTokens: step.thinkTokens ?? 0, reasoned: step.reasoned ?? false, finishReason: step.finishReason ?? 'stop' };
 	}
 }

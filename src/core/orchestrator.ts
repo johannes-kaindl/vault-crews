@@ -269,6 +269,7 @@ class RunFsm {
 			break;
 		}
 		rec.thinkTokens += result.thinkTokens;
+		if (params.thinking === 'off' && result.reasoned) this.state.alwaysOnThinker = true;
 		if (result.finishReason === 'aborted') { this.abortRun(task.id, 'Stream abgebrochen'); rec.error = { kind: 'aborted', message: 'Stream abgebrochen' }; return 'failed'; }
 
 		let validated = validateOutput(result.content, schema, sources, slugTables, target);
@@ -278,6 +279,7 @@ class RunFsm {
 			try {
 				const repair = await this.stream(buildRepairPrompt(result.content, validated.errors), params, task.id);
 				rec.thinkTokens += repair.thinkTokens;
+				if (params.thinking === 'off' && repair.reasoned) this.state.alwaysOnThinker = true;
 				if (repair.finishReason === 'aborted') { this.abortRun(task.id, 'Stream abgebrochen'); rec.error = { kind: 'aborted', message: 'Stream abgebrochen' }; return 'failed'; }
 				validated = validateOutput(repair.content, schema, sources, slugTables, target);
 				if (!validated.ok) await this.writeArtifact(task.id, 2, repair.content);
@@ -545,7 +547,7 @@ function llmErrorKind(e: unknown): ErrorKind {
 			case 'overflow': return 'context_overflow';
 			case 'timeout': return 'timeout';
 			case 'stalled': return 'stalled';
-			case 'http': return 'endpoint_unreachable';
+			case 'http': return 'endpoint_error';
 		}
 	}
 	return 'io';
