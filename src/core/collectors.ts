@@ -21,6 +21,15 @@ export function fnv1a(s: string): string {
 	return (h >>> 0).toString(16).padStart(8, '0');
 }
 
+/** Kürzt Notiz-Inhalt auf die Per-File- und Total-Caps. Geteilt von vault.read und
+ *  tasknotes.query#include_content. Gibt gekürzten Text + neue Laufsumme zurück. */
+function capContent(full: string, runningTotal: number): { content: string; total: number } {
+	let content = full;
+	if (content.length > PER_FILE_CAP) content = content.slice(0, PER_FILE_CAP) + TRUNCATION_MARKER;
+	if (runningTotal + content.length > TOTAL_CAP) content = content.slice(0, Math.max(0, TOTAL_CAP - runningTotal)) + TRUNCATION_MARKER;
+	return { content, total: runningTotal + content.length };
+}
+
 export async function runCollector(def: CollectorTaskDef, deps: CollectorDeps): Promise<Artifact> {
 	switch (def.collector) {
 		case 'vault.list': return vaultList(def, deps);
@@ -55,15 +64,13 @@ async function vaultRead(def: CollectorTaskDef, deps: CollectorDeps): Promise<Ar
 		const path = normalizeVaultPath(raw);
 		if (isDenied(path, deps.denylist) || !(await deps.vault.exists(path))) continue;
 		const full = await deps.vault.read(path);
-		let content = full;
-		if (content.length > PER_FILE_CAP) content = content.slice(0, PER_FILE_CAP) + TRUNCATION_MARKER;
-		if (total + content.length > TOTAL_CAP) content = content.slice(0, Math.max(0, TOTAL_CAP - total)) + TRUNCATION_MARKER;
-		total += content.length;
+		const capped = capContent(full, total);
+		total = capped.total;
 		files.push({
 			path,
 			contentHash: fnv1a(full),
 			frontmatter: await deps.meta.getFrontmatter(path),
-			content,
+			content: capped.content,
 		});
 		if (total >= TOTAL_CAP) break;
 	}
@@ -128,15 +135,24 @@ async function tasknotesQuery(def: CollectorTaskDef, deps: CollectorDeps): Promi
 	});
 	const limited = matches.slice(0, limit);
 
-	// 5. Projektion + Slug-Normalisierung des gelieferten Frontmatters.
-	const files: CollectedFile[] = limited.map((e) => {
+	// 5. Projektion + Slug-Normalisierung; optional Inhalt (include_content).
+	const includeContent = def.params.include_content === true;
+	const files: CollectedFile[] = [];
+	let contentTotal = 0;
+	for (const e of limited) {
 		const projected: Record<string, unknown> = {};
 		for (const key of fields ?? Object.keys(e.fm)) {
 			if (!(key in e.fm)) { projected[key] = null; continue; }
 			projected[key] = slugify(e.fm[key], slugTables[key]);
 		}
-		return { path: e.path, contentHash: fnv1a(e.raw), frontmatter: projected, content: null };
-	});
+		let content: string | null = null;
+		if (includeContent) {
+			const capped = capContent(e.raw, contentTotal);
+			content = capped.content;
+			contentTotal = capped.total;
+		}
+		files.push({ path: e.path, contentHash: fnv1a(e.raw), frontmatter: projected, content });
+	}
 	return artifact(def.id, files, slugTables);
 }
 

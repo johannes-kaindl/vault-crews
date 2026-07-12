@@ -95,4 +95,27 @@ describe('tasknotes.query', () => {
 		expect(a.taskId).toBe('collect');
 		expect((a.json as { files: unknown[] }).files.length).toBe(4);
 	});
+
+	it('include_content liefert Notiz-Text für die gelieferten Notizen', async () => {
+		const a = await runCollector(def('tasknotes.query', {
+			folder: '10_Aufgaben', include_content: true, sort: 'title', limit: 2,
+		}), deps);
+		expect(a.files.length).toBe(2);
+		expect(a.files.every((f) => typeof f.content === 'string' && (f.content ?? '').length > 0)).toBe(true);
+	});
+
+	it('ohne include_content bleibt content null (Default, unverändert)', async () => {
+		const a = await runCollector(def('tasknotes.query', { folder: '10_Aufgaben' }), deps);
+		expect(a.files.every((f) => f.content === null)).toBe(true);
+	});
+
+	it('include_content kappt übergroße Notizen mit Marker', async () => {
+		await vault.create('10_Aufgaben/zzz-gross.md', `---\ntitle: zzz\n---\n${'y'.repeat(40_000)}`);
+		const a = await runCollector(def('tasknotes.query', {
+			folder: '10_Aufgaben', include_content: true, sort: 'title',
+		}), deps);
+		const gross = a.files.find((f) => f.path.endsWith('zzz-gross.md'));
+		expect((gross?.content ?? '').length).toBeLessThan(40_000);
+		expect(gross?.content).toContain('[gekürzt]');
+	});
 });

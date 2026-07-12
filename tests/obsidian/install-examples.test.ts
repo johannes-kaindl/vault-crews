@@ -18,6 +18,10 @@ import type { RunLimits } from '../../src/core/types';
 import {
 	BRIEFING_AUTOR_AGENT,
 	DAILY_BRIEFING_TEAM,
+	NOTIZ_TAGGER_AGENT,
+	NOTIZ_TAGGER_TEAM,
+	REIFEGRAD_TAGGER_AGENT,
+	REIFEGRAD_TAGGER_TEAM,
 	RUNS_BASE,
 	TASK_TRIAGE_TEAM,
 	TRIAGE_ANALYST_AGENT,
@@ -37,6 +41,10 @@ const EXPECTED_PATHS = [
 	`${ROOT}/teams/task-triage.md`,
 	`${ROOT}/teams/daily-briefing.md`,
 	`${ROOT}/runs/runs.base`,
+	`${ROOT}/agents/notiz-tagger.md`,
+	`${ROOT}/agents/reifegrad-tagger.md`,
+	`${ROOT}/teams/notiz-tagger.md`,
+	`${ROOT}/teams/reifegrad-tagger.md`,
 ];
 
 // Plugin-Default-Maxima (DEFAULT_SETTINGS aus src/obsidian/settings.ts, in RunLimits-
@@ -50,7 +58,7 @@ const DEFAULT_MAXIMA: RunLimits = {
 	callTimeoutMs: 300_000,
 	stallTimeoutMs: 60_000,
 };
-const KNOWN_AGENTS = ['triage-analyst', 'briefing-autor'];
+const KNOWN_AGENTS = ['triage-analyst', 'briefing-autor', 'notiz-tagger', 'reifegrad-tagger'];
 const DENYLIST = buildDenylist('.obsidian', '_crews');
 
 /** Frontmatter-Block + Body aus einer Team-/Agent-Note extrahieren, per echtem
@@ -102,9 +110,13 @@ describe('installExampleCrews', () => {
 		const result = await installExampleCrews(vault, 'Meine Crews');
 		expect(result.created.sort()).toEqual([
 			'Meine Crews/agents/briefing-autor.md',
+			'Meine Crews/agents/notiz-tagger.md',
+			'Meine Crews/agents/reifegrad-tagger.md',
 			'Meine Crews/agents/triage-analyst.md',
 			'Meine Crews/runs/runs.base',
 			'Meine Crews/teams/daily-briefing.md',
+			'Meine Crews/teams/notiz-tagger.md',
+			'Meine Crews/teams/reifegrad-tagger.md',
 			'Meine Crews/teams/task-triage.md',
 		]);
 	});
@@ -190,8 +202,50 @@ describe('assets/examples/** ist byte-identisch zu den TS-Konstanten', () => {
 		['assets/examples/teams/task-triage.md', TASK_TRIAGE_TEAM],
 		['assets/examples/teams/daily-briefing.md', DAILY_BRIEFING_TEAM],
 		['assets/examples/runs.base', RUNS_BASE],
+		['assets/examples/agents/notiz-tagger.md', NOTIZ_TAGGER_AGENT],
+		['assets/examples/agents/reifegrad-tagger.md', REIFEGRAD_TAGGER_AGENT],
+		['assets/examples/teams/notiz-tagger.md', NOTIZ_TAGGER_TEAM],
+		['assets/examples/teams/reifegrad-tagger.md', REIFEGRAD_TAGGER_TEAM],
 	])('%s === TS-Konstante', (relPath, constant) => {
 		const onDisk = readFileSync(join(REPO_ROOT, relPath), 'utf8');
 		expect(onDisk).toBe(constant);
+	});
+});
+
+describe('Neue Tagger-Crews sind nicht tot (echte Parser, Default-Maxima)', () => {
+	it.each([
+		['notiz-tagger', NOTIZ_TAGGER_AGENT],
+		['reifegrad-tagger', REIFEGRAD_TAGGER_AGENT],
+	])('%s.md Agent parst mit thinking:off', (id, constant) => {
+		const { fm, body } = splitFrontmatter(constant);
+		const r = parseAgentDef(`_crews/agents/${id}.md`, fm, body);
+		expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
+		if (!r.ok) return;
+		expect(r.value.id).toBe(id);
+		expect(r.value.thinking).toBe('off');
+	});
+
+	it.each([
+		['notiz-tagger', NOTIZ_TAGGER_TEAM, ['tags']],
+		['reifegrad-tagger', REIFEGRAD_TAGGER_TEAM, ['reifegrad']],
+	])('%s.md Team parst und nutzt frontmatter.set', (id, constant, keys) => {
+		const { fm } = splitFrontmatter(constant);
+		const r = parseTeamDef(`_crews/teams/${id}.md`, fm, {
+			knownAgents: KNOWN_AGENTS,
+			maxima: DEFAULT_MAXIMA,
+			denylist: DENYLIST,
+		});
+		expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
+		if (!r.ok) return;
+		expect(r.value.id).toBe(id);
+		expect(r.value.maxWrites).toBeLessThanOrEqual(DEFAULT_MAXIMA.maxWrites);
+		const llmTask = r.value.tasks.find((t) => t.kind === 'llm');
+		expect(llmTask).toMatchObject({ kind: 'llm', output: { family: 'frontmatter.set', allowedKeys: keys } });
+		// Der apply-actions-Task braucht sein EIGENES allowed_keys (Ausführungs-Gate,
+		// wird NICHT vom output:-Block des llm-Tasks vererbt). Fehlt es, setzt der Parser
+		// allowedKeys:null → action-executor macht daraus eine leere Allowlist → jeder
+		// vorgeschlagene Key wird abgelehnt → die Crew schreibt zur Laufzeit NICHTS.
+		const applyTask = r.value.tasks.find((t) => t.kind === 'actions');
+		expect(applyTask).toMatchObject({ kind: 'actions', allowedActions: ['frontmatter.patch'], allowedKeys: keys });
 	});
 });
