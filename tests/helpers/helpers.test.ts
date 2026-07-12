@@ -36,6 +36,17 @@ describe('InMemoryVaultPort', () => {
 		expect(out).toContain('tags: [aufgabe, "amt"]');
 		expect(out.endsWith('Body bleibt **byte-gleich**.\n')).toBe(true);
 	});
+
+	it('patchFrontmatter rendert einen Array-Wert als YAML-Block-Liste (rundtrip-lesbar)', async () => {
+		const v = new InMemoryVaultPort();
+		await v.create('t.md', NOTE);
+		await v.patchFrontmatter('t.md', { tags: ['arbeit', 'notiz'] }, []);
+		const out = await v.read('t.md');
+		expect(out).toContain('tags:\n  - arbeit\n  - notiz');
+		const m = new FixtureMetadataPort(v);
+		const fm = await m.getFrontmatter('t.md');
+		expect(fm?.tags).toEqual(['arbeit', 'notiz']);
+	});
 });
 
 describe('FixtureMetadataPort', () => {

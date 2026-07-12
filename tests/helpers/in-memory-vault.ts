@@ -4,6 +4,7 @@
  *  Strukturen (Team-Definitionen) werden per setFrontmatter-Override eingespeist, weil zur
  *  Laufzeit Obsidians metadataCache parst und wir fremdes YAML-Parsing nicht testen. */
 import type { MetadataPort, VaultPort } from '../../src/core/ports';
+import type { FmValue } from '../../src/core/types';
 
 /** Obsidian's `app.vault.getAbstractFileByPath` (TFile-Index) does NOT index dotfiles —
  *  only `vault.adapter` (used by create/exists/mkdir) sees them. ObsidianVaultPort.read/
@@ -49,7 +50,7 @@ export class InMemoryVaultPort implements VaultPort {
 	async mkdir(_path: string): Promise<void> {
 		// Ordner sind in der Map implizit.
 	}
-	async patchFrontmatter(path: string, set: Record<string, string | number | null>, remove: string[]): Promise<void> {
+	async patchFrontmatter(path: string, set: Record<string, FmValue>, remove: string[]): Promise<void> {
 		const raw = await this.read(path);
 		const fm = splitFrontmatter(raw);
 		const lines = fm ? fm.block.split('\n') : [];
@@ -65,7 +66,7 @@ export class InMemoryVaultPort implements VaultPort {
 			while (j + 1 < lines.length && /^\s+(-|\s)/.test(lines[j + 1] ?? '')) j += 1;
 			if (remove.includes(key)) { i = j; handled.add(key); continue; }
 			if (key in set) {
-				out.push(`${key}: ${serialize(set[key] ?? null)}`);
+				out.push(...serializeFrontmatterLines(key, set[key] ?? null));
 				i = j;
 				handled.add(key);
 				continue;
@@ -74,7 +75,7 @@ export class InMemoryVaultPort implements VaultPort {
 			i = j;
 		}
 		for (const [key, value] of Object.entries(set)) {
-			if (!handled.has(key)) out.push(`${key}: ${serialize(value)}`);
+			if (!handled.has(key)) out.push(...serializeFrontmatterLines(key, value));
 		}
 		const body = fm ? fm.body : raw;
 		this.files.set(path, `---\n${out.join('\n')}\n---\n${body}`);
@@ -115,6 +116,17 @@ function splitFrontmatter(raw: string): { block: string; body: string } | null {
 function serialize(v: string | number | null): string {
 	if (v === null) return 'null';
 	return String(v);
+}
+
+/** Rendert eine set()-Zeile für patchFrontmatter — Skalar bleibt `key: value`, ein Array
+ *  wird als YAML-Block-Liste ausgegeben (`key:` + `  - item` je Zeile), symmetrisch zu
+ *  parseFlatYaml's Block-Listen-Zweig oben, damit Listen-Werte round-tripen. */
+function serializeFrontmatterLines(key: string, v: FmValue): string[] {
+	if (Array.isArray(v)) {
+		if (v.length === 0) return [`${key}:`];
+		return [`${key}:`, ...v.map((item) => `  - ${serialize(item)}`)];
+	}
+	return [`${key}: ${serialize(v)}`];
 }
 
 /** Flaches YAML-Subset für Fixtures — kein Anspruch auf Vollständigkeit. */

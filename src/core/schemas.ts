@@ -33,7 +33,7 @@ export function makeFrontmatterSet(allowedKeys: string[] | '*'): SchemaDef {
 		outputFormat: 'json',
 		promptContract:
 			'Antworte ausschließlich mit einem JSON-Objekt in einem ```json-Block, keine Erklärungen davor oder danach.',
-		outputExample: '{"items": [{"path": "10_Aufgaben/beispiel.md", "set": {"priority": "mittel"}}]}',
+		outputExample: '{"items": [{"path": "10_Aufgaben/beispiel.md", "set": {"priority": "mittel", "tags": ["arbeit", "notiz"]}}]}',
 		validate(json, sources, slugTables, _target) {
 			const errors: string[] = [];
 			if (!isRecord(json) || !Array.isArray(json.items)) {
