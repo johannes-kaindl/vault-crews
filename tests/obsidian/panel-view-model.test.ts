@@ -97,15 +97,17 @@ describe("reduceRun", () => {
   });
 
   it("caps each live buffer to the last MAX_LIVE_CHARS characters", () => {
-    const big = "x".repeat(MAX_LIVE_CHARS + 500);
+    const head = "a".repeat(500);
+    const tail = "b".repeat(MAX_LIVE_CHARS);
     const s = drive({ kind: "idle" }, [
       { type: "runStarted", runId: "r1", teamId: "t" },
       { type: "taskStarted", taskId: "a", index: 1, total: 1 },
-      { type: "token", taskId: "a", isThink: false, text: big },
+      { type: "token", taskId: "a", isThink: false, text: head + tail },
     ]);
     if (s.kind !== "running") throw new Error("expected running");
     expect(s.streamText.length).toBe(MAX_LIVE_CHARS);
-    expect(s.streamText.endsWith("x")).toBe(true);
+    expect(s.streamText.startsWith("b")).toBe(true);   // tail kept
+    expect(s.streamText.includes("a")).toBe(false);    // head dropped
   });
 });
 
