@@ -1,4 +1,4 @@
-// vendored from obsidian-kit#0.4.0, src/pure/endpoint_diagnostics.ts
+// vendored from obsidian-kit#0.5.0, src/pure/endpoint_diagnostics.ts
 export type EndpointStatusKind =
   | "ok" | "refused" | "unknown-host" | "timeout" | "not-an-llm-api" | "unknown";
 
