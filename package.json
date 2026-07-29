@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && node esbuild.config.mjs --production",
     "typecheck": "tsc --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "node scripts/check-no-abs-paths.mjs && vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "lint": "eslint src",
     "lint:obsidian": "eslint src",
