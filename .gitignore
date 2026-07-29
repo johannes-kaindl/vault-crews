@@ -9,3 +9,6 @@ node_modules/
 
 # macOS
 .DS_Store
+
+# Panel-Harness-Bundle (Werkzeug, wird lokal gebaut)
+tools/panel-harness/harness.js
