@@ -311,6 +311,29 @@ describe("RunPanelView — live streaming (content + think)", () => {
     expect(summary?.textContent).toContain("2");
   });
 
+  it("keeps a think section the user opened open across the next full re-render", () => {
+    const view = makeView();
+    view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });
+    view.handleEvent({ type: "taskStarted", taskId: "a", index: 1, total: 1 });
+    view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "th1" });
+
+    // Default zu (Spec §4: „nie aufgedrängt") — dieselbe Zusicherung wie im shell-Test.
+    const [details] = findAll(view.contentEl, (e) => e.tagName === "DETAILS");
+    expect(details?.getAttribute("open")).toBeNull();
+
+    // Nutzer klappt auf: der Browser spiegelt das in das open-Attribut und feuert `toggle`.
+    details?.setAttr("open", "");
+    details?.dispatchEvent({ type: "toggle" } as unknown as Event);
+
+    // Erster Content-Token fällt bewusst auf den vollen Render zurück (Platzhalter→Text) —
+    // genau dort ging die Aufklappung vorher verloren, mitten im Mitlesen.
+    view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "answer" });
+
+    const [after] = findAll(view.contentEl, (e) => e.tagName === "DETAILS");
+    expect(after?.getAttribute("open")).toBe("");
+    expect(byClass(view.contentEl, "vault-crews-live-think")?.textContent).toContain("th1");
+  });
+
   it("caps the fast-path live-content node at MAX_LIVE_CHARS (tail kept), matching the reducer's cap", () => {
     const view = makeView();
     view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });

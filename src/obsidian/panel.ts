@@ -49,6 +49,10 @@ export class RunPanelView extends ItemView {
   private liveContentEl: HTMLElement | null = null;
   private liveThinkEl: HTMLElement | null = null;
   private thinkSummaryEl: HTMLElement | null = null;
+  // Aufklapp-Zustand des <think>-Bereichs: gehört zur Navigation, nicht zum Lauf — er muss
+  // vollen Re-Render überleben (wie navState), sonst schnappt der Bereich beim ersten
+  // Content-Token zu, also genau während man den Gedankengang mitliest.
+  private thinkOpen = false;
 
   constructor(leaf: WorkspaceLeaf, private readonly host: PanelHost) {
     super(leaf);
@@ -179,6 +183,10 @@ export class RunPanelView extends ItemView {
         }
         // <think> aufklappbar (zu per Default). Live-Think-Node nur wenn Text da ist.
         const think = root.createEl("details", { cls: "vault-crews-think" });
+        // Default zu (Spec §4 „nie aufgedrängt"); eine Aufklappung des Nutzers wird
+        // wiederhergestellt. Über das open-ATTRIBUT, das <details> beidseitig spiegelt.
+        if (this.thinkOpen) think.setAttr("open", "");
+        think.addEventListener("toggle", () => { this.thinkOpen = think.getAttribute("open") !== null; });
         this.thinkSummaryEl = think.createEl("summary", { text: body.thinkingLabel });
         if (body.thinkText !== "") {
           this.liveThinkEl = think.createDiv({ cls: "vault-crews-live-think", text: body.thinkText });

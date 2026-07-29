@@ -10,6 +10,10 @@ All notable changes to this project are documented here. The format follows
 
 - **Live-Token-Streaming im Run-Panel**: Während ein Task läuft, zeigt die Sidebar jetzt den echten Token-Text des Modells (Content scrollbar, Reasoning im aufklappbaren „Thinking"-Bereich) statt nur einen Zähler. Reasoning-Tokens werden dabei erstmals real erfasst (`thinkCount`) — aus `<think>`-Blöcken und dem `reasoning_content`-Feld. Der Live-Text aktualisiert sich inkrementell und scrollt mit, solange man am unteren Rand ist.
 
+### Fixed
+
+- **Der „Thinking"-Bereich bleibt offen, wenn man ihn geöffnet hat**: Bisher klappte er beim ersten Content-Token wieder zu — also genau dann, wenn die Antwort beginnt und man den Gedankengang mitliest. Der Bereich startet weiterhin zugeklappt; nur die eigene Aufklappung überlebt jetzt ein Neuzeichnen des Panels.
+
 ## [0.7.0] — 2026-07-12
 
 ### Fixed
