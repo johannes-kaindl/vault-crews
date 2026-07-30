@@ -65,7 +65,7 @@ Tool](https://github.com/TfTHacker/obsidian42-brat)):
 
 1. Install the **BRAT** community plugin from Obsidian's community plugin browser.
 2. In BRAT's settings, "Add beta plugin" and point it at this repository
-   (`https://codeberg.org/jkaindl/vault-crews`).
+   (`https://git.jkaindl.de/jkaindl/vault-crews`).
 3. Enable **Vault Crews** under Community plugins.
 
 **After enabling**, run the command **"Install example crews"** to seed `_crews/`

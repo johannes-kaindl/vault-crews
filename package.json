@@ -33,11 +33,11 @@
   "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
-    "url": "git+https://codeberg.org/jkaindl/vault-crews.git"
+    "url": "git+https://git.jkaindl.de/jkaindl/vault-crews.git"
   },
-  "homepage": "https://codeberg.org/jkaindl/vault-crews",
+  "homepage": "https://git.jkaindl.de/jkaindl/vault-crews",
   "bugs": {
-    "url": "https://codeberg.org/jkaindl/vault-crews/issues"
+    "url": "https://git.jkaindl.de/jkaindl/vault-crews/issues"
   },
   "devDependencies": {
     "@types/node": "^20",
