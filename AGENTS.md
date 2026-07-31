@@ -12,7 +12,12 @@ Obsidian-Plugin **Vault Crews** (`vault-crews`): autonome lokale LLM-Agenten-Tea
 collector → llm → actions, constrain-then-verify, ein git-freies Snapshot-Undo pro Lauf
 (write-ahead Pre-Images über die Vault-/Adapter-API, kein `child_process`/`node:fs`).
 
-## Verbindliche Quellen (in dieser Reihenfolge lesen)
+## Historische Spezifikation (eingefroren, weiter gültig als Referenz)
+
+Die V1-Design-Grundlagen liegen im Repo — eingefroren (s. §Memory unten), aber als
+Referenz für Architektur-Entscheidungen weiter gültig; **neue SDD-Artefakte gehen ins
+Cockpit**, nicht hierher. In dieser Reihenfolge lesen:
+
 1. Spec: `docs/superpowers/specs/2026-07-02-vault-crews-design.md`
 2. Interface-Skelett (bindende Pfade/Typen/Signaturen): `docs/superpowers/plans/2026-07-02-vault-crews-v1-interfaces.md`
 3. Implementierungsplan (19 Tasks): `docs/superpowers/plans/2026-07-02-vault-crews-v1.md`
