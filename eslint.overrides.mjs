@@ -26,26 +26,25 @@ export default [
   {
     files: ["src/obsidian/settings.ts"],
     rules: {
-      // Regel setzt Obsidian >=1.13.0 voraus (getSettingDefinitions()/deklarative
-      // Settings-API); manifest.json's minAppVersion ist 1.7.2 < 1.13.0, also ist
-      // display() hier der einzig unterstützte Weg — Warnung ist ein Fehlalarm.
+      // STORE-SCHULD: Regel setzt Obsidian >=1.13.0 voraus (getSettingDefinitions()/
+      // deklarative Settings-API); manifest.json's minAppVersion ist 1.8.7 < 1.13.0,
+      // also ist display() hier der einzig unterstuetzte Weg. Der Scanner bewertet
+      // trotzdem den Mangel, nicht die Begruendung — das ist gestundete Schuld, kein
+      // Fehlalarm. Abloesung: Migration auf getSettingDefinitions(), sobald
+      // minAppVersion auf >=1.13.0 zieht.
       "obsidianmd/settings-tab/prefer-setting-definitions": "off",
       // STORE-SCHULD: this.display() ruft die deprecated PluginSettingTab.display()
       // erneut auf (Re-Render-Pattern der Listen-Editoren), aus demselben
       // minAppVersion-Grund wie oben. Abloesung: gemeinsam mit der Migration auf
       // getSettingDefinitions() (siehe Override oben), nicht isoliert vorher.
       "@typescript-eslint/no-deprecated": "off",
-    },
-  },
-  {
-    files: ["src/main.ts"],
-    rules: {
-      // prefer-get-language empfiehlt getLanguage(); no-unsupported-api verbietet es
-      // aber als Fehler, weil getLanguage() erst ab Obsidian 1.8.7 existiert und
-      // manifest.json's minAppVersion 1.7.2 ist. Der einzige widerspruchsfreie Weg ist
-      // der stabile localStorage-Key `language` (siehe readObsidianLocale) — die
-      // Warnung ist hier ein Fehlalarm des Versionskonflikts.
-      "obsidianmd/prefer-get-language": "off",
+      //
+      // Was diese beiden Overrides den Store-Scanner NICHT sehen lassen, gemessen
+      // 2026-08-13 (eslint src ohne Overrides): 4 Warnungen, alle in dieser Datei —
+      // prefer-setting-definitions @85 und no-deprecated @148/@201/@257. Die Zahl
+      // gehoert hierher, weil es seither kein zweites Lint-Skript mehr gibt, das sie
+      // von sich aus zeigt; die Gegenprobe ist `eslint src` mit einer Kopie des
+      // Kerns ohne diese Datei.
     },
   },
 ];

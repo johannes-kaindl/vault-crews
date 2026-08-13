@@ -11,8 +11,6 @@
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "lint": "node scripts/check-no-inline-disables.mjs && eslint src --max-warnings 0",
-    "lint:obsidian": "eslint src",
-    "lint:portal": "eslint src --config eslint.portal.config.mjs",
     "deploy": "npm run build && cp main.js manifest.json styles.css \"${OBSIDIAN_PLUGIN_DIR:?set OBSIDIAN_PLUGIN_DIR}\"/",
     "version-bump": "node scripts/version-bump.mjs",
     "release": "node scripts/release.mjs",
