@@ -20,12 +20,6 @@ export interface MetadataPort {
 	getBody(path: string): Promise<string>;
 }
 
-export interface ClockPort {
-	now(): number;
-	setTimeout(fn: () => void, ms: number): number;
-	clearTimeout(id: number): void;
-}
-
 export interface LlmMessage { role: 'system' | 'user'; content: string; }
 export interface LlmParams { model: string; temperature: number; maxTokens: number; thinking: 'auto' | 'on' | 'off'; }
 export interface LlmStreamResult { content: string; thinkTokens: number; reasoned: boolean; finishReason: 'stop' | 'length' | 'aborted'; }

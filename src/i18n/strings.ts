@@ -120,6 +120,7 @@ export const EN: Record<string, string> = {
   "notice.errorKind.io": "A file operation failed unexpectedly.",
 
   // --- Undo confirmation modal (Snapshot-Undo: Team, Zeitpunkt, Dateien) ------
+  "common.cancel": "Cancel",
   "undo.title": "Undo last run?",
   "undo.field.team": "Team",
   "undo.field.time": "Time",
@@ -294,6 +295,7 @@ export const DE: Record<string, string> = {
   "notice.errorKind.io": "Eine Dateioperation ist unerwartet fehlgeschlagen.",
 
   // --- Undo-Bestätigungs-Modal (Snapshot-Undo: Team, Zeitpunkt, Dateien) ------
+  "common.cancel": "Abbrechen",
   "undo.title": "Letzten Lauf rückgängig machen?",
   "undo.field.team": "Team",
   "undo.field.time": "Zeitpunkt",

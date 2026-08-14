@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Der Rückgängig-Dialog hat jetzt einen „Abbrechen"-Knopf.** Bisher gab es nur „Rückgängig machen" — wer den Dialog wieder loswerden wollte, musste Esc drücken oder danebenklicken. Beide Knöpfe stehen jetzt in Obsidians nativer Button-Zeile (Abbrechen links).
+
 ## [0.8.0] — 2026-08-14
 
 ### Added

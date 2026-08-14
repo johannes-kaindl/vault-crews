@@ -10,7 +10,6 @@
 // läuft git-frei über den AdapterSnapshotStore (app.vault.adapter).
 import {
   FuzzySuggestModal,
-  Modal,
   Notice,
   Plugin,
   TFile,
@@ -38,6 +37,7 @@ import {
   type RunSummary,
 } from "./obsidian/panel";
 import { RecoveryModal, checkOrphanedRun } from "./obsidian/recovery";
+import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { installExampleCrews } from "./obsidian/install-examples";
 import { ObsidianMetadataPort, ObsidianVaultPort } from "./obsidian/vault-port";
 import { RequestUrlJsonTransport, XhrSseTransport } from "./obsidian/transports";
@@ -47,7 +47,8 @@ import { executeRun, type RunDeps } from "./core/orchestrator";
 import { parseTeamDef } from "./core/crew-parser";
 import { buildDenylist } from "./core/paths";
 import { buildUndoPlan, type UndoPlan } from "./core/undo-plan";
-import type { ClockPort, LlmClient, MetadataPort, RunEvent, RunReporter, SnapshotStore, VaultPort } from "./core/ports";
+import type { LlmClient, MetadataPort, RunEvent, RunReporter, SnapshotStore, VaultPort } from "./core/ports";
+import { realClock, type ClockPort } from "./vendor/kit/clock";
 import type { ErrorKind, RunLimits, RunResult, RunStatus } from "./core/types";
 
 /** Feste V1-Grenzen, die die Settings-UI (bewusst) nicht exponiert. */
@@ -195,13 +196,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     this.vault = new ObsidianVaultPort(this.app);
     this.meta = new ObsidianMetadataPort(this.app);
     this.snapshot = new AdapterSnapshotStore(this.app);
-    this.clock = {
-      now: () => Date.now(),
-      setTimeout: (fn, ms) => window.setTimeout(fn, ms),
-      clearTimeout: (id) => {
-        window.clearTimeout(id);
-      },
-    };
+    this.clock = realClock;
     this.llm = this.buildLlmClient();
   }
 
@@ -601,12 +596,16 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     ];
     // Note nach dem Lauf manuell editiert? Explizit warnen (nie STILL überschreiben).
     if (plan.conflicts.length > 0) lines.push(t("undo.warnConflict", plan.conflicts.length));
-    new ConfirmModal(this.app, {
+    const confirmed = await confirmAction(this.app, {
       title: t("undo.title"),
-      lines,
+      message: lines,
       confirmLabel: t("undo.confirmButton"),
-      onConfirm: () => this.performUndo(runId, recent.teamId, plan),
-    }).open();
+      cancelLabel: t("common.cancel"),
+      // Rückgängig ist wiederherstellend, nicht zerstörend — der Bestätigen-Button
+      // bleibt der CTA, den er vor dem Kit-Andock hatte (statt des Kit-Defaults „destruktiv").
+      warning: false,
+    });
+    if (confirmed) await this.performUndo(runId, recent.teamId, plan);
   }
 
   /** Snapshot-Undo (Design-Spec §8): geänderte Existenz-Notes aus dem Pre-Image
@@ -683,40 +682,6 @@ class TeamSuggestModal extends FuzzySuggestModal<PanelTeam> {
   }
 }
 
-interface ConfirmOpts {
-  title: string;
-  lines: string[];
-  confirmLabel: string;
-  onConfirm: () => void | Promise<void>;
-}
-
-/** Bestätigungs-Modal mit genau EINEM Aktionsbutton — dient „Undo last run" (Team,
- *  Zeit, Commit, Dateien) und dem Konflikt-Wiederherstellungs-Angebot (§5.3/§6.1).
- *  DOM ausschließlich über createEl (kein innerHTML). */
-class ConfirmModal extends Modal {
-  constructor(
-    app: App,
-    private readonly opts: ConfirmOpts,
-  ) {
-    super(app);
-  }
-
-  onOpen(): void {
-    const { contentEl } = this;
-    contentEl.empty();
-    contentEl.createEl("h2", { text: this.opts.title });
-    for (const line of this.opts.lines) contentEl.createEl("p", { text: line });
-    const btn = contentEl.createEl("button", { cls: "mod-cta", text: this.opts.confirmLabel });
-    btn.addEventListener("click", () => {
-      this.close();
-      void this.opts.onConfirm();
-    });
-  }
-
-  onClose(): void {
-    this.contentEl.empty();
-  }
-}
 
 // ── freie Helfer ─────────────────────────────────────────────────────────────
 
