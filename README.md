@@ -65,13 +65,86 @@ Tool](https://github.com/TfTHacker/obsidian42-brat)):
 
 1. Install the **BRAT** community plugin from Obsidian's community plugin browser.
 2. In BRAT's settings, "Add beta plugin" and point it at this repository
-   (`https://codeberg.org/jkaindl/vault-crews`).
+   (`https://git.jkaindl.de/jkaindl/vault-crews`).
 3. Enable **Vault Crews** under Community plugins.
 
 **After enabling**, run the command **"Install example crews"** to seed `_crews/`
 (default root, configurable in settings) with the Task-Triage and Daily-Briefing
 example teams, their agents, and the `runs.base` dashboard. Installed files are never
 overwritten by a second run — edit them freely afterwards.
+
+## Usage
+
+1. **Start your local LLM server** (LM Studio or Ollama) with CORS enabled, and load a
+   model. The plugin resolves the first reachable endpoint at each preflight.
+2. **Run "Install example crews"** once — it seeds the crew root (`_crews` by default)
+   with the Task-Triage and Daily-Briefing teams, their agents, and the `runs.base`
+   dashboard.
+3. **Open the crews panel** (ribbon icon or **Open crews panel**). It lists the teams it
+   found and, during a run, the current task with live token counts.
+4. **Start a run** with **Run crew…** and pick a team, or use the per-team command
+   **Run crew: &lt;name&gt;** that every team registers under its own name.
+5. **Watch it work.** The panel shows each task's status (waiting, running, ok, failed,
+   skipped, stale). **Abort current run** requests a stop, observed between tasks and
+   inside the model stream.
+6. **Read the log.** Every run writes `run.md` (human-readable, Bases-compatible) and
+   `state.json` next to it; **Open last run log** jumps there, and `runs.base` lists all
+   runs at once.
+7. **Undo if needed.** **Undo last run** shows what it would restore (team, time, files)
+   and asks before doing it — changed notes are restored from the snapshot, run-created
+   notes go to the trash.
+
+Writing your own teams and agents is plain Markdown in the vault — see
+[Eigene Crews schreiben](#eigene-crews-schreiben) below.
+
+## Configuration
+
+**Settings → Community plugins → Vault Crews**, in four groups:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| **Endpoints** | `http://localhost:1234/v1` | One per line; the first reachable one is used per run. **Check connections** probes each line and reports refused / unknown host / timeout / not-an-LLM-API separately |
+| **Denied endpoints** | `localhost:8080`, `127.0.0.1:8080` | Never contacted — the default keeps the plugin off a port other local model servers commonly claim. A setting, not hardcoded |
+| **Default model** | *(empty)* | Model name sent with each call; **Load models** fills a dropdown from the reachable endpoint |
+| **Crew root folder** | `_crews` | Vault-relative folder holding agents, teams and run logs |
+| **Max writes per run** | 10 | Plugin-wide cap; a team's own `max_writes` can only be lower |
+| **Wall-clock limit** | 10 minutes | Aborts a runaway run, leaving its partial writes snapshotted and undoable |
+| **Undo history depth** | 15 | How many run snapshots are kept before the oldest are pruned |
+| **Call timeout** | 300 s | Hard limit per model call — generous, because just-in-time model loading takes a while |
+| **Stall timeout** | 60 s | Aborts if no new token arrives; only checked after the first token, so loading is never mistaken for a stall |
+| **Verbose logging** | off | Reserved — the setting persists but nothing reads it yet (see V1 limitations) |
+
+Endpoint and timeout settings are read once at plugin load; changing them takes effect
+after disabling and re-enabling the plugin.
+
+## How it works
+
+A run is an **orchestrator walking a fixed pipeline**, not a model deciding what to do
+next. Each team is a sequence of exactly three kinds of task:
+
+1. **`collector`** — deterministic gathering. Code, not the model, reads the vault and
+   assembles the material (e.g. `tasknotes.query` over a folder, optionally with note
+   content).
+2. **`llm`** — exactly one chat completion, answering against a schema declared by the
+   task's `output:` block. The model sees only the collected material and produces only
+   content — never a path, never a flow decision.
+3. **`actions`** — deterministic application. The validated action list is applied to
+   the vault by code.
+
+Between the model and your notes sit **two independent checks**. Stage 1
+(`output-validator`) parses the raw response, validates it against a built-in versioned
+schema, and binds every path and enum value back to the material actually collected —
+a path the model invented has nothing to bind to and is rejected. One repair attempt
+handles malformed JSON. Stage 2 (`action-executor`) re-checks each action immediately
+before the write, independently of stage 1: against the `write_scope` allowlist and the
+fixed denylist, the allowed action types and frontmatter keys, and a content hash — if
+you edited the file after it was collected, that action is skipped rather than
+overwriting your edit. If more than half of a task's actions fall away, the task fails
+instead of applying a half-consistent state.
+
+Writes are snapshotted **write-ahead**: a note's pre-run content is copied into a hidden
+per-run store through the Obsidian vault/adapter API before it is touched. That is why
+even a crashed or aborted run stays fully undoable, and why no git repository is needed.
 
 ## Safety model
 
