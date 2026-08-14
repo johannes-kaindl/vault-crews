@@ -46,6 +46,22 @@ Cockpit**, nicht hierher. In dieser Reihenfolge lesen:
 - **Denylist:** `buildDenylist(configDir)` — configDir wird injiziert
   (`Vault#configDir`, obsidianmd-Lint). `**/.*/**` deckt Inhalte unter
   Dot-Ordnern (Property-Test-Fund).
+- **Endpunkte tragen ihren Schlüssel und ihr Modell** (`EndpointConfig[]`, Kit
+  `endpoint_config`): es gibt **kein globales Modellfeld** — ein Modellname existiert nur
+  auf dem Endpunkt, der ihn in `/v1/models` meldet. Ein Agenten-`model:` gilt, solange der
+  aktive Endpunkt es führt, sonst das Modell der Zeile (`resolveTaskModel`). Der Client
+  nimmt den ganzen Eintrag (`setEndpoint(cfg)`), nie URL und Schlüssel getrennt: der
+  Resolver liefert die **normalisierte** URL, der gespeicherte Eintrag bleibt roh, ein
+  Vergleich über die URL greift also bei jedem `/v1`-Suffix daneben.
+- **Schlüssel dürfen nie in den Vault:** `redactRunState` läuft an genau einer Stelle
+  (`finish*` im Orchestrator, bevor run.md/state.json geschrieben werden und bevor der
+  RunResult zurückgeht). Wer eine neue Ausgabe hinzufügt, die Text aus dem Netzweg trägt,
+  muss durch dieselbe Stelle.
+- **Kit-Zeilen-Editor, zwei Consumer-Pflichten:** `SettingsTab.hide()` MUSS
+  `cache.clear()` rufen (sonst bleibt ein einmal als unerreichbar gemessener Endpunkt die
+  ganze Sitzung so stehen), und `clientFor` braucht **ausgeschriebene Rückgabetypen** —
+  die Options-Signatur ist eine Intersection zweier `probe()`-Formen, ein Objekt-Literal
+  ohne Annotation erfüllt keine davon.
 - **LM Studio / Ollama:** Kontextlänge aus `/api/v0/models` (LM Studio) oder
   `POST /api/show` (Ollama, unter `model_info["<arch>.context_length"]`);
   Thinking-Suppression provider-übergreifend via `suppressParams`
