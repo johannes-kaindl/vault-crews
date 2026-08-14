@@ -13,7 +13,13 @@ import type { JsonTransport, SseTransport } from "../core/ports";
  * AbortSignal → xhr.abort() → Rejection mit Error name="AbortError".
  */
 export class XhrSseTransport implements SseTransport {
-  postStream(url: string, body: unknown, onChunk: (raw: string) => void, signal: AbortSignal): Promise<number> {
+  postStream(
+    url: string,
+    body: unknown,
+    onChunk: (raw: string) => void,
+    signal: AbortSignal,
+    headers: Record<string, string> = {},
+  ): Promise<number> {
     return new Promise<number>((resolve, reject) => {
       const abortError = (): Error => {
         const e = new Error("Aborted");
@@ -36,6 +42,7 @@ export class XhrSseTransport implements SseTransport {
       };
       xhr.open("POST", url);
       xhr.setRequestHeader("Content-Type", "application/json");
+      for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
       xhr.onprogress = (): void => pump();
       xhr.onerror = (): void => {
         const e = new Error(`vault-crews: Netzwerkfehler POST ${url}`);
@@ -68,17 +75,17 @@ function parseBody(text: string): unknown {
  * die der LocalLlmClient für ping/listModels/modelInfo braucht.
  */
 export class RequestUrlJsonTransport implements JsonTransport {
-  async getJson(url: string): Promise<unknown> {
-    const r = await requestUrl({ url, method: "GET", throw: false });
+  async getJson(url: string, headers: Record<string, string> = {}): Promise<unknown> {
+    const r = await requestUrl({ url, method: "GET", throw: false, headers });
     return parseBody(r.text);
   }
 
-  async postJson(url: string, body: unknown): Promise<unknown> {
+  async postJson(url: string, body: unknown, headers: Record<string, string> = {}): Promise<unknown> {
     const r = await requestUrl({
       url,
       method: "POST",
       throw: false,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...headers },
       body: JSON.stringify(body),
     });
     return parseBody(r.text);

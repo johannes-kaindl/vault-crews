@@ -1,6 +1,7 @@
 /** Port-Interfaces (Dependency-Inversion): der pure-Layer kennt nur diese Verträge;
  *  Obsidian-/Node-Implementierungen leben in src/obsidian/. Quelle: Interface-Skelett (bindend). */
 import type { ActionOutcome, FmValue, RunResult } from './types';
+import type { EndpointConfig } from '../vendor/kit/endpoint_config';
 
 export interface VaultPort {
 	read(path: string): Promise<string>;
@@ -25,11 +26,20 @@ export interface LlmParams { model: string; temperature: number; maxTokens: numb
 export interface LlmStreamResult { content: string; thinkTokens: number; reasoned: boolean; finishReason: 'stop' | 'length' | 'aborted'; }
 export interface ModelInfo { id: string; contextLength: number | null; }
 export interface LlmClient {
-	ping(endpoint: string): Promise<boolean>;
+	/** Probt EINEN Endpunkt — mitsamt seinem Schlüssel, sonst antwortet ein Gateway, das
+	 *  ohne Authentifizierung 401 sagt, und die Zeile gilt fälschlich als tot.
+	 *  **Wirft nie**: das Kit reicht einen werfenden ping durch und reißt damit die ganze
+	 *  Fallback-Kette ab (Falle 4 des Kit-Rollouts, dort als Consumer-Pflicht geführt) —
+	 *  ein toter localhost würde sonst verhindern, dass der Zweitendpunkt drankommt. */
+	ping(endpoint: EndpointConfig): Promise<boolean>;
 	/** Retargetiert nachfolgende listModels/modelInfo/stream-Calls auf den übergebenen
-	 *  Endpoint (Multi-Endpoint-Failover, Spec §3.1: der in checkEndpointAndModel per
-	 *  ping() als erreichbar aufgelöste Endpoint muss auch tatsächlich benutzt werden). */
-	setBase(endpoint: string): void;
+	 *  Endpunkt (Multi-Endpoint-Failover, Spec §3.1: der in checkEndpointAndModel per
+	 *  ping() als erreichbar aufgelöste Endpunkt muss auch tatsächlich benutzt werden).
+	 *  Nimmt den ganzen Eintrag, nicht nur die URL: sonst müsste zur Laufzeit über einen
+	 *  URL-Vergleich beantwortet werden, welcher Schlüssel zum aufgelösten Endpunkt gehört —
+	 *  und der Resolver liefert die NORMALISIERTE URL, während der gespeicherte Eintrag roh
+	 *  bleibt (Falle 3). */
+	setEndpoint(cfg: EndpointConfig): void;
 	listModels(): Promise<string[]>;
 	modelInfo(model: string): Promise<ModelInfo | null>;
 	stream(messages: LlmMessage[], params: LlmParams, onToken: (t: string, isThink: boolean) => void, signal: AbortSignal): Promise<LlmStreamResult>;
@@ -45,11 +55,17 @@ export class LlmCallError extends Error {
 }
 
 export interface SseTransport {
-	postStream(url: string, body: unknown, onChunk: (raw: string) => void, signal: AbortSignal): Promise<number>;
+	postStream(
+		url: string,
+		body: unknown,
+		onChunk: (raw: string) => void,
+		signal: AbortSignal,
+		headers?: Record<string, string>,
+	): Promise<number>;
 }
 export interface JsonTransport {
-	getJson(url: string): Promise<unknown>;
-	postJson(url: string, body: unknown): Promise<unknown>;
+	getJson(url: string, headers?: Record<string, string>): Promise<unknown>;
+	postJson(url: string, body: unknown, headers?: Record<string, string>): Promise<unknown>;
 }
 
 // ── Snapshot-Undo (Design-Spec 2026-07-06 §4): git-freies Sicherheitsnetz über die

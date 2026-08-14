@@ -132,9 +132,8 @@ describe('Golden-Run: ausgelieferte Daily-Briefing-Crew, end-to-end', () => {
 
 		const settings: RunDeps['settings'] = {
 			crewRoot: '_crews',
-			defaultModel: 'test-model',
 			configDir: '.obsidian',
-			endpoints: ['http://localhost:1234'],
+			endpoints: [{ url: 'http://localhost:1234', model: 'test-model' }],
 			deniedEndpoints: [],
 			limits: LIMITS,
 			undoHistoryDepth: 15,

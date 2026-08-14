@@ -1,28 +1,26 @@
-import { Notice, Plugin, PluginSettingTab, Setting, setIcon } from "obsidian";
+import { Notice, PluginSettingTab, Setting, type Plugin } from "obsidian";
 import { t } from "../vendor/kit/i18n";
-import {
-  ENDPOINT_PRESETS,
-  validateEndpointInput,
-  type EndpointStatus,
-  type EndpointStatusKind,
-} from "../vendor/kit/endpoint_diagnostics";
-import {
-  activeIndexFromStatuses,
-  applyEndpointEdit,
-  modelFieldMode,
-  statusKindKey,
-  warnRuleKey,
-} from "./endpoint-editor-model";
+import { ENDPOINT_PRESETS, type EndpointStatus } from "../vendor/kit/endpoint_diagnostics";
+import { parseEndpointList } from "../vendor/kit/endpoint";
+import type { EndpointConfig } from "../vendor/kit/endpoint_config";
+import { createModelListCache, type ModelListCache } from "../vendor/kit/model-list-cache";
+import { guessFromName, type Capabilities } from "../vendor/kit/capabilities";
+import { buildEndpointList, type EndpointListStrings } from "../vendor/kit-obsidian/endpoint-list";
+import { statusKindKey, warnRuleKey } from "./endpoint-labels";
 
 /**
  * User-facing Plugin-Settings (Sekunden/Minuten, nicht ms). Die Umrechnung in
- * RunLimits (ms-Felder, Interface-Skelett) passiert erst beim Wiring in main.ts
- * (Task 16b) — hier bleibt es bei den Rohwerten, die die Settings-UI zeigt/editiert.
+ * RunLimits (ms-Felder) passiert erst beim Wiring in main.ts — hier bleibt es bei den
+ * Rohwerten, die die Settings-UI zeigt/editiert.
  */
 export interface PluginSettings {
-  endpoints: string[];
+  /** Geordnete Fallback-Liste. Jeder Eintrag trägt URL, API-Schlüssel und Modell
+   *  zusammen — ein Modellname existiert nur auf dem Endpunkt, der ihn meldet, deshalb
+   *  gibt es KEIN globales Modellfeld (Design 2026-08-14, E1). */
+  endpoints: EndpointConfig[];
+  /** Sperrliste. Bewusst weiterhin rohe URLs: eine Sperre ist keine Verbindung — dort
+   *  hat weder ein Schlüssel noch ein Modell etwas zu suchen. */
   deniedEndpoints: string[];
-  defaultModel: string;
   crewRoot: string;
   maxWrites: number;
   wallClockMinutes: number;
@@ -33,9 +31,8 @@ export interface PluginSettings {
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
-  endpoints: ["http://localhost:1234/v1"],
+  endpoints: [{ url: "http://localhost:1234/v1" }],
   deniedEndpoints: ["http://localhost:8080", "http://127.0.0.1:8080"],
-  defaultModel: "",
   crewRoot: "_crews",
   maxWrites: 10,
   wallClockMinutes: 10,
@@ -47,16 +44,18 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 
 /**
  * Schmaler Vertrag statt eines main.ts-Imports (Entkopplung PROF-OBS: SettingsTab
- * kennt nie die konkrete Plugin-Klasse). main.ts (Task 16b) übergibt sein
- * Plugin-Objekt, das diese Mitglieder implementiert.
+ * kennt nie die konkrete Plugin-Klasse).
  */
 export interface SettingsHost {
   settings: PluginSettings;
   saveSettings(): Promise<void>;
-  /** Probt EINEN Endpoint und klassifiziert das Ergebnis (Per-Zeile-Status im Editor). */
-  probeEndpoint(endpoint: string): Promise<EndpointStatus>;
-  /** Löst den ersten erreichbaren Endpoint auf und listet seine Modelle (Modell-Dropdown). */
-  loadModels(): Promise<{ endpoint: string | null; models: string[] }>;
+  /** Probt GENAU EINEN Eintrag — mitsamt seinem Schlüssel, sonst gilt ein Gateway, das
+   *  unauthentifiziert 401 antwortet, fälschlich als tot. */
+  probeEndpoint(cfg: EndpointConfig): Promise<EndpointStatus>;
+  /** Modelle GENAU DIESES Eintrags (Dropdown je Zeile). */
+  listModels(cfg: EndpointConfig): Promise<string[]>;
+  /** Normalisierte URL des ersten erreichbaren Eintrags, oder null. */
+  resolveActive(): Promise<string | null>;
 }
 
 function parseIntSafe(raw: string, fallback: number): number {
@@ -64,37 +63,82 @@ function parseIntSafe(raw: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-interface ListEditorOpts {
-  list: string[];
-  name: string;
-  desc: string;
-  /** Endpoints: Per-Zeile-Probe + aktiver Marker + Preset-Aktionszeile. Denied: alles aus. */
-  withProbe: boolean;
-  withPresets: boolean;
-  setList(next: string[]): void;
+/** Der Textbaustein-Satz, den der Kit-Editor bekommt — das Kit formuliert nicht. */
+function endpointStrings(): EndpointListStrings {
+  return {
+    addPlaceholder: t("settings.connection.endpoints.add"),
+    apiKeyPlaceholder: t("settings.connection.apiKey.placeholder"),
+    modelPlaceholder: t("settings.connection.model.placeholder"),
+    ariaUrl: t("settings.connection.aria.url"),
+    ariaAdd: t("settings.connection.aria.add"),
+    ariaApiKey: (url) => t("settings.connection.aria.apiKey", url),
+    ariaModel: (url) => t("settings.connection.aria.model", url),
+    // Kein globales Modell in diesem Plugin: die Leer-Option heißt hier schlicht
+    // „nichts gewählt". Der Parameter bleibt Teil des Kit-Vertrags (s. Kit-Todo
+    // „globales Modellfeld terminieren") und wird bewusst ignoriert.
+    emptyModelLabel: () => t("settings.connection.model.unset"),
+    modelHint: (key) =>
+      key === "unreachable"
+        ? t("settings.connection.model.hint.unreachable")
+        : key === "no-list"
+          ? t("settings.connection.model.hint.noList")
+          : "",
+    savedSuffix: t("settings.connection.model.saved"),
+    refreshModels: t("settings.connection.model.refresh"),
+    moveToFront: t("settings.connection.moveToFront"),
+    remove: t("settings.connection.remove"),
+    thirdParty: t("settings.connection.thirdParty"),
+    probing: t("settings.connection.probing"),
+    statusTooltip: (status) => t(statusKindKey(status.kind)),
+    role: (role) =>
+      role.kind === "active"
+        ? t("settings.connection.role.active")
+        : role.kind === "unreachable"
+          ? t("settings.connection.role.unreachable")
+          : role.kind === "skipped-model"
+            ? t("settings.connection.role.modelMismatch")
+            : t("settings.connection.role.standby", String(role.position)),
+    warnings: (ws) => ws.map((w) => t(warnRuleKey(w.rule))).join(" · "),
+    presetTooltip: (preset) => t("settings.connection.presetAdd", preset.url),
+    presetLabel: (preset) => t("settings.connection.presetAdd", preset.label),
+    checkConnection: t("settings.connection.probe"),
+    saveFailed: t("settings.connection.saveFailed"),
+  };
+}
+
+/** Was von einem Modellnamen über seine Fähigkeiten ableitbar ist — und wie sicher.
+ *  Bewusst als Vermutung beschriftet, wenn es eine ist: die Namens-Heuristik behauptet
+ *  nie mehr, als der Name hergibt. */
+function capabilityLines(caps: Capabilities): string[] {
+  const out: string[] = [];
+  if (caps.thinking.confidence === "confirmed") out.push(t("settings.connection.capabilities.thinking.confirmed"));
+  else if (caps.thinking.support !== "none") out.push(t("settings.connection.capabilities.thinking.likely"));
+  else out.push(t("settings.connection.capabilities.thinking.no"));
+  if (caps.vision === "confirmed") out.push(t("settings.connection.capabilities.vision.confirmed"));
+  else if (caps.vision === "likely") out.push(t("settings.connection.capabilities.vision.likely"));
+  return out;
 }
 
 /**
  * Vier Gruppen (Spec §6.4): Connection · Crews · Safety · Advanced. Deklarative
- * Settings-API (`new Setting(containerEl)...`). Der Endpoint-/Denied-Zeilen-Editor
- * (`buildListEditor`) übernimmt das obsidian-kit/vault-rag-Muster; die reine Logik lebt
- * obsidian-frei in `endpoint-editor-model.ts` (Ansatz A). `display()` statt
- * `getSettingDefinitions()`, weil `manifest.json` minAppVersion 1.7.2 < 1.13.0 ist
- * (obsidianmd/require-display).
+ * Settings-API (`new Setting(containerEl)...`). Der Endpunkt-Zeilen-Editor kommt seit
+ * 2026-08-14 vollständig aus dem Kit (`buildEndpointList`) — er trägt URL, Schlüssel und
+ * Modell je Zeile. `display()` statt `getSettingDefinitions()`, weil `manifest.json`
+ * minAppVersion < 1.13.0 ist (obsidianmd/require-display).
  */
 export class SettingsTab extends PluginSettingTab {
-  /** Von der letzten `loadModels()`-Abfrage gecachte Modell-Liste; steuert den Modell-
-   *  Feld-Modus (dropdown vs. freetext). Initial leer → Freitext, kein Auto-Netz-Hit. */
-  private loadedModels: string[] = [];
+  /** Modell-Listen je Endpunkt. Gehört der Lebensdauer DIESES Tabs, nicht der eines
+   *  Renderdurchlaufs — sonst würde jeder Rebuild neu über das Netz gehen. */
+  private readonly modelCache: ModelListCache = createModelListCache();
+  /** Normalisierte URL des zuletzt aufgelösten aktiven Endpunkts (für die Rollenzeile). */
+  private activeUrl: string | null = null;
 
   constructor(
     plugin: Plugin,
     private readonly host: SettingsHost,
   ) {
-    // Echtes Plugin-Objekt statt Cast (main.ts, Task 16b, ruft `new SettingsTab(this,
-    // this)` — seine Plugin-Klasse extends `Plugin` UND implementiert `SettingsHost`).
-    // `PluginSettingTab` setzt daraus `this.app`; alle Settings-Zugriffe dieser Klasse
-    // laufen weiterhin ausschließlich über `host` (`this.host`), nie über `this.plugin`.
+    // Echtes Plugin-Objekt statt Cast — main.ts ruft `new SettingsTab(this, this)`.
+    // Alle Settings-Zugriffe laufen ausschließlich über `host`, nie über `this.plugin`.
     super(plugin.app, plugin);
   }
 
@@ -106,157 +150,100 @@ export class SettingsTab extends PluginSettingTab {
     this.renderCrews(containerEl);
     this.renderSafety(containerEl);
     this.renderAdvanced(containerEl);
+
+    // Die aktive Zeile steht erst fest, wenn die Proben zurück sind. Einmal je Aufbau
+    // auflösen und dann NUR die Rollen neu zeichnen — nicht den ganzen Tab, sonst
+    // verliert ein gerade getipptes Feld den Fokus.
+    void this.host.resolveActive().then((url) => {
+      if (url === this.activeUrl) return;
+      this.activeUrl = url;
+      this.display();
+    });
+  }
+
+  /** Beim Schließen des Tabs die gecachten Modell-Listen verwerfen — Pflicht des
+   *  Consumers, das Kit-Modul kennt keinen Tab. Ohne das bliebe ein einmal als „nicht
+   *  erreichbar" gemessener Endpunkt für die restliche Sitzung so stehen: wer seinen
+   *  LLM-Server erst danach startet und die Einstellungen erneut öffnet, sähe dauerhaft
+   *  den alten Zustand. */
+  hide(): void {
+    this.modelCache.clear();
+    this.activeUrl = null;
+    super.hide();
   }
 
   private renderConnection(containerEl: HTMLElement): void {
     new Setting(containerEl).setName(t("settings.connection.heading")).setHeading();
 
-    this.buildListEditor(containerEl, {
-      list: this.host.settings.endpoints,
-      name: t("settings.connection.endpoints.name"),
+    buildEndpointList({
+      containerEl,
+      label: t("settings.connection.endpoints.name"),
       desc: t("settings.connection.endpoints.desc"),
-      withProbe: true,
-      withPresets: true,
-      setList: (next) => {
-        this.host.settings.endpoints = next;
+      placeholder: t("settings.connection.endpoints.add"),
+      strings: endpointStrings(),
+      cache: this.modelCache,
+      get: () => this.host.settings.endpoints,
+      set: (eps) => {
+        this.host.settings.endpoints = eps;
       },
-    });
-
-    this.renderModelField(containerEl);
-
-    this.buildListEditor(containerEl, {
-      list: this.host.settings.deniedEndpoints,
-      name: t("settings.connection.deniedEndpoints.name"),
-      desc: t("settings.connection.deniedEndpoints.desc"),
-      withProbe: false,
-      withPresets: false,
-      setList: (next) => {
-        this.host.settings.deniedEndpoints = next;
-      },
-    });
-  }
-
-  /** Ein parametrisierter Zeilen-Editor für Endpoints (mit Probe/Presets/Active) und
-   *  Denied (nur Add/Remove + Eingabe-Warnungen). Letzte Leerzeile ist der Adder. */
-  private buildListEditor(containerEl: HTMLElement, opts: ListEditorOpts): void {
-    const statuses: (EndpointStatusKind | null)[] = opts.list.map(() => null);
-    const statusEls: HTMLElement[] = [];
-    const rows = [...opts.list, ""]; // letzte Leerzeile = Adder
-
-    const commit = (next: string[]): void => {
-      opts.setList(next);
-      void this.host.saveSettings().then(() => this.display());
-    };
-
-    rows.forEach((value, i) => {
-      const isAdder = i >= opts.list.length;
-      const setting = new Setting(containerEl);
-      if (i === 0) setting.setName(opts.name).setDesc(opts.desc);
-
-      if (opts.withProbe && !isAdder) {
-        const statusEl = setting.settingEl.createSpan({ cls: "vault-crews-ep-status" });
-        setIcon(statusEl, "loader");
-        statusEls.push(statusEl);
-      }
-
-      setting.addText((c) => {
-        c.setValue(value);
-        if (isAdder) c.setPlaceholder(t("settings.connection.endpoints.add"));
-        // Mutation NUR bei blur (nicht onChange): onChange feuert pro Tastendruck und
-        // würde im Adder jeden Zwischenstand (`h`, `ht`, …) anhängen.
-        c.inputEl.addEventListener("blur", () => {
-          const next = applyEndpointEdit(opts.list, i, c.getValue(), isAdder);
-          if (next.length === opts.list.length && next.every((e, k) => e === opts.list[k])) return;
-          commit(next);
-        });
-      });
-
-      // Eingabe-Warnungen (beide Listen): nicht-blockierend, nur Hinweis.
-      if (!isAdder) {
-        const warnings = validateEndpointInput(value);
-        if (warnings.length > 0) {
-          const warnEl = setting.settingEl.createSpan({ cls: "vault-crews-ep-warn" });
-          setIcon(warnEl, "alert-triangle");
-          warnEl.setAttribute("aria-label", warnings.map((w) => t(warnRuleKey(w.rule))).join(" · "));
-        }
-        setting.addExtraButton((b) =>
-          b
-            .setIcon("trash-2")
-            .setTooltip(t("settings.connection.remove"))
-            .onClick(() => commit(applyEndpointEdit(opts.list, i, "", false))),
-        );
-      }
-    });
-
-    if (opts.withPresets) {
-      const actions = new Setting(containerEl);
-      for (const preset of ENDPOINT_PRESETS) {
-        actions.addButton((b) =>
-          b.setButtonText(t("settings.connection.presetAdd", preset.label)).onClick(() => {
-            if (!opts.list.includes(preset.url)) commit([...opts.list, preset.url]);
-          }),
-        );
-      }
-      actions.addButton((b) =>
-        b.setButtonText(t("settings.connection.probe")).onClick(() => this.display()),
-      );
-    }
-
-    if (opts.withProbe) {
-      opts.list.forEach((ep, i) => {
-        void this.host.probeEndpoint(ep).then((status) => {
-          statuses[i] = status.kind;
-          const el = statusEls[i];
-          if (el) {
-            el.removeClass("is-ok", "is-error");
-            setIcon(el, status.reachable ? "circle-check" : "circle-x");
-            el.addClass(status.reachable ? "is-ok" : "is-error");
-            el.setAttribute("aria-label", t(statusKindKey(status.kind)));
-          }
-          const active = activeIndexFromStatuses(statuses);
-          statusEls.forEach((se, j) => se.toggleClass("is-active", j === active));
-        });
-      });
-    }
-  }
-
-  /** Standardmodell: Dropdown aus den zuletzt geladenen Modellen, sonst Freitext-Fallback
-   *  (offline oder gespeichertes Modell nicht in der Liste — nie ein toter Zustand). */
-  private renderModelField(containerEl: HTMLElement): void {
-    const saved = this.host.settings.defaultModel;
-    const setting = new Setting(containerEl)
-      .setName(t("settings.connection.defaultModel.name"))
-      .setDesc(t("settings.connection.defaultModel.desc"));
-
-    if (modelFieldMode(this.loadedModels, saved) === "dropdown") {
-      setting.addDropdown((d) => {
-        if (saved === "") d.addOption("", t("settings.connection.model.choose"));
-        // Gespeicherten Wert bewahren, falls die aktive Endpoint-Liste ihn nicht führt
-        // (z.B. Modell auf einem anderen Endpoint) — sonst würde die Auswahl still verworfen.
-        else if (!this.loadedModels.includes(saved)) d.addOption(saved, saved);
-        for (const m of this.loadedModels) d.addOption(m, m);
-        d.setValue(saved).onChange(async (v) => {
-          this.host.settings.defaultModel = v;
-          await this.host.saveSettings();
-        });
-      });
-    } else {
-      setting.addText((c) =>
-        c.setValue(saved).onChange(async (v) => {
-          this.host.settings.defaultModel = v;
-          await this.host.saveSettings();
-        }),
-      );
-    }
-
-    setting.addButton((b) =>
-      b.setButtonText(t("settings.connection.model.load")).onClick(async () => {
-        const { endpoint, models } = await this.host.loadModels();
-        this.loadedModels = models;
-        if (endpoint === null) new Notice(t("settings.connection.model.none"));
-        this.display();
+      active: () => this.activeUrl,
+      // EIN Client je Zeile für Status-Icon UND Modell-Liste: liefen sie über zwei
+      // getrennte Konstruktionen, könnten sie für dieselbe Zeile auseinanderlaufen.
+      // Die Rückgabetypen stehen ausgeschrieben, weil `clientFor` eine Intersection
+      // zweier `probe()`-Signaturen ist — ein Objekt-Literal ohne Annotation lässt TS
+      // die Union inferieren, die dann keine der beiden Seiten erfüllt (Fund vim-dojo).
+      clientFor: (cfg: EndpointConfig) => ({
+        probe: (): Promise<EndpointStatus> => this.host.probeEndpoint(cfg),
+        listModels: (): Promise<string[]> => this.host.listModels(cfg),
       }),
-    );
+      // Dieses Plugin hat KEIN globales Modell — das Modell gehört zum Endpunkt, der es
+      // meldet. Der Callback ist im Kit-Vertrag Pflicht; er zu erfüllen heißt hier, den
+      // leeren String zu liefern. Genau diese Reibung ist der Beleg für den Kit-Todo
+      // „globales Modellfeld terminieren" (obsidian-kit-Cockpit, 2026-08-14).
+      globalModel: () => "",
+      save: () => this.host.saveSettings(),
+      reconnect: async () => {
+        this.activeUrl = await this.host.resolveActive();
+      },
+      rerender: () => this.display(),
+      presets: ENDPOINT_PRESETS,
+    });
+
+    this.renderCapabilities(containerEl);
+    this.renderDenied(containerEl);
+  }
+
+  /** Was das Modell kann, mit dem der nächste Lauf tatsächlich rechnet — also das der
+   *  aktiven Zeile. Ohne erreichbaren Endpunkt gibt es nichts zu sagen, dann bleibt die
+   *  Zeile weg statt zu raten. */
+  private renderCapabilities(containerEl: HTMLElement): void {
+    const active = this.host.settings.endpoints.find((cfg) => cfg.url === this.activeUrl)
+      ?? this.host.settings.endpoints.find((cfg) => cfg.url.replace(/\/+$/, "").replace(/\/v1$/, "") === this.activeUrl);
+    const model = active?.model?.trim() ?? "";
+    if (model === "") return;
+    new Setting(containerEl)
+      .setName(model)
+      .setDesc(capabilityLines(guessFromName(model)).join(" · "));
+  }
+
+  /** Sperrliste als schlichte Textarea: eine Sperre ist keine Verbindung — sie braucht
+   *  weder Status-Icon noch Modellwahl noch einen Schlüssel. */
+  private renderDenied(containerEl: HTMLElement): void {
+    new Setting(containerEl)
+      .setName(t("settings.connection.deniedEndpoints.name"))
+      .setDesc(t("settings.connection.deniedEndpoints.desc"))
+      .addTextArea((c) => {
+        c.setValue(this.host.settings.deniedEndpoints.join("\n"));
+        // Commit bei blur, nicht bei jedem Tastendruck — sonst zerlegt jede Zwischenform
+        // die Liste.
+        c.inputEl.addEventListener("blur", () => {
+          const next = parseEndpointList(c.getValue());
+          const cur = this.host.settings.deniedEndpoints;
+          if (next.length === cur.length && next.every((e, i) => e === cur[i])) return;
+          this.host.settings.deniedEndpoints = next;
+          void this.host.saveSettings();
+        });
+      });
   }
 
   private renderCrews(containerEl: HTMLElement): void {

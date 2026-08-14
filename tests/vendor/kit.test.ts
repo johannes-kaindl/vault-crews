@@ -11,6 +11,16 @@ import {
 } from '../../src/vendor/kit/endpoint_diagnostics';
 import { defineStrings, setLang, t } from '../../src/vendor/kit/i18n';
 import { realClock } from '../../src/vendor/kit/clock';
+import {
+	applyEndpointEdit, authHeaders, carriesApiKey, endpointRole,
+	migrateEndpointList, moveEndpointToFront, resolveActiveEndpointConfig,
+} from '../../src/vendor/kit/endpoint_config';
+import type { EndpointConfig } from '../../src/vendor/kit/endpoint_config';
+import { resolveModelChoice } from '../../src/vendor/kit/model-choice';
+import { createModelListCache } from '../../src/vendor/kit/model-list-cache';
+import { extractModelIds } from '../../src/vendor/kit/endpoint_diagnostics';
+import { withTimeout } from '../../src/vendor/kit/timeout';
+import { guessFromName, resolveCapabilities } from '../../src/vendor/kit/capabilities';
 
 describe('vendored parseSSE', () => {
 	it('akkumuliert content-Deltas und erkennt [DONE]', () => {
@@ -156,5 +166,116 @@ describe('vendored clock', () => {
 		} finally {
 			if (had) g.window = prev; else delete g.window;
 		}
+	});
+});
+
+describe('vendored endpoint_config', () => {
+	it('migriert alte String-Listen und laesst Objekte stehen', () => {
+		expect(migrateEndpointList(undefined, ['http://a', { url: 'http://b', apiKey: 'k' }]))
+			.toEqual([{ url: 'http://a' }, { url: 'http://b', apiKey: 'k' }]);
+	});
+
+	it('authHeaders setzt Bearer nur bei gesetztem Schluessel', () => {
+		expect(authHeaders('k')).toEqual({ Authorization: 'Bearer k' });
+		expect(authHeaders(undefined)).toEqual({});
+		expect(authHeaders('')).toEqual({});
+	});
+
+	// Falle (2) aus dem Kit-Rollout-Review: in der Adder-Zeile wird alles ausser der URL
+	// STILL verworfen. Wer dort ein Schluesselfeld rendert, verliert die Eingabe beim Blur.
+	it('applyEndpointEdit verwirft apiKey in der Adder-Zeile, nimmt dort aber die URL an', () => {
+		const eps: EndpointConfig[] = [{ url: 'http://a' }];
+		// Beide Zweige gegeneinander: die URL MUSS in der Adder-Zeile ankommen (sonst laesst
+		// sich nichts hinzufuegen), der Schluessel darf es NICHT — sonst waere er beim Blur weg,
+		// ohne dass es jemand merkt.
+		expect(applyEndpointEdit(eps, 1, 'url', 'http://neu', true).map((e) => e.url))
+			.toEqual(['http://a', 'http://neu']);
+		expect(applyEndpointEdit(eps, 1, 'apiKey', 'geheim', true)).toEqual(eps);
+		expect(applyEndpointEdit(eps, 0, 'apiKey', 'geheim', false))
+			.toEqual([{ url: 'http://a', apiKey: 'geheim' }]);
+	});
+
+	it('moveEndpointToFront macht die Liste zur Prioritaet', () => {
+		const eps: EndpointConfig[] = [{ url: 'http://a' }, { url: 'http://b' }];
+		expect(moveEndpointToFront(eps, 1).map((e) => e.url)).toEqual(['http://b', 'http://a']);
+	});
+
+	it('carriesApiKey erkennt Drittanbieter-Zeilen', () => {
+		expect(carriesApiKey({ url: 'http://a', apiKey: 'k' })).toBe(true);
+		expect(carriesApiKey({ url: 'http://a' })).toBe(false);
+	});
+
+	it('endpointRole leitet sprachfrei ab', () => {
+		expect(endpointRole({ isActive: true, reachable: true, modelFits: true, position: 1 }).kind).toBe('active');
+		expect(endpointRole({ isActive: false, reachable: false, modelFits: true, position: 2 }).kind).toBe('unreachable');
+	});
+
+	// CHARAKTERISIERUNG, kein Wunschverhalten: das Kit faengt einen werfenden ping NICHT —
+	// der Fehler reisst die ganze Fallback-Kette ab (Falle 4 des Kit-Rollout-Reviews, dort als
+	// Consumer-Pflicht geführt). Deshalb muss LlmClient.ping intern fangen; das prueft
+	// tests/core/orchestrator.test.ts. Faengt das Kit es eines Tages selbst, wird dieser Test
+	// rot — und genau dann gehoert der Consumer-Guard ueberprueft.
+	it('resolveActiveEndpointConfig reicht einen werfenden ping durch (Consumer muss fangen)', async () => {
+		const eps: EndpointConfig[] = [{ url: 'http://tot' }, { url: 'http://lebt' }];
+		await expect(resolveActiveEndpointConfig(eps, (cfg) => {
+			if (cfg.url.includes('tot')) throw new Error('ECONNREFUSED');
+			return Promise.resolve(true);
+		})).rejects.toThrow('ECONNREFUSED');
+	});
+
+	it('resolveActiveEndpointConfig nimmt den ersten, dessen Probe true sagt', async () => {
+		const eps: EndpointConfig[] = [{ url: 'http://tot' }, { url: 'http://lebt', apiKey: 'k' }];
+		const active = await resolveActiveEndpointConfig(eps, (cfg) => Promise.resolve(cfg.url.includes('lebt')));
+		expect(active?.url).toBe('http://lebt');
+		// Der ganze Eintrag kommt zurueck, nicht nur die URL — daran haengt, dass der
+		// Schluessel den aufgeloesten Endpunkt ueberhaupt erreicht.
+		expect(active?.apiKey).toBe('k');
+	});
+});
+
+describe('vendored model-choice + model-list-cache', () => {
+	it('waehlt Dropdown bei Liste, Freitext ohne Liste, gesperrt wenn unerreichbar', () => {
+		expect(resolveModelChoice({ reachable: true, models: ['a', 'b'], current: 'a' }).mode).toBe('dropdown');
+		expect(resolveModelChoice({ reachable: true, models: [], current: 'x' }).mode).toBe('freetext');
+		expect(resolveModelChoice({ reachable: false, models: [], current: 'x' }).mode).toBe('locked');
+	});
+
+	it('cached das Promise je Schluessel — ein Request pro Endpunkt', async () => {
+		let calls = 0;
+		const cache = createModelListCache();
+		const client = {
+			listModels: () => { calls += 1; return Promise.resolve(['m1']); },
+			probe: () => Promise.resolve({ reachable: true }),
+		};
+		await Promise.all([cache.load('http://a', client), cache.load('http://a', client)]);
+		expect(calls).toBe(1);
+	});
+});
+
+describe('vendored endpoint_diagnostics extractModelIds', () => {
+	it('zieht ids und wirft nie', () => {
+		expect(extractModelIds({ data: [{ id: 'a' }, { id: 'b' }, {}] })).toEqual(['a', 'b']);
+		expect(extractModelIds(null)).toEqual([]);
+		expect(extractModelIds('<html>Fehlerseite</html>')).toEqual([]);
+	});
+});
+
+describe('vendored timeout', () => {
+	it('begrenzt die Wartezeit und reicht Fehler der Arbeit durch', async () => {
+		const timers = { setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms) as unknown as number,
+			clearTimeout: (id: number) => { clearTimeout(id); }, now: () => Date.now() };
+		await expect(withTimeout(Promise.resolve('da'), 50, timers)).resolves.toEqual({ timedOut: false, value: 'da' });
+		await expect(withTimeout(new Promise(() => undefined), 10, timers)).resolves.toEqual({ timedOut: true });
+		await expect(withTimeout(Promise.reject(new Error('kaputt')), 50, timers)).rejects.toThrow('kaputt');
+	});
+});
+
+describe('vendored capabilities', () => {
+	// Der Punkt des Moduls: es behauptet nie mehr, als die Quelle hergibt.
+	it('haelt Namens-Vermutung und bestaetigte Metadaten auseinander', () => {
+		const guessed = guessFromName('qwen3-8b');
+		expect(guessed.thinking.confidence).not.toBe('confirmed');
+		const resolved = resolveCapabilities(null, 'irgendwas-unbekanntes', { thinking: true });
+		expect(resolved.thinking.confidence).toBe('confirmed');
 	});
 });

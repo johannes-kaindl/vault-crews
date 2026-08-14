@@ -6,6 +6,7 @@
 import { parseSSE } from '../vendor/kit/sse';
 import { ThinkSplitter } from '../vendor/kit/think';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
+import { authHeaders, type EndpointConfig } from '../vendor/kit/endpoint_config';
 import { parseLmStudioContext, parseOllamaContext, suppressParams } from './model-info';
 import { isContextOverflow, extractChatContent, extractErrorMessage } from './chat-response';
 import { reasoningHappened } from '../vendor/kit/reasoning';
@@ -20,29 +21,43 @@ const ERROR_BODY_CAP = 4096;
 interface Timeouts { callTimeoutMs: number; stallTimeoutMs: number; }
 
 export class LocalLlmClient implements LlmClient {
+	private cfg: EndpointConfig;
 	private base: string;
 	private streamRefused = false;
 
 	constructor(
-		base: string,
+		endpoint: EndpointConfig,
 		private readonly sse: SseTransport,
 		private readonly json: JsonTransport,
 		private readonly clock: ClockPort,
 		private readonly timeouts: Timeouts,
 	) {
-		this.base = normalizeEndpoint(base);
+		this.cfg = endpoint;
+		this.base = normalizeEndpoint(endpoint.url);
 	}
 
 	/** Retargetiert listModels/modelInfo/stream auf den (per ping() bestätigten)
-	 *  erreichbaren Endpoint — muss nach checkEndpointAndModel's resolveActiveEndpoint,
-	 *  vor jedem weiteren Call laufen (s. orchestrator.ts checkEndpointAndModel). */
-	setBase(endpoint: string): void {
-		this.base = normalizeEndpoint(endpoint);
+	 *  erreichbaren Endpunkt — muss nach checkEndpointAndModel's Auflösung, vor jedem
+	 *  weiteren Call laufen (s. orchestrator.ts checkEndpointAndModel). Nimmt den ganzen
+	 *  Eintrag: URL und Schlüssel dürfen nie getrennt reisen. */
+	setEndpoint(cfg: EndpointConfig): void {
+		this.cfg = cfg;
+		this.base = normalizeEndpoint(cfg.url);
 	}
 
-	async ping(endpoint: string): Promise<boolean> {
+	/** Die Kopfzeilen des AKTIVEN Endpunkts. Ohne Schlüssel ein leeres Objekt — ein
+	 *  lokaler Server bekommt keinen Authorization-Header angehängt. */
+	private headers(): Record<string, string> {
+		return authHeaders(this.cfg.apiKey);
+	}
+
+	/** Wirft nie (Falle 4): das Kit reicht einen werfenden ping durch und bräche damit die
+	 *  Fallback-Kette ab — ein toter localhost würde verhindern, dass der gehostete
+	 *  Zweitendpunkt überhaupt probiert wird. Der Schlüssel MUSS mit: ein Gateway, das
+	 *  unauthentifiziert 401 antwortet, gälte sonst als tot. */
+	async ping(endpoint: EndpointConfig): Promise<boolean> {
 		try {
-			await this.json.getJson(`${endpoint}/v1/models`);
+			await this.json.getJson(`${normalizeEndpoint(endpoint.url)}/v1/models`, authHeaders(endpoint.apiKey));
 			return true;
 		} catch {
 			return false;
@@ -50,7 +65,7 @@ export class LocalLlmClient implements LlmClient {
 	}
 
 	async listModels(): Promise<string[]> {
-		const res = await this.json.getJson(`${this.base}/v1/models`);
+		const res = await this.json.getJson(`${this.base}/v1/models`, this.headers());
 		if (!isRecord(res) || !Array.isArray(res.data)) return [];
 		return (res.data as unknown[])
 			.map((m: unknown) => (isRecord(m) && typeof m.id === 'string' ? m.id : null))
@@ -61,12 +76,12 @@ export class LocalLlmClient implements LlmClient {
 	 *  POST /api/show. Wer antwortet, gewinnt; sonst contextLength = null. */
 	async modelInfo(model: string): Promise<ModelInfo | null> {
 		try {
-			const lm = await this.json.getJson(`${this.base}/api/v0/models`);
+			const lm = await this.json.getJson(`${this.base}/api/v0/models`, this.headers());
 			const ctx = parseLmStudioContext(lm, model);
 			if (ctx) return { id: model, contextLength: ctx.loadedContextLength ?? ctx.maxContextLength ?? null };
 		} catch { /* nächste Sonde */ }
 		try {
-			const oll = await this.json.postJson(`${this.base}/api/show`, { model });
+			const oll = await this.json.postJson(`${this.base}/api/show`, { model }, this.headers());
 			const ctx = parseOllamaContext(oll);
 			if (ctx) return { id: model, contextLength: ctx.maxContextLength ?? null };
 		} catch { /* aufgeben */ }
@@ -145,6 +160,7 @@ export class LocalLlmClient implements LlmClient {
 					}
 				},
 				ctrl.signal,
+				this.headers(),
 			);
 		} catch (e) {
 			streamError = e;
@@ -215,7 +231,7 @@ export class LocalLlmClient implements LlmClient {
 			stream: false,
 			...suppressParams(params.thinking === 'off'),
 		};
-		const res = await this.json.postJson(`${this.base}/v1/chat/completions`, body);
+		const res = await this.json.postJson(`${this.base}/v1/chat/completions`, body, this.headers());
 		if (signal.aborted) return { content: '', thinkTokens: 0, reasoned: false, finishReason: 'aborted' };
 		const extracted = extractChatContent(res);
 		if (extracted !== null) {

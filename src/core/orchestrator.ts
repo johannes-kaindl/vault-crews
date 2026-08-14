@@ -13,7 +13,10 @@ import { executeActions, type ExecutorContext } from './action-executor';
 import { buildRunMd, buildStateJson } from './run-log';
 import { fnv1a } from './collectors';
 import { isAlwaysOnThinker } from './model-info';
-import { normalizeEndpoint, resolveActiveEndpoint } from '../vendor/kit/endpoint';
+import { resolveTaskModel } from './model-resolution';
+import { redactRunState } from './redact';
+import { normalizeEndpoint } from '../vendor/kit/endpoint';
+import { resolveActiveEndpointConfig, type EndpointConfig } from '../vendor/kit/endpoint_config';
 import type { ClockPort } from '../vendor/kit/clock';
 import { LlmCallError } from './ports';
 import type {
@@ -35,9 +38,8 @@ export interface RunDeps {
 	 *  aber vom pure-Layer (buildDenylist) zwingend benötigt; Wiring liefert es in Task 16. */
 	settings: {
 		crewRoot: string;
-		defaultModel: string;
 		configDir: string;
-		endpoints: string[];
+		endpoints: EndpointConfig[];
 		deniedEndpoints: string[];
 		limits: RunLimits;
 		undoHistoryDepth: number;
@@ -62,6 +64,12 @@ class RunFsm {
 	private readonly artifacts = new Map<string, Artifact>();
 	private readonly agents = new Map<string, AgentDef>();
 	private readonly modelCtx = new Map<string, number | null>();
+	/** Der aufgelöste Endpunkt — trägt URL, Schlüssel und Modell zusammen. Vor der
+	 *  Auflösung null; jede Modellfrage geht über ihn. */
+	private activeEndpoint: EndpointConfig | null = null;
+	/** Was der aktive Endpunkt tatsächlich meldet. Entscheidet, ob der Modell-Wunsch eines
+	 *  Agenten auf DIESER Leitung überhaupt existiert. */
+	private availableModels: ReadonlySet<string> = new Set();
 	private team: TeamDef | null = null;
 	private stopped = false;   // ein Task hat den Lauf abgebrochen (on_error abort / actions-Fail)
 	private aborted = false;   // Watchdog / User-Abbruch
@@ -74,7 +82,7 @@ class RunFsm {
 		this.state = {
 			runId: formatRunId(now, teamId), teamId, teamPath,
 			status: 'running', startedAt: now, endedAt: null,
-			model: deps.settings.defaultModel, contextLength: null, alwaysOnThinker: false,
+			model: '', contextLength: null, alwaysOnThinker: false,
 			writeRegister: [], llmCalls: 0, tasks: [], errorTask: null, errorKind: null,
 		};
 	}
@@ -137,17 +145,28 @@ class RunFsm {
 
 	private async checkEndpointAndModel(): Promise<Refusal | null> {
 		const denied = new Set(this.deps.settings.deniedEndpoints.map(normalizeEndpoint));
-		const candidates = this.deps.settings.endpoints.filter((e) => !denied.has(normalizeEndpoint(e)));
-		const active = await resolveActiveEndpoint(candidates, (e) => this.deps.llm.ping(e));
+		const candidates = this.deps.settings.endpoints.filter((e) => !denied.has(normalizeEndpoint(e.url)));
+		const active = await resolveActiveEndpointConfig(candidates, (cfg) => this.deps.llm.ping(cfg));
 		if (active === null) return { kind: 'endpoint_unreachable', message: 'Kein erreichbarer LLM-Endpoint' };
+		this.activeEndpoint = active;
+		// Das Modell, auf dem der Lauf standardmäßig rechnet — es gehört jetzt zur Leitung,
+		// nicht mehr zu einem globalen Feld. Einzelne Tasks können davon abweichen, wenn ihr
+		// Agent ein Modell nennt, das DIESER Endpunkt führt (s. resolveTaskModel).
+		this.state.model = active.model?.trim() ?? '';
 		// Der resolveActiveEndpoint-Treffer ist per ping() bestätigt erreichbar — alle
 		// nachfolgenden Calls (listModels/modelInfo/stream) MÜSSEN ihn auch tatsächlich
 		// ansprechen, sonst bricht Multi-Endpoint-Failover (endpoints[0] tot, [1] lebt).
-		this.deps.llm.setBase(active);
+		this.deps.llm.setEndpoint(active);
 
 		try {
 			const available = new Set(await this.deps.llm.listModels());
+			this.availableModels = available;
+			// Erst jetzt steht fest, welches Modell ein Task wirklich anspricht: der Wunsch
+			// eines Agenten gilt nur, wenn DIESE Leitung ihn führt — sonst das Modell der Zeile.
 			for (const model of this.effectiveModels()) {
+				if (model === '') {
+					return { kind: 'model_missing', message: 'Für diesen Endpunkt ist kein Modell gewählt' };
+				}
 				if (!available.has(model)) return { kind: 'model_missing', message: `Modell nicht geladen: ${model}` };
 				const info = await this.deps.llm.modelInfo(model);
 				this.modelCtx.set(model, info?.contextLength ?? null);
@@ -160,7 +179,7 @@ class RunFsm {
 			// Endpoint abbilden.
 			return { kind: 'endpoint_unreachable', message: `Endpoint-Abfrage fehlgeschlagen: ${errMsg(e)}` };
 		}
-		this.state.contextLength = this.modelCtx.get(this.deps.settings.defaultModel) ?? null;
+		this.state.contextLength = this.modelCtx.get(this.activeEndpoint?.model ?? '') ?? null;
 		return null;
 	}
 
@@ -241,7 +260,7 @@ class RunFsm {
 
 		const agent = this.agents.get(task.agent);
 		if (agent === undefined) return this.failLlm(task, rec, 'crew_invalid', `Agent nicht geladen: ${task.agent}`);
-		rec.model = agent.model ?? this.deps.settings.defaultModel;
+		rec.model = resolveTaskModel(agent.model, this.activeEndpoint ?? { url: '' }, this.availableModels);
 
 		const schema = buildSchema(task.output);
 		const sources = inputs.flatMap((a) => a.files);
@@ -398,9 +417,13 @@ class RunFsm {
 		const out = new Set<string>();
 		for (const task of this.team?.tasks ?? []) {
 			if (task.kind !== 'llm') continue;
-			out.add(this.agents.get(task.agent)?.model ?? this.deps.settings.defaultModel);
+			out.add(resolveTaskModel(
+				this.agents.get(task.agent)?.model ?? null,
+				this.activeEndpoint ?? { url: '' },
+				this.availableModels,
+			));
 		}
-		if (out.size === 0) out.add(this.deps.settings.defaultModel);
+		if (out.size === 0) out.add(this.activeEndpoint?.model?.trim() ?? '');
 		return out;
 	}
 
@@ -491,6 +514,11 @@ class RunFsm {
 	private async persist(): Promise<void> {
 		const dir = this.runDir();
 		try { await this.deps.vault.mkdir(dir); } catch { /* existiert bereits */ }
+		// EINE Stelle, an der alles vorbeikommt, was den Lauf verlässt: Log, state.json und
+		// der zurückgegebene RunResult stammen aus diesem Objekt. Fehlerkörper sind der
+		// wahrscheinliche Weg, auf dem ein Schlüssel in den (gesyncten) Vault gerät —
+		// manche Gateways spiegeln den Authorization-Header in ihrer 401-Antwort.
+		Object.assign(this.state, redactRunState(this.state, this.deps.settings.endpoints));
 		await this.writeFile(`${dir}/run.md`, buildRunMd(this.state));
 		await this.writeFile(`${dir}/state.json`, buildStateJson(this.state));
 	}

@@ -184,10 +184,20 @@ even a crashed or aborted run stays fully undoable, and why no git repository is
 
 ## Network disclosure
 
-- The plugin talks to exactly one network endpoint: your local LLM server
-  (LM Studio `http://localhost:1234/v1` or Ollama `http://localhost:11434/v1` by default,
-  user-configurable). No other host is ever contacted, no telemetry, no analytics, no
-  update-check pings.
+- The plugin talks only to the endpoints **you** list in its settings. Out of the box that
+  is a local LLM server (LM Studio `http://localhost:1234/v1`, Ollama
+  `http://localhost:11434/v1`). No other host is ever contacted, no telemetry, no analytics,
+  no update-check pings.
+- **Endpoints may carry an API key**, which makes hosted, OpenAI-compatible providers usable
+  as a fallback. Adding a key means requests — including the note content a crew collects —
+  leave your machine for that provider. The settings row says so explicitly once a key is
+  set, and the list is ordered: a reachable local endpoint above a hosted one is always used
+  first. Keys live in this plugin's `data.json` inside your vault, in plain text, like every
+  Obsidian plugin setting; if you sync your vault, they sync with it.
+- **Keys never reach the run logs.** Everything written into your vault (`run.md`,
+  `state.json`) and everything shown in the panel passes a redaction step first — including
+  error bodies, which is the realistic leak path: some gateways echo the Authorization
+  header back in a 401 response.
 - Port 8080 is denylisted by default (commonly reserved by other local
   single-consumer model servers) — this is a default *setting*, not a hardcoded
   behavior, and can be changed.
