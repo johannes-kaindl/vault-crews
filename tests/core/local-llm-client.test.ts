@@ -88,7 +88,7 @@ describe('LocalLlmClient.stream', () => {
 	it('zählt reasoning_content als Think-Tokens, nie im content (reasoning.sse)', async () => {
 		const { client, sse, clock } = make();
 		const tokens: string[] = [];
-		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, (t) => tokens.push(t), new AbortController().signal);
+		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, (t, isThink) => { if (!isThink) tokens.push(t); }, new AbortController().signal);
 		await tickAsync(clock, 1);
 		sse.play(fixture('reasoning.sse'));
 		const r = await p;
@@ -118,7 +118,7 @@ describe('LocalLlmClient.stream', () => {
 	it('splittet <think>-Tags aus dem content-Kanal (think-tags.sse)', async () => {
 		const { client, sse, clock } = make();
 		const tokens: string[] = [];
-		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, (t) => tokens.push(t), new AbortController().signal);
+		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, (t, isThink) => { if (!isThink) tokens.push(t); }, new AbortController().signal);
 		await tickAsync(clock, 1);
 		sse.play(fixture('think-tags.sse'));
 		const r = await p;
@@ -135,6 +135,31 @@ describe('LocalLlmClient.stream', () => {
 		await p;
 		expect(sse.lastBody.reasoning_effort).toBe('none');
 		expect(sse.lastBody.chat_template_kwargs).toEqual({ enable_thinking: false });
+	});
+
+	it('routes content tokens as isThink=false and reasoning tokens as isThink=true', async () => {
+		const { client, sse, clock } = make();
+		const seen: Array<[string, boolean]> = [];
+		const p = client.stream(
+			[{ role: 'user', content: 'q' }],
+			PARAMS,
+			(t, isThink) => seen.push([t, isThink]),
+			new AbortController().signal,
+		);
+		await tickAsync(clock, 1);
+		sse.emit('data: {"choices":[{"delta":{"reasoning_content":"pondering"}}]}\n\n');
+		sse.emit('data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n');
+		sse.emit('data: {"choices":[{"delta":{"content":" <think>inner</think> world"}}]}\n\n');
+		sse.end(200);
+		await p;
+
+		const think = seen.filter(([, k]) => k).map(([t]) => t).join('');
+		const content = seen.filter(([, k]) => !k).map(([t]) => t).join('');
+		expect(think).toContain('pondering');
+		expect(think).toContain('inner');
+		expect(content).toContain('Hello');
+		expect(content).toContain('world');
+		expect(content).not.toContain('inner'); // <think> gehört NICHT in Content
 	});
 
 	it('400 mit pretty-printed JSON-Body → lesbare einzeilige Message (nicht "{")', async () => {

@@ -9,6 +9,7 @@ import type { WorkspaceLeaf } from "obsidian";
 import { registerI18n } from "../../src/i18n/strings";
 import { setLang } from "../../src/vendor/kit/i18n";
 import { RunPanelView, VIEW_TYPE_CREWS, type PanelHost, type PanelTeam, type RunSummary } from "../../src/obsidian/panel";
+import { MAX_LIVE_CHARS } from "../../src/obsidian/panel-view-model";
 import type { RunEvent } from "../../src/core/ports";
 import type { RunResult } from "../../src/core/types";
 
@@ -46,9 +47,18 @@ function findAll(el: HTMLElement, pred: (e: HTMLElement) => boolean, out: HTMLEl
 }
 const buttons = (el: HTMLElement, text: string): HTMLElement[] =>
   findAll(el, (e) => e.tagName === "BUTTON" && e.textContent === text);
+/** Erstes Element mit gegebener Klasse (Ersatz für querySelector, das der Mock nicht hat). */
+const byClass = (el: HTMLElement, cls: string): HTMLElement | undefined =>
+  findAll(el, (e) => e.hasClass(cls))[0];
 
 function driveEvents(view: RunPanelView, events: RunEvent[]): void {
   for (const e of events) view.handleEvent(e);
+}
+
+/** Default-View mit Fake-Host für die Live-Streaming-Tests (kein Sonderfall nötig,
+ *  da diese Tests nur `handleEvent` treiben und `contentEl` inspizieren). */
+function makeView(): RunPanelView {
+  return new RunPanelView(makeLeaf(), makeHost());
 }
 
 const okResult = (o: Partial<RunResult> = {}): RunResult => ({
@@ -144,7 +154,7 @@ describe("RunPanelView — running state & status line", () => {
     const view = startRunning(host);
     const [cancel] = findAll(view.contentEl, (e) => e.tagName === "BUTTON" && e.hasClass("mod-warning"));
     cancel?.click();
-    driveEvents(view, [{ type: "token", taskId: "collect", isThink: false }]);
+    driveEvents(view, [{ type: "token", taskId: "collect", isThink: false, text: "" }]);
 
     const [again] = findAll(view.contentEl, (e) => e.tagName === "BUTTON" && e.hasClass("mod-warning"));
     expect((again as unknown as { disabled: boolean }).disabled).toBe(true);
@@ -158,7 +168,7 @@ describe("RunPanelView — running state & status line", () => {
     driveEvents(view, [
       { type: "runStarted", runId: "r1", teamId: "task-triage" },
       { type: "taskStarted", taskId: "collect", index: 1, total: 1 },
-      { type: "token", taskId: "collect", isThink: true },
+      { type: "token", taskId: "collect", isThink: true, text: "" },
       { type: "taskFinished", taskId: "collect", status: "ok" },
     ]);
     expect(view.contentEl.textContent).toContain("✓");
@@ -265,6 +275,82 @@ describe("RunPanelView — history tab", () => {
     const [historyTab] = findAll(view.contentEl, (e) => e.hasClass("vault-crews-tab") && e.textContent === "History");
     (historyTab as unknown as HTMLElement).click();
     expect(view.contentEl.textContent).toContain("No runs yet");
+  });
+});
+
+describe("RunPanelView — live streaming (content + think)", () => {
+  it("shows accumulated live content text while running", () => {
+    const view = makeView();
+    view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });
+    view.handleEvent({ type: "taskStarted", taskId: "a", index: 1, total: 1 });
+    view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "Hello " });
+    view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "world" });
+
+    const live = byClass(view.contentEl, "vault-crews-live-content");
+    expect(live?.textContent).toContain("Hello world");
+  });
+
+  it("shows a placeholder before the first content token", () => {
+    const view = makeView();
+    view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });
+    view.handleEvent({ type: "taskStarted", taskId: "a", index: 1, total: 1 });
+    expect(view.contentEl.textContent).toContain("Waiting for output");
+  });
+
+  it("appends think tokens into the details and updates the counter without losing content", () => {
+    const view = makeView();
+    view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });
+    view.handleEvent({ type: "taskStarted", taskId: "a", index: 1, total: 1 });
+    view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "body" });
+    view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "th1" });
+    view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "th2" });
+
+    expect(byClass(view.contentEl, "vault-crews-live-content")?.textContent).toContain("body");
+    expect(byClass(view.contentEl, "vault-crews-live-think")?.textContent).toContain("th1th2");
+    const [summary] = findAll(view.contentEl, (e) => e.tagName === "SUMMARY");
+    expect(summary?.textContent).toContain("2");
+  });
+
+  it("keeps a think section the user opened open across the next full re-render", () => {
+    const view = makeView();
+    view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });
+    view.handleEvent({ type: "taskStarted", taskId: "a", index: 1, total: 1 });
+    view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "th1" });
+
+    // Default zu (Spec §4: „nie aufgedrängt") — dieselbe Zusicherung wie im shell-Test.
+    const [details] = findAll(view.contentEl, (e) => e.tagName === "DETAILS");
+    expect(details?.getAttribute("open")).toBeNull();
+
+    // Nutzer klappt auf: der Browser spiegelt das in das open-Attribut und feuert `toggle`.
+    details?.setAttr("open", "");
+    details?.dispatchEvent({ type: "toggle" } as unknown as Event);
+
+    // Erster Content-Token fällt bewusst auf den vollen Render zurück (Platzhalter→Text) —
+    // genau dort ging die Aufklappung vorher verloren, mitten im Mitlesen.
+    view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "answer" });
+
+    const [after] = findAll(view.contentEl, (e) => e.tagName === "DETAILS");
+    expect(after?.getAttribute("open")).toBe("");
+    expect(byClass(view.contentEl, "vault-crews-live-think")?.textContent).toContain("th1");
+  });
+
+  it("caps the fast-path live-content node at MAX_LIVE_CHARS (tail kept), matching the reducer's cap", () => {
+    const view = makeView();
+    view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });
+    view.handleEvent({ type: "taskStarted", taskId: "a", index: 1, total: 1 });
+    // Erster Content-Token erzeugt den Live-Node über den vollen Render (Platzhalter→Text).
+    view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "small-first-token" });
+    // Zweiter Token nimmt den Fast-Path (appendLive) — hier greift der Cap.
+    const oversized = "a".repeat(300) + "b".repeat(MAX_LIVE_CHARS);
+    view.handleEvent({ type: "token", taskId: "a", isThink: false, text: oversized });
+
+    const live = byClass(view.contentEl, "vault-crews-live-content");
+    const text = live?.textContent ?? "";
+    expect(text.length).toBe(MAX_LIVE_CHARS);
+    expect(text).not.toContain("small-first-token");
+    expect(text).not.toContain("a");
+    expect(text.startsWith("b")).toBe(true);
+    expect(text.endsWith("b")).toBe(true);
   });
 });
 

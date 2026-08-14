@@ -5,8 +5,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { registerI18n } from "../../src/i18n/strings";
 import { setLang } from "../../src/vendor/kit/i18n";
 import {
-  buildPanelViewModel, markAborting, reduceRun,
-  type RunState, type TeamInfo, type RunSummary,
+  buildPanelViewModel, markAborting, reduceRun, MAX_LIVE_CHARS,
+  type RunState, type TeamInfo, type RunSummary, type PanelInputs,
 } from "../../src/obsidian/panel-view-model";
 import type { RunEvent } from "../../src/core/ports";
 import type { RunResult } from "../../src/core/types";
@@ -20,6 +20,14 @@ function drive(state: RunState, events: RunEvent[]): RunState {
   let s = state;
   for (const e of events) s = reduceRun(s, e);
   return s;
+}
+
+function applyEvents(events: RunEvent[]): RunState {
+  return drive({ kind: "idle" }, events);
+}
+
+function inputsWith(runState: RunState): PanelInputs {
+  return { navState: "crews", runState, teams: [], latest: null, nowMs: 0 };
 }
 
 const okResult = (o: Partial<RunResult> = {}): RunResult => ({
@@ -67,6 +75,48 @@ describe("reduceRun", () => {
     const twice = markAborting(once);
     expect(twice.kind === "running" && twice.aborting).toBe(true);
   });
+
+  it("accumulates content into streamText and reasoning into thinkText, split by isThink", () => {
+    const s = drive({ kind: "idle" }, [
+      { type: "runStarted", runId: "r1", teamId: "t" },
+      { type: "taskStarted", taskId: "a", index: 1, total: 1 },
+      { type: "token", taskId: "a", isThink: false, text: "Hel" },
+      { type: "token", taskId: "a", isThink: false, text: "lo" },
+      { type: "token", taskId: "a", isThink: true, text: "hmm" },
+    ]);
+    expect(s.kind).toBe("running");
+    if (s.kind !== "running") return;
+    expect(s.streamText).toBe("Hello");
+    expect(s.thinkText).toBe("hmm");
+    expect(s.tokenCount).toBe(2);
+    expect(s.thinkCount).toBe(1);
+  });
+
+  it("resets streamText and thinkText on taskStarted", () => {
+    const s = drive({ kind: "idle" }, [
+      { type: "runStarted", runId: "r1", teamId: "t" },
+      { type: "taskStarted", taskId: "a", index: 1, total: 2 },
+      { type: "token", taskId: "a", isThink: false, text: "first" },
+      { type: "taskStarted", taskId: "b", index: 2, total: 2 },
+    ]);
+    if (s.kind !== "running") throw new Error("expected running");
+    expect(s.streamText).toBe("");
+    expect(s.thinkText).toBe("");
+  });
+
+  it("caps each live buffer to the last MAX_LIVE_CHARS characters", () => {
+    const head = "a".repeat(500);
+    const tail = "b".repeat(MAX_LIVE_CHARS);
+    const s = drive({ kind: "idle" }, [
+      { type: "runStarted", runId: "r1", teamId: "t" },
+      { type: "taskStarted", taskId: "a", index: 1, total: 1 },
+      { type: "token", taskId: "a", isThink: false, text: head + tail },
+    ]);
+    if (s.kind !== "running") throw new Error("expected running");
+    expect(s.streamText.length).toBe(MAX_LIVE_CHARS);
+    expect(s.streamText.startsWith("b")).toBe(true);   // tail kept
+    expect(s.streamText.includes("a")).toBe(false);    // head dropped
+  });
 });
 
 const teams: TeamInfo[] = [
@@ -110,17 +160,39 @@ describe("buildPanelViewModel — crews body", () => {
     const running = drive({ kind: "idle" }, [
       { type: "runStarted", runId: "r1", teamId: "t" },
       { type: "taskStarted", taskId: "collect", index: 1, total: 2 },
-      { type: "token", taskId: "collect", isThink: false },
-      { type: "token", taskId: "collect", isThink: true },
+      { type: "token", taskId: "collect", isThink: false, text: "" },
+      { type: "token", taskId: "collect", isThink: true, text: "" },
       { type: "taskFinished", taskId: "collect", status: "ok" },
     ]);
     const vm = buildPanelViewModel({ navState: "crews", runState: running, teams, latest: null, nowMs: 0 });
     expect(vm.body.kind).toBe("crewsRunning");
     if (vm.body.kind === "crewsRunning") {
       expect(vm.body.lines[0]?.icon).toBe("✓");
-      expect(vm.body.streamingText).toContain("1");
-      expect(vm.body.thinkingText).toContain("1");
+      expect(vm.body.streamText).toBe("");
+      expect(vm.body.thinkingLabel).toContain("1");
     }
+  });
+
+  it("running body exposes live streamText/thinkText and an empty-placeholder", () => {
+    const vmEmpty = buildPanelViewModel(inputsWith(applyEvents([
+      { type: "runStarted", runId: "r1", teamId: "t" },
+      { type: "taskStarted", taskId: "a", index: 1, total: 1 },
+    ])));
+    expect(vmEmpty.body.kind).toBe("crewsRunning");
+    if (vmEmpty.body.kind !== "crewsRunning") return;
+    expect(vmEmpty.body.streamText).toBe("");
+    expect(vmEmpty.body.streamEmptyText.length).toBeGreaterThan(0);
+
+    const vm = buildPanelViewModel(inputsWith(applyEvents([
+      { type: "runStarted", runId: "r1", teamId: "t" },
+      { type: "taskStarted", taskId: "a", index: 1, total: 1 },
+      { type: "token", taskId: "a", isThink: false, text: "Hi" },
+      { type: "token", taskId: "a", isThink: true, text: "mm" },
+    ])));
+    if (vm.body.kind !== "crewsRunning") throw new Error("expected crewsRunning");
+    expect(vm.body.streamText).toBe("Hi");
+    expect(vm.body.thinkText).toBe("mm");
+    expect(vm.body.thinkingLabel).toContain("1"); // Zähler im Label
   });
 });
 

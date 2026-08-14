@@ -71,6 +71,11 @@ export function makeFakeEl(): any {
     className: "",
     tagName: "DIV",
     _listeners: listeners,
+    // Scroll geometry: fixed 0-defaults (jsdom-free mock, no real layout). Only used by
+    // panel.ts's stick-to-bottom check (appendLive); tests set them explicitly if needed.
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
 
     empty() { children.length = 0; ownText = ""; },
     detach() {},

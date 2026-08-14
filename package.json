@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && node esbuild.config.mjs --production",
     "typecheck": "tsc --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "node scripts/check-no-abs-paths.mjs && vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "lint": "node scripts/check-no-inline-disables.mjs && eslint src --max-warnings 0",
     "deploy": "npm run build && cp main.js manifest.json styles.css \"${OBSIDIAN_PLUGIN_DIR:?set OBSIDIAN_PLUGIN_DIR}\"/",
@@ -32,11 +32,11 @@
   "license": "AGPL-3.0-or-later",
   "repository": {
     "type": "git",
-    "url": "git+https://codeberg.org/jkaindl/vault-crews.git"
+    "url": "git+https://git.jkaindl.de/jkaindl/vault-crews.git"
   },
-  "homepage": "https://codeberg.org/jkaindl/vault-crews",
+  "homepage": "https://git.jkaindl.de/jkaindl/vault-crews",
   "bugs": {
-    "url": "https://codeberg.org/jkaindl/vault-crews/issues"
+    "url": "https://git.jkaindl.de/jkaindl/vault-crews/issues"
   },
   "devDependencies": {
     "@types/node": "^20",

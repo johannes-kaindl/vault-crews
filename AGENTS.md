@@ -2,13 +2,22 @@
 
 Conventions for AI assistants working in this repo.
 
+> **Workspace-Standards (maintainer-lokal):** Die verbindliche Leitkonvention steht in `_docs/CONVENTIONS.md`
+> im Multi-Projekt-Workspace des Maintainers, `../../_docs` relativ zu diesem Repo — nicht Teil dieses Repos,
+> ignorieren falls im Klon nicht vorhanden. Modell comply-or-explain.
+
 ## What this is
 Obsidian-Plugin **Vault Crews** (`vault-crews`): autonome lokale LLM-Agenten-Teams
 (LM Studio, `localhost:1234`) laufen als deterministische Pipelines auf dem Vault —
 collector → llm → actions, constrain-then-verify, ein git-freies Snapshot-Undo pro Lauf
 (write-ahead Pre-Images über die Vault-/Adapter-API, kein `child_process`/`node:fs`).
 
-## Verbindliche Quellen (in dieser Reihenfolge lesen)
+## Historische Spezifikation (eingefroren, weiter gültig als Referenz)
+
+Die V1-Design-Grundlagen liegen im Repo — eingefroren (s. §Memory unten), aber als
+Referenz für Architektur-Entscheidungen weiter gültig; **neue SDD-Artefakte gehen ins
+Cockpit**, nicht hierher. In dieser Reihenfolge lesen:
+
 1. Spec: `docs/superpowers/specs/2026-07-02-vault-crews-design.md`
 2. Interface-Skelett (bindende Pfade/Typen/Signaturen): `docs/superpowers/plans/2026-07-02-vault-crews-v1-interfaces.md`
 3. Implementierungsplan (19 Tasks): `docs/superpowers/plans/2026-07-02-vault-crews-v1.md`
@@ -47,10 +56,19 @@ collector → llm → actions, constrain-then-verify, ein git-freies Snapshot-Un
 - **Kein `json_schema`-API-Modus** (bricht an LM Studio bei Reasoning-Modellen):
   prompt-basiertes JSON + `output-validator`.
 
-## Memory + logs
+## Memory
+
+- **SDD-Artefakte (seit 2026-07-16): Cockpit, nicht Repo** — Specs/Plans/Task-Reports leben im
+  Coding-Cockpit des Maintainers (`$VAULT/25_Coding/vault-crews/_SDD/`, CORE-META-14, maintainer-lokal).
+  Sie tragen Arbeitskontext (Vault-Pfade, Schwester-Repo-Interna), der in einem public Repo niemandem nützt.
+  Das Repo behält die Design-Essenz in dieser Datei + `CHANGELOG.md`.
+- **Alt-Bestand:** `docs/superpowers/{specs,plans}/` ist eingefroren — nichts Neues dort ablegen.
+- **Nie im Repo:** absolute Pfade außerhalb des Repos (`/Users/…`, Vault-Pfade) — Platzhalter nutzen
+  (`$VAULT/…`, `~/…`, repo-relativ). Herkunftsnachweise als Repo-Name + `Datei:Zeile` sind dagegen erwünscht.
+  Gate: `scripts/check-no-abs-paths.mjs` (Teil von `npm test`).
 - **Memory** (cross-session): `~/.claude/projects/-Users-johannes-Workspace/memory/`
   (Zeiger auf Cockpit); operativer Stand im Coding-Cockpit
-  `/Users/Shared/10_ObsidianVaults/10_Pallas/25_Coding/vault-crews/vault-crews.md`.
+  `$VAULT/25_Coding/vault-crews/vault-crews.md` (maintainer-lokal).
 - **Session logs:** Cockpit-`_Log/` (SessionEnd-Hook) + remember-Plugin.
 
 ## Smoke checklist
@@ -103,7 +121,7 @@ Kurzfassung von README.md „V1 limitations" — bei Rückfragen dort das Detail
 
 ## Dach-Kontext (obsidian-plugins)
 
-Dieses Repo liegt unter dem Koordinations-Dach `/Users/Shared/code/obsidian-plugins/`.
+Dieses Repo liegt unter dem Koordinations-Dach `obsidian-plugins/` (dem Parent-Verzeichnis `..` dieses Repos).
 **Vor dem Lösen eines Problems:** `../AGENTS.md` (Kit-first-Regel) und `../REGISTRY.md`
 (Lösungs-Registry) prüfen — viele Probleme sind in Nachbar-Plugins oder im
 `obsidian-kit` bereits gelöst.

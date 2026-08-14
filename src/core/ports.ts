@@ -38,7 +38,7 @@ export interface LlmClient {
 	setBase(endpoint: string): void;
 	listModels(): Promise<string[]>;
 	modelInfo(model: string): Promise<ModelInfo | null>;
-	stream(messages: LlmMessage[], params: LlmParams, onToken: (t: string) => void, signal: AbortSignal): Promise<LlmStreamResult>;
+	stream(messages: LlmMessage[], params: LlmParams, onToken: (t: string, isThink: boolean) => void, signal: AbortSignal): Promise<LlmStreamResult>;
 }
 
 /** Typisierter LLM-Call-Fehler: der Orchestrator entscheidet Fehlerpfade über `kind`
@@ -89,7 +89,7 @@ export interface SnapshotStore {
 export type RunEvent =
 	| { type: 'runStarted'; runId: string; teamId: string }
 	| { type: 'taskStarted'; taskId: string; index: number; total: number }
-	| { type: 'token'; taskId: string; isThink: boolean }
+	| { type: 'token'; taskId: string; isThink: boolean; text: string }
 	| { type: 'taskFinished'; taskId: string; status: 'ok' | 'failed' | 'skipped' }
 	| { type: 'actionApplied'; outcome: ActionOutcome }
 	| { type: 'runFinished'; result: RunResult };

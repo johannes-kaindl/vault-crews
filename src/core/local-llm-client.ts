@@ -75,7 +75,7 @@ export class LocalLlmClient implements LlmClient {
 	async stream(
 		messages: LlmMessage[],
 		params: LlmParams,
-		onToken: (t: string) => void,
+		onToken: (t: string, isThink: boolean) => void,
 		signal: AbortSignal,
 	): Promise<LlmStreamResult> {
 		if (this.streamRefused) return this.streamNonStreaming(messages, params, signal);
@@ -118,9 +118,12 @@ export class LocalLlmClient implements LlmClient {
 			const parts = splitter.push(piece);
 			if (parts.content !== '') {
 				content += parts.content;
-				onToken(parts.content);
+				onToken(parts.content, false);
 			}
-			reasoningText += parts.reasoning;
+			if (parts.reasoning !== '') {
+				reasoningText += parts.reasoning;
+				onToken(parts.reasoning, true);
+			}
 		};
 
 		let status: number;
@@ -134,7 +137,7 @@ export class LocalLlmClient implements LlmClient {
 					const parsed = parseSSE(rest + raw);
 					rest = parsed.rest;
 					for (const delta of parsed.content) emit(delta);
-					for (const r of parsed.reasoning) reasoningText += r;
+					for (const r of parsed.reasoning) { reasoningText += r; onToken(r, true); }
 					if (parsed.content.length > 0 || parsed.reasoning.length > 0) {
 						sawToken = true;
 						armStall(); // Stall erst nach erstem Token scharf (JIT-TTFB)
@@ -164,9 +167,12 @@ export class LocalLlmClient implements LlmClient {
 		const tail = splitter.flush();
 		if (tail.content !== '') {
 			content += tail.content;
-			onToken(tail.content);
+			onToken(tail.content, false);
 		}
-		reasoningText += tail.reasoning;
+		if (tail.reasoning !== '') {
+			reasoningText += tail.reasoning;
+			onToken(tail.reasoning, true);
+		}
 
 		if (signal.aborted) {
 			return { content, thinkTokens: thinkTokens(reasoningText), reasoned: reasoningHappened(content, reasoningText), finishReason: 'aborted' };
