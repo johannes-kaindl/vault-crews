@@ -9,6 +9,12 @@ Local models are treated as weak, unreliable executors. The orchestrator decides
 schema-validated contracts. Every output is constrained, then verified, before it
 ever touches your vault.
 
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/gitea/v/release/jkaindl/vault-crews?gitea_url=https%3A%2F%2Fgit.jkaindl.de&label=release)](https://git.jkaindl.de/jkaindl/vault-crews/releases)
+[![Obsidian](https://img.shields.io/badge/obsidian-1.8.7%2B%20·%20desktop%20only-purple)](https://obsidian.md)
+
+*Auch auf Deutsch verfügbar: [`README.de.md`](README.de.md).*
+
 ## Features
 
 - **Deterministic pipeline, not a free-form agent loop.** A crew ("team") is a
@@ -95,7 +101,7 @@ overwritten by a second run — edit them freely afterwards.
    notes go to the trash.
 
 Writing your own teams and agents is plain Markdown in the vault — see
-[Eigene Crews schreiben](#eigene-crews-schreiben) below.
+[Writing your own crews](#writing-your-own-crews) below.
 
 ## Configuration
 
@@ -235,42 +241,42 @@ Documented rather than silently missing:
   the abort took effect — nothing was aborted" rather than freezing on a spinner. There
   is deliberately no mechanism to throw away already-completed work.
 
-## Eigene Crews schreiben
+## Writing your own crews
 
-Eine Crew ist Markdown im Vault: ein **Team** (`crew-kind: team`) als Pipeline aus
-`collector → llm → actions`, plus **Agent**-Notes (`crew-kind: agent`, System-Prompt
-im Body). Die mitgelieferten Crews (Command „Install example crews") sind editierbare
-Beispiele — kopiere und passe sie an.
+A crew is Markdown in the vault: a **team** (`crew-kind: team`) as a pipeline of
+`collector → llm → actions`, plus **agent** notes (`crew-kind: agent`, system prompt in
+the body). The crews that ship with the plugin (command "Install example crews") are
+editable examples — copy them and adjust.
 
-### Output-Vokabular (`output:`)
+### Output vocabulary (`output:`)
 
-Ein `llm`-Task legt sein Ausgabeformat über einen `output:`-Block fest:
+An `llm` task declares its output format through an `output:` block:
 
-- **`frontmatter.set`** — das Modell schlägt Frontmatter-Werte für Quell-Notizen vor.
-  `allowed_keys` beschränkt, welche Felder gesetzt werden dürfen. Pfade sind an das
-  Quellmaterial gebunden (keine Halluzination); die strukturelle Enum-Erzwingung
-  bindet Werte an die im Vault vorhandenen Ist-Werte, greift aber erst, wenn das Feld
-  im Ordner bereits belegte Werte hat — beim allerersten Lauf (noch keine Werte, keine
-  Wertetabelle) kommt eine Wertebeschränkung nur aus Instruktion und Agent-Prompt.
+- **`frontmatter.set`** — the model proposes frontmatter values for source notes.
+  `allowed_keys` restricts which fields may be set. Paths are bound to the collected
+  material (no hallucination); the structural enum constraint binds values to those
+  actually present in the vault, but only takes effect once the field already has values
+  in that folder — on the very first run (no values yet, no value table) a restriction
+  comes from the instruction and the agent prompt alone.
   ```yaml
   output:
     family: frontmatter.set
     allowed_keys: [tags, kategorie]
   ```
-- **`section.write`** — das Modell schreibt Markdown-Text, der per `section.replace`
-  in das `target` des nachgelagerten `actions`-Tasks geschrieben wird. Optional
-  `max_chars` (Default 16000).
+- **`section.write`** — the model writes Markdown text, which `section.replace` puts
+  into the `target` of the following `actions` task. Optional `max_chars`
+  (default 16000).
   ```yaml
   output:
     family: section.write
   ```
 
-Die älteren Namen `output_schema: triage-v1` / `briefing-v1` bleiben als Kurzform gültig.
+The older names `output_schema: triage-v1` / `briefing-v1` remain valid as shorthands.
 
-### Inhalt lesen (`include_content`)
+### Reading content (`include_content`)
 
-Standardmäßig liefert `tasknotes.query` nur Frontmatter. Für Crews, die den
-Notiz-**Text** brauchen (Tagger, Zusammenfasser), setze `include_content: true`:
+By default `tasknotes.query` returns frontmatter only. For crews that need the note
+**text** (taggers, summarizers), set `include_content: true`:
 
 ```yaml
 collector: tasknotes.query
@@ -280,12 +286,12 @@ params:
   include_content: true
 ```
 
-### Schreib-Sicherheit (`write_scope`)
+### Write safety (`write_scope`)
 
-`write_scope` ist eine Glob-Allowlist: eine Crew darf nur dort schreiben. Setze sie
-so eng wie möglich — und lass `collector`-`folder` und `write_scope` auf denselben
-Ordner zeigen, sonst werden Vorschläge außerhalb der Schreibfreigabe verworfen. Das
-Plugin-Limit „Max. Schreibvorgänge pro Lauf" deckelt zusätzlich jeden `max_writes`-Wert.
+`write_scope` is a glob allowlist: a crew may write there and nowhere else. Set it as
+narrowly as possible — and point the collector's `folder` and `write_scope` at the same
+folder, otherwise proposals outside the write scope are discarded. The plugin-wide limit
+"Max writes per run" caps every team's `max_writes` on top of that.
 
 ## License
 
