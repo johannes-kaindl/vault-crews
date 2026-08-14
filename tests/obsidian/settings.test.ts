@@ -291,3 +291,27 @@ describe("SettingsTab — Faehigkeiten des aktiven Modells", () => {
     expect(joined).toContain("Reasoning");
   });
 });
+
+describe("SettingsTab.hide()", () => {
+  // Consumer-Pflicht, die das Kit ausdruecklich beschreibt: der Modell-Cache haelt Promises
+  // und ueberlebt jeden Tab-Neuaufbau. Wird er beim Schliessen nicht geleert, bleibt ein
+  // einmal als „nicht erreichbar" gemessener Endpunkt fuer die restliche Sitzung so stehen —
+  // wer seinen LLM-Server startet und die Einstellungen erneut oeffnet, saehe dauerhaft den
+  // alten Zustand.
+  it("verwirft die gecachten Modell-Listen, damit ein spaeter gestarteter Server sichtbar wird", async () => {
+    const plugin = makeFakePlugin();
+    const host = makeFakeHost();
+    host.settings.endpoints = [{ url: "http://a:1" }];
+    const tab = new SettingsTab(plugin, host);
+
+    tab.display();
+    await Promise.resolve();
+    const ersteAbfragen = (host.listModels as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    tab.hide();
+    tab.display();
+    await Promise.resolve();
+
+    expect((host.listModels as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(ersteAbfragen);
+  });
+});

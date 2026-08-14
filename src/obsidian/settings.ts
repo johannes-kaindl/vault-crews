@@ -161,6 +161,17 @@ export class SettingsTab extends PluginSettingTab {
     });
   }
 
+  /** Beim Schließen des Tabs die gecachten Modell-Listen verwerfen — Pflicht des
+   *  Consumers, das Kit-Modul kennt keinen Tab. Ohne das bliebe ein einmal als „nicht
+   *  erreichbar" gemessener Endpunkt für die restliche Sitzung so stehen: wer seinen
+   *  LLM-Server erst danach startet und die Einstellungen erneut öffnet, sähe dauerhaft
+   *  den alten Zustand. */
+  hide(): void {
+    this.modelCache.clear();
+    this.activeUrl = null;
+    super.hide();
+  }
+
   private renderConnection(containerEl: HTMLElement): void {
     new Setting(containerEl).setName(t("settings.connection.heading")).setHeading();
 
