@@ -1,0 +1,7 @@
+{
+  "source": "obsidian-kit",
+  "version": "0.26.1",
+  "sha": "c10f6f4",
+  "vendored": "pure/capabilities.ts, pure/endpoint.ts, pure/endpoint_config.ts, pure/endpoint_diagnostics.ts, pure/i18n.ts, pure/model-context.ts, pure/model-choice.ts, pure/model-list-cache.ts, pure/reasoning.ts, pure/settings.ts, pure/sse.ts, pure/think-splitter.ts, pure/timeout.ts, obsidian/clock.ts",
+  "note": "Verbatim snapshot. Never hand-edit. Re-copy from obsidian-kit to update. Each file's first line names the tag its CONTENT was introduced with (measured by content comparison across all kit tags), which is older than the version above for modules that have not changed since. Two files are knowingly behind and must not be bumped casually: sse.ts sits at 0.2.0 (parseSSE gained finishReason in 0.3.0) and needs a live streaming smoke before it moves — see the task note 'Vendor-Kopien nachziehen'. obsidian/clock.ts lives here rather than in kit-obsidian because it imports no obsidian symbol; it only touches window (UI-STANDARD §9 draws the line at the import)."
+}

@@ -1,0 +1,7 @@
+{
+  "source": "obsidian-kit",
+  "version": "0.26.1",
+  "sha": "c10f6f4",
+  "vendored": "obsidian/confirm.ts, obsidian/endpoint-list.ts, obsidian/model-picker.ts",
+  "note": "Verbatim snapshot. Never hand-edit. Re-copy from obsidian-kit to update. endpoint-list.ts and model-picker.ts carry ONE mechanical deviation from verbatim: kit-internal imports of ../pure/* are rewritten to ../kit/* to match this repo's vendor layout (obsidian-kit's src/obsidian + src/pure become kit-obsidian + kit here). Reproduce that rewrite on every re-vendor; nothing else may differ. Same deviation precedented in vim-dojo and markdown-presentation."
+}
