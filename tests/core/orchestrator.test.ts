@@ -1,6 +1,7 @@
 // tests/core/orchestrator.test.ts
 import { describe, expect, it } from 'vitest';
 import { executeRun, type RunDeps } from '../../src/core/orchestrator';
+import { LlmCallError } from '../../src/core/ports';
 import type { LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, RunEvent } from '../../src/core/ports';
 import type { RunLimits } from '../../src/core/types';
 import { expandTarget } from '../../src/core/paths';
@@ -409,6 +410,53 @@ describe('executeRun — preflight refusals', () => {
     expect(result.status).toBe('refused');
     expect(result.errorKind).toBe('crew_invalid');
     expect(h.snapshot.finalized).toEqual([]);
+  });
+});
+
+describe('executeRun — Sperrliste und Schluessel-Redaction', () => {
+  it('filtert einen gesperrten Endpunkt heraus, auch wenn er als Eintrag mit Schluessel steht', async () => {
+    const llm = new ScriptLlmClient([{ content: TRIAGE_OK }]);
+    const h = await harness({
+      llm,
+      settings: {
+        endpoints: [
+          { url: 'http://localhost:8080', apiKey: 'k', model: 'test-model' },
+          { url: 'http://localhost:1234', model: 'test-model' },
+        ],
+        deniedEndpoints: ['http://localhost:8080'],
+      },
+    });
+
+    const result = await executeRun(h.teamPath, h.deps);
+
+    expect(result.status).toBe('ok');
+    // Der gesperrte Port ist nie angesprochen worden — die Sperre wirkt auf die URL des
+    // Eintrags, nicht mehr auf einen blanken String.
+    expect(llm.baseCalls).toEqual(['http://localhost:1234']);
+  });
+
+  it('schreibt keinen API-Schluessel ins Run-Log, auch nicht aus einem Fehlerkoerper', async () => {
+    // Manche Gateways spiegeln den gesendeten Authorization-Header in ihrer 401-Antwort
+    // wider — und ein Vault wird gesynct. Der Fehlertext kommt hier deshalb so herein,
+    // wie ihn ein solches Gateway liefern wuerde.
+    class LeakyLlm extends ScriptLlmClient {
+      async stream(): Promise<never> {
+        throw new LlmCallError('HTTP 401: invalid key sk-geheim-1234567890', 'http');
+      }
+    }
+    const h = await harness({
+      llm: new LeakyLlm([]),
+      settings: {
+        endpoints: [{ url: 'http://gw:1', apiKey: 'sk-geheim-1234567890', model: 'test-model' }],
+      },
+    });
+
+    const result = await executeRun(h.teamPath, h.deps);
+
+    expect(result.status).toBe('failed');
+    const runMd = await h.vault.read(`_crews/runs/${result.runId}/run.md`);
+    expect(runMd).not.toContain('sk-geheim-1234567890');
+    expect(runMd).toContain('••••');
   });
 });
 
