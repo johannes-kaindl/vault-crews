@@ -29,3 +29,13 @@ export function redactSecrets(text: string, endpoints: EndpointConfig[]): string
 	}
 	return out.replace(BEARER, `$1${MASK}`);
 }
+
+/** Redigiert ein ganzes Zustandsobjekt, bevor es den Prozess verlässt.
+ *
+ *  Bewusst über die Serialisierung statt Feld für Feld: der Lauf-Zustand wächst, und eine
+ *  Liste zu pflegender Felder wäre genau die Art Buchhaltung, die beim nächsten neuen Feld
+ *  still veraltet. Was ohnehin als JSON in den Vault geschrieben wird, lässt sich auch als
+ *  JSON redigieren. */
+export function redactRunState<T>(state: T, endpoints: EndpointConfig[]): T {
+	return JSON.parse(redactSecrets(JSON.stringify(state), endpoints)) as T;
+}

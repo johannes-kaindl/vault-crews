@@ -60,7 +60,7 @@ function make(): { client: LocalLlmClient; sse: FakeSse; json: FakeJson; clock: 
 	const sse = new FakeSse();
 	const json = new FakeJson();
 	const clock = new FakeClock(1_000_000);
-	return { client: new LocalLlmClient('http://localhost:1234', sse, json, clock, TIMEOUTS), sse, json, clock };
+	return { client: new LocalLlmClient({ url: 'http://localhost:1234' }, sse, json, clock, TIMEOUTS), sse, json, clock };
 }
 
 const tickAsync = async (clock: FakeClock, ms: number): Promise<void> => {
@@ -298,9 +298,9 @@ describe('LocalLlmClient Metadaten', () => {
 	it('ping/listModels über /v1/models', async () => {
 		const { client, json } = make();
 		json.responses.set('http://localhost:1234/v1/models', { data: [{ id: 'a' }, { id: 'b' }] });
-		expect(await client.ping('http://localhost:1234')).toBe(true);
+		expect(await client.ping({ url: 'http://localhost:1234' })).toBe(true);
 		expect(await client.listModels()).toEqual(['a', 'b']);
-		expect(await client.ping('http://tot:9')).toBe(false);
+		expect(await client.ping({ url: 'http://tot:9' })).toBe(false);
 	});
 
 	it('modelInfo bevorzugt loaded_context_length, fällt auf max_context_length und null zurück', async () => {

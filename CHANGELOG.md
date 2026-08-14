@@ -6,9 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **API-Schlüssel je Endpunkt.** Jede Zeile der Endpunkt-Liste trägt jetzt ihren eigenen Schlüssel — damit lässt sich eine Fallback-Liste aus lokalen und gehosteten Anbietern mischen: erst LM Studio, und wenn das aus ist, ein OpenAI-kompatibles Gateway. Der Schlüssel geht auch an die Erreichbarkeitsprobe; ein Gateway, das unauthentifiziert mit 401 antwortet, gilt sonst fälschlich als tot.
+- **Das Modell gehört zur Endpunkt-Zeile.** Es wird je Zeile aus einem Dropdown der Modelle gewählt, die *dieser* Endpunkt meldet (mit „Modell-Liste neu laden" je Zeile). Ein Agent darf weiterhin sein eigenes `model:` nennen; es gilt, solange der aktive Endpunkt es führt, sonst läuft der Task auf dem Modell der Zeile — sonst bräche der Fallback genau dann, wenn er gebraucht wird.
+- **Fähigkeiten des aktiven Modells** werden unter der Liste angezeigt (Reasoning, Bilder) — und ehrlich beschriftet: „aus dem Namen geraten" steht dort, wo geraten wurde.
+- **Zeilen umsortieren** („zuerst verwenden"), Rollen-Anzeige je Zeile („aktiv" / „Bereitschaft — Platz 2" / „nicht erreichbar") und ein Hinweis, sobald eine Zeile einen Schlüssel trägt: Anfragen verlassen dann den Rechner.
+
 ### Changed
 
 - **Der Rückgängig-Dialog hat jetzt einen „Abbrechen"-Knopf.** Bisher gab es nur „Rückgängig machen" — wer den Dialog wieder loswerden wollte, musste Esc drücken oder danebenklicken. Beide Knöpfe stehen jetzt in Obsidians nativer Button-Zeile (Abbrechen links).
+- Die Liste der gesperrten Endpunkte ist ein einfaches Textfeld (eine Adresse je Zeile) statt eines Zeilen-Editors — eine Sperre ist keine Verbindung und braucht weder Status noch Modell.
+- **Das globale Feld „Standardmodell" entfällt.** Ein Modellname existiert nur auf dem Endpunkt, der ihn meldet; ein globales Feld daneben war dieselbe Angabe an zwei Orten. Bestehende Einstellungen werden beim ersten Start automatisch übernommen: die alte Endpunkt-Liste wird zu Einträgen, das bisherige Standardmodell wandert in die Zeilen.
+
+### Security
+
+- **API-Schlüssel werden aus allem entfernt, was in den Vault geschrieben wird** — Lauf-Protokoll (`run.md`), `state.json` und Fehlermeldungen im Panel. Fehlerkörper sind der wahrscheinliche Weg dorthin: manche Gateways spiegeln den gesendeten Authorization-Header in ihrer Antwort, und ein Vault wird synchronisiert.
 
 ## [0.8.0] — 2026-08-14
 

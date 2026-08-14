@@ -15,8 +15,8 @@ export class ScriptLlmClient implements LlmClient {
 	readonly baseCalls: string[] = [];
 	constructor(private queue: ScriptedCall[], private ctxLength: number | null = 8192) {}
 
-	async ping(_endpoint?: string): Promise<boolean> { return true; }
-	setBase(endpoint: string): void { this.baseCalls.push(endpoint); }
+	async ping(_cfg?: { url: string }): Promise<boolean> { return true; }
+	setEndpoint(cfg?: { url: string }): void { this.baseCalls.push(cfg?.url ?? ''); }
 	async listModels(): Promise<string[]> { return ['test-model']; }
 	async modelInfo(model: string): Promise<ModelInfo | null> { return { id: model, contextLength: this.ctxLength }; }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { redactSecrets } from '../../src/core/redact';
+import { redactRunState, redactSecrets } from '../../src/core/redact';
 import type { EndpointConfig } from '../../src/vendor/kit/endpoint_config';
 
 const EPS: EndpointConfig[] = [
@@ -38,5 +38,19 @@ describe('redactSecrets', () => {
 	it('kommt mit leerem Text und fehlenden Schluesseln klar', () => {
 		expect(redactSecrets('', EPS)).toBe('');
 		expect(redactSecrets('nichts', [{ url: 'http://a' }])).toBe('nichts');
+	});
+});
+
+describe('redactRunState', () => {
+	it('erwischt Schluessel in beliebig tief liegenden Feldern', () => {
+		const state = {
+			runId: 'r1',
+			tasks: [{ error: 'HTTP 401: key sk-geheim-1234567890 rejected' }],
+			nested: { deep: { note: 'Authorization: Bearer sk-fremd-999' } },
+		};
+		const out = redactRunState(state, EPS);
+		expect(out.tasks[0].error).toBe('HTTP 401: key •••• rejected');
+		expect(out.nested.deep.note).toBe('Authorization: Bearer ••••');
+		expect(out.runId).toBe('r1');
 	});
 });

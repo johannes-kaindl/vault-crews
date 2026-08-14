@@ -19,7 +19,13 @@ import {
   type WorkspaceLeaf,
 } from "obsidian";
 import { pickLang, setLang, t } from "./vendor/kit/i18n";
-import { normalizeEndpoint, resolveActiveEndpoint } from "./vendor/kit/endpoint";
+import { normalizeEndpoint } from "./vendor/kit/endpoint";
+import {
+  authHeaders,
+  resolveActiveEndpointConfig,
+  type EndpointConfig,
+} from "./vendor/kit/endpoint_config";
+import { migrateEndpointSettings } from "./core/endpoint-settings";
 import { classifyEndpointStatus, type EndpointStatus, type ProbeInput } from "./vendor/kit/endpoint_diagnostics";
 import { mergeSettings } from "./vendor/kit/settings";
 import { registerI18n } from "./i18n/strings";
@@ -137,6 +143,13 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
   async loadSettings(): Promise<void> {
     const raw = (await this.loadData()) as Record<string, unknown> | null;
     this.settings = mergeSettings(DEFAULT_SETTINGS, raw);
+    // Alte data.json: Liste roher URL-Strings plus ein globales `defaultModel`. Beides
+    // wird hier einmalig hochgezogen — danach trägt jede Zeile ihr eigenes Modell.
+    // Der Guard gegen ein handeditiertes, kaputtes Feld sitzt in migrateEndpointSettings.
+    this.settings.endpoints = migrateEndpointSettings(
+      raw ?? {},
+      DEFAULT_SETTINGS.endpoints,
+    );
     this.lastRuns = raw && isRecord(raw.lastRuns) ? filterValidLastRuns(raw.lastRuns) : {};
     // lastRuns ist ein eigenes data.json-Feld, nicht Teil von PluginSettings —
     // aus dem Merge-Ergebnis wieder entfernen, damit `settings` sauber bleibt.
@@ -159,12 +172,14 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
    *  Run racen (der den geteilten Client via setBase umbiegt). `getJson` nutzt `throw:false`:
    *  ein antwortender Server resolvet (→ Response-Pfad), nur echte Netzfehler rejecten
    *  (→ Error-Pfad mit roher Meldung für die Regex-Klassifikation). */
-  async probeEndpoint(endpoint: string): Promise<EndpointStatus> {
-    const target = normalizeEndpoint(endpoint);
+  async probeEndpoint(cfg: EndpointConfig): Promise<EndpointStatus> {
+    const target = normalizeEndpoint(cfg.url);
     const json = new RequestUrlJsonTransport();
     let input: ProbeInput;
     try {
-      const body = await json.getJson(`${target}/v1/models`);
+      // Der Schlüssel MUSS mit: ein Gateway, das unauthentifiziert 401 antwortet, sähe
+      // sonst wie ein Server aus, der keine LLM-API ist — die Zeile bliebe dauerhaft rot.
+      const body = await json.getJson(`${target}/v1/models`, authHeaders(cfg.apiKey));
       // Der Transport verwirft den HTTP-Status; ein Resolve heißt „Server hat geantwortet".
       // classifyEndpointStatus braucht 200 nur, um `ok` von `not-an-llm-api` zu trennen —
       // fehlt die data-Liste, ist es ohnehin not-an-llm-api, unabhängig vom echten Status.
@@ -178,16 +193,25 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
   /** Löst den ersten erreichbaren Endpoint auf und listet seine Modelle (Settings-Modell-
    *  Dropdown). Ephemerer Client wie `probeEndpoint`; bei keinem erreichbaren Endpoint
    *  `{ endpoint: null, models: [] }` (die UI fällt dann auf Freitext zurück). */
-  async loadModels(): Promise<{ endpoint: string | null; models: string[] }> {
+  /** Modelle GENAU EINES Eintrags — der Kit-Editor fragt je Zeile, nicht global.
+   *  Ephemerer Client wie `probeEndpoint`: rührt `this.llm` nie an, kann also nie mit
+   *  einem laufenden Run racen. */
+  async listModels(cfg: EndpointConfig): Promise<string[]> {
     const client = this.buildLlmClient();
-    const active = await resolveActiveEndpoint(this.settings.endpoints, (e) => client.ping(e));
-    if (!active) return { endpoint: null, models: [] };
-    client.setBase(active);
+    client.setEndpoint(cfg);
     try {
-      return { endpoint: active, models: await client.listModels() };
+      return await client.listModels();
     } catch {
-      return { endpoint: active, models: [] };
+      return [];
     }
+  }
+
+  /** Die normalisierte URL des ersten erreichbaren Eintrags — für die Rollenzeile im
+   *  Editor („aktiv" vs. „Bereitschaft — Platz 2"). */
+  async resolveActive(): Promise<string | null> {
+    const client = this.buildLlmClient();
+    const active = await resolveActiveEndpointConfig(this.settings.endpoints, (cfg) => client.ping(cfg));
+    return active ? normalizeEndpoint(active.url) : null;
   }
 
   // ── Port-Verdrahtung (genau einmal) ───────────────────────────────────────
@@ -206,10 +230,10 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
    *  Plugin-Reload wirksam werden — sonst bleibt der zur onload-Zeit gebaute Client
    *  (mit toten Timeouts, s. RunDeps.settings.limits.callTimeoutMs/stallTimeoutMs, die
    *  nirgends mehr gelesen werden) für die gesamte Session eingefroren. */
-  private buildLlmClient(): LlmClient {
-    const base = normalizeEndpoint(this.settings.endpoints[0] ?? "http://localhost:1234");
+  private buildLlmClient(): LocalLlmClient {
+    const first = this.settings.endpoints[0] ?? { url: "http://localhost:1234" };
     return new LocalLlmClient(
-      base,
+      first,
       new XhrSseTransport(),
       new RequestUrlJsonTransport(),
       this.clock,
@@ -300,7 +324,6 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       reporter,
       settings: {
         crewRoot: this.settings.crewRoot,
-        defaultModel: this.settings.defaultModel,
         configDir: this.app.vault.configDir,
         endpoints: this.settings.endpoints,
         deniedEndpoints: this.settings.deniedEndpoints,

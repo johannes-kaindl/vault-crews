@@ -23,7 +23,7 @@ import { join } from "node:path";
 const ROOTS = ["src/core", "src/vendor"];
 const EXTRA_FILES = [
   "src/obsidian/panel-view-model.ts",
-  "src/obsidian/endpoint-editor-model.ts",
+  "src/obsidian/endpoint-labels.ts",
 ];
 const EXCLUDED = ["src/vendor/kit-obsidian"];
 const FORBIDDEN = /(?:from|import)\s*\(?\s*["']obsidian(\/[^"']*)?["']/;

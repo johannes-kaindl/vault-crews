@@ -24,8 +24,8 @@ type Settings = RunDeps['settings'];
 
 function baseSettings(overrides: Partial<Settings> = {}): Settings {
   return {
-    crewRoot: '_crews', defaultModel: 'test-model', configDir: '.obsidian',
-    endpoints: ['http://localhost:1234'], deniedEndpoints: [],
+    crewRoot: '_crews', configDir: '.obsidian',
+    endpoints: [{ url: 'http://localhost:1234', model: 'test-model' }], deniedEndpoints: [],
     limits: LIMITS, undoHistoryDepth: 15, ...overrides,
   };
 }
@@ -118,7 +118,7 @@ async function runToCompletion<T>(p: Promise<T>, clock: FakeClock): Promise<T> {
 class ClockAdvancingLlm implements LlmClient {
   constructor(private readonly clock: FakeClock, private readonly advanceMs: number, private readonly content = TRIAGE_OK) {}
   async ping(): Promise<boolean> { return true; }
-  setBase(): void { /* single-endpoint test double: no-op */ }
+  setEndpoint(): void { /* single-endpoint test double: no-op */ }
   async listModels(): Promise<string[]> { return ['test-model']; }
   async modelInfo(model: string): Promise<ModelInfo | null> { return { id: model, contextLength: 8192 }; }
   async stream(_m: LlmMessage[], _p: LlmParams, onToken: (t: string, isThink: boolean) => void): Promise<LlmStreamResult> {
@@ -131,7 +131,7 @@ class ClockAdvancingLlm implements LlmClient {
 
 class AbortMidStreamLlm implements LlmClient {
   async ping(): Promise<boolean> { return true; }
-  setBase(): void { /* single-endpoint test double: no-op */ }
+  setEndpoint(): void { /* single-endpoint test double: no-op */ }
   async listModels(): Promise<string[]> { return ['test-model']; }
   async modelInfo(model: string): Promise<ModelInfo | null> { return { id: model, contextLength: 8192 }; }
   async stream(_m: LlmMessage[], _p: LlmParams, onToken: (t: string, isThink: boolean) => void): Promise<LlmStreamResult> {
@@ -389,7 +389,7 @@ describe('executeRun — preflight refusals', () => {
   });
 
   it('model missing → refused model_missing', async () => {
-    const h = await harness({ settings: { defaultModel: 'ghost-model' } });
+    const h = await harness({ settings: { endpoints: [{ url: 'http://localhost:1234', model: 'ghost-model' }] } });
     const result = await executeRun(h.teamPath, h.deps);
     expect(result.status).toBe('refused');
     expect(result.errorKind).toBe('model_missing');
@@ -413,21 +413,21 @@ describe('executeRun — preflight refusals', () => {
 });
 
 describe('executeRun — endpoint failover + preflight crash-safety (review C1)', () => {
-  it('failover: endpoints[0] unreachable, endpoints[1] reachable → run succeeds using the reachable endpoint, setBase called before listModels', async () => {
+  it('failover: endpoints[0] unreachable, endpoints[1] reachable → run succeeds using the reachable endpoint, setEndpoint called before listModels', async () => {
     class FailoverLlmClient extends ScriptLlmClient {
       readonly order: string[] = [];
-      async ping(endpoint: string): Promise<boolean> { return endpoint === 'http://ep2:1234'; }
-      setBase(endpoint: string): void { this.order.push(`setBase:${endpoint}`); super.setBase(endpoint); }
+      async ping(cfg: { url: string }): Promise<boolean> { return cfg.url === 'http://ep2:1234'; }
+      setEndpoint(cfg: { url: string }): void { this.order.push(`setEndpoint:${cfg.url}`); super.setEndpoint(cfg); }
       async listModels(): Promise<string[]> { this.order.push('listModels'); return super.listModels(); }
     }
     const llm = new FailoverLlmClient([{ content: TRIAGE_OK }]);
-    const h = await harness({ llm, settings: { endpoints: ['http://ep1:1234', 'http://ep2:1234'] } });
+    const h = await harness({ llm, settings: { endpoints: [{ url: 'http://ep1:1234', model: 'test-model' }, { url: 'http://ep2:1234', model: 'test-model' }] } });
     const result = await executeRun(h.teamPath, h.deps);
 
     expect(result.status).toBe('ok');
     expect(result.errorKind).toBeNull();
     // proves the run actually targeted the reachable failover endpoint, in the right order
-    expect(llm.order).toEqual(['setBase:http://ep2:1234', 'listModels']);
+    expect(llm.order).toEqual(['setEndpoint:http://ep2:1234', 'listModels']);
     expect(llm.baseCalls).toEqual(['http://ep2:1234']);
   });
 

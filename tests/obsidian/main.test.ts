@@ -138,7 +138,7 @@ describe("VaultCrewsPlugin.probeEndpoint", () => {
     const plugin = makePlugin();
     await plugin.onload();
 
-    const status = await plugin.probeEndpoint("http://endpoint-b:9999");
+    const status = await plugin.probeEndpoint({ url: "http://endpoint-b:9999" });
 
     expect(status.kind).toBe("ok");
     expect(status.reachable).toBe(true);
@@ -152,7 +152,7 @@ describe("VaultCrewsPlugin.probeEndpoint", () => {
     const plugin = makePlugin();
     await plugin.onload();
 
-    const status = await plugin.probeEndpoint("http://endpoint-b:9999");
+    const status = await plugin.probeEndpoint({ url: "http://endpoint-b:9999" });
 
     expect(status.kind).toBe("not-an-llm-api");
     expect(status.reachable).toBe(false);
@@ -164,7 +164,7 @@ describe("VaultCrewsPlugin.probeEndpoint", () => {
     const plugin = makePlugin();
     await plugin.onload();
 
-    const status = await plugin.probeEndpoint("http://endpoint-b:9999");
+    const status = await plugin.probeEndpoint({ url: "http://endpoint-b:9999" });
 
     expect(status.kind).toBe("refused");
     expect(status.reachable).toBe(false);
@@ -178,23 +178,23 @@ describe("VaultCrewsPlugin.probeEndpoint", () => {
     const plugin = makePlugin();
     await plugin.onload();
     const sharedLlm = (plugin as unknown as { llm: LlmClient }).llm;
-    sharedLlm.setBase("http://race-endpoint:5555");
+    sharedLlm.setEndpoint({ url: "http://race-endpoint:5555" });
 
-    await plugin.probeEndpoint("http://endpoint-b:9999");
+    await plugin.probeEndpoint({ url: "http://endpoint-b:9999" });
 
     // Der geteilte Client zeigt unverändert auf den vom (simulierten) Lauf gesetzten Endpoint.
     await expect(sharedLlm.listModels()).resolves.toEqual(["race-model"]);
   });
 });
 
-describe("VaultCrewsPlugin.loadModels", () => {
+describe("VaultCrewsPlugin.listModels / resolveActive", () => {
   afterEach(() => {
     requestUrl.mockImplementation(() => Promise.resolve({
       status: 200, headers: {}, text: "", json: {}, arrayBuffer: new ArrayBuffer(0),
     }));
   });
 
-  it("resolves the first reachable endpoint and lists its models", async () => {
+  it("listet die Modelle GENAU EINER Zeile — der Editor fragt je Zeile, nicht global", async () => {
     requestUrl.mockClear();
     requestUrl.mockImplementation((opts: unknown) => {
       const url = typeof opts === "string" ? opts : (opts as { url: string }).url;
@@ -205,22 +205,53 @@ describe("VaultCrewsPlugin.loadModels", () => {
     });
     const plugin = makePlugin();
     await plugin.onload();
-    (plugin as unknown as { settings: { endpoints: string[] } }).settings.endpoints = ["http://dead:1", "http://live:2"];
 
-    const result = await plugin.loadModels();
-
-    expect(result).toEqual({ endpoint: "http://live:2", models: ["model-x"] });
+    await expect(plugin.listModels({ url: "http://live:2" })).resolves.toEqual(["model-x"]);
+    await expect(plugin.listModels({ url: "http://dead:1" })).resolves.toEqual([]);
   });
 
-  it("returns a null endpoint and empty list when nothing is reachable", async () => {
+  it("loest den ersten erreichbaren Eintrag auf, sonst null", async () => {
+    requestUrl.mockClear();
+    requestUrl.mockImplementation((opts: unknown) => {
+      const url = typeof opts === "string" ? opts : (opts as { url: string }).url;
+      if (url.startsWith("http://live:2")) {
+        return Promise.resolve({ status: 200, headers: {}, text: JSON.stringify({ data: [{ id: "model-x" }] }), json: {}, arrayBuffer: new ArrayBuffer(0) });
+      }
+      return Promise.reject(new Error("connect ECONNREFUSED"));
+    });
+    const plugin = makePlugin();
+    await plugin.onload();
+    (plugin as unknown as { settings: { endpoints: { url: string }[] } }).settings.endpoints =
+      [{ url: "http://dead:1" }, { url: "http://live:2" }];
+
+    await expect(plugin.resolveActive()).resolves.toBe("http://live:2");
+  });
+
+  it("liefert null, wenn nichts erreichbar ist", async () => {
     requestUrl.mockClear();
     requestUrl.mockImplementation(() => Promise.reject(new Error("connect ECONNREFUSED")));
     const plugin = makePlugin();
     await plugin.onload();
-    (plugin as unknown as { settings: { endpoints: string[] } }).settings.endpoints = ["http://dead:1"];
+    (plugin as unknown as { settings: { endpoints: { url: string }[] } }).settings.endpoints = [{ url: "http://dead:1" }];
 
-    const result = await plugin.loadModels();
+    await expect(plugin.resolveActive()).resolves.toBeNull();
+  });
 
-    expect(result).toEqual({ endpoint: null, models: [] });
+  // Der Schluessel muss die Erreichbarkeitsprobe erreichen: ein Gateway, das
+  // unauthentifiziert 401 antwortet, gaelte sonst als tot und wuerde still uebersprungen.
+  it("schickt den Schluessel der Zeile an die Probe mit", async () => {
+    requestUrl.mockClear();
+    const seen: Record<string, string>[] = [];
+    requestUrl.mockImplementation((opts: unknown) => {
+      const o = opts as { url: string; headers?: Record<string, string> };
+      seen.push(o.headers ?? {});
+      return Promise.resolve({ status: 200, headers: {}, text: JSON.stringify({ data: [] }), json: {}, arrayBuffer: new ArrayBuffer(0) });
+    });
+    const plugin = makePlugin();
+    await plugin.onload();
+
+    await plugin.probeEndpoint({ url: "http://gw:1", apiKey: "sk-test-key-123" });
+
+    expect(seen.some((h) => h.Authorization === "Bearer sk-test-key-123")).toBe(true);
   });
 });

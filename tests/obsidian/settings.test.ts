@@ -1,14 +1,20 @@
 // Smoke-Tests der SettingsTab (Mock-Grenze = Port-Grenze, Spec §8): kein Deep-Mocking
 // von `app`, nur „richtige Setting-API-Aufrufe + SettingsHost-Vertrag erfüllt".
-// SettingsHost entkoppelt SettingsTab bewusst von main.ts (Task 16b) — der Fake-Host
-// hier steht stellvertretend für das spätere Plugin-Objekt. Die reine Editor-Logik
-// (applyEndpointEdit etc.) ist separat in endpoint-editor-model.test.ts abgedeckt; hier
-// wird nur die Verdrahtung (blur → commit, Preset, Trash, Modell-Laden) geprüft.
+// SettingsHost entkoppelt SettingsTab bewusst von main.ts — der Fake-Host hier steht
+// stellvertretend für das Plugin-Objekt.
+//
+// Seit 2026-08-14 kommt der Endpunkt-Zeilen-Editor vollständig aus dem Kit
+// (`buildEndpointList`). Sein INNENLEBEN — blur-Commit, Adder-Zeile, Trash, Presets,
+// Modell-Dropdown — ist dort getestet und wird hier bewusst NICHT nachgetestet; doppelte
+// Tests über eine Vendor-Kopie erzeugen nur den Eindruck von Abdeckung. Hier steht, was
+// dieses Repo beisteuert: die Verdrahtung, die Sperrliste und die Fähigkeiten-Zeile.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ButtonComponent,
+  Setting,
   DropdownComponent,
   ExtraButtonComponent,
+  TextAreaComponent,
   TextComponent,
   ToggleComponent,
   makeFakeApp,
@@ -43,7 +49,8 @@ function makeFakeHost(overrides: Partial<SettingsHost> = {}): SettingsHost {
     settings,
     saveSettings: vi.fn().mockResolvedValue(undefined),
     probeEndpoint: vi.fn().mockResolvedValue(OK_STATUS),
-    loadModels: vi.fn().mockResolvedValue({ endpoint: "http://localhost:1234", models: ["m1", "m2"] }),
+    listModels: vi.fn().mockResolvedValue(["m1", "m2"]),
+    resolveActive: vi.fn().mockResolvedValue(null),
     ...overrides,
   };
 }
@@ -112,12 +119,42 @@ function captureTexts(): TextComponent[] {
   return items;
 }
 
+/** Sammelt Name und Beschreibung jeder erzeugten Setting-Zeile. Der Mock haelt beides in
+ *  Feldern statt im DOM — ueber das Element ist der Text also nicht zu finden. */
+function captureSettingTexts(): string[] {
+  const seen: string[] = [];
+  vi.spyOn(Setting.prototype, "setName").mockImplementation(function (this: any, name: any) {
+    seen.push(String(name ?? ""));
+    this.nameValue = String(name ?? "");
+    return this;
+  });
+  vi.spyOn(Setting.prototype, "setDesc").mockImplementation(function (this: any, desc: any) {
+    seen.push(String(desc ?? ""));
+    this.descValue = String(desc ?? "");
+    return this;
+  });
+  return seen;
+}
+
+/** Sammelt jede erzeugte TextAreaComponent (Sperrliste) in Erstellungsreihenfolge. */
+function captureTextAreas(): TextAreaComponent[] {
+  const items: TextAreaComponent[] = [];
+  vi.spyOn(TextAreaComponent.prototype, "setValue").mockImplementation(function (
+    this: TextAreaComponent & { _value: string },
+    v: string,
+  ) {
+    this._value = String(v ?? "");
+    if (!items.includes(this)) items.push(this);
+    return this;
+  });
+  return items;
+}
+
 describe("DEFAULT_SETTINGS", () => {
   it("matches the exact spec'd defaults (guards against value drift)", () => {
     expect(DEFAULT_SETTINGS).toEqual({
-      endpoints: ["http://localhost:1234/v1"],
+      endpoints: [{ url: "http://localhost:1234/v1" }],
       deniedEndpoints: ["http://localhost:8080", "http://127.0.0.1:8080"],
-      defaultModel: "",
       crewRoot: "_crews",
       maxWrites: 10,
       wallClockMinutes: 10,
@@ -138,9 +175,10 @@ describe("SettingsTab.display()", () => {
     expect(() => tab.display()).not.toThrow();
 
     // Jede `new Setting(containerEl)` legt über containerEl.createDiv(...) ein Kind an.
-    // Connection: 1 Heading + Endpoints(1 Zeile + 1 Adder + 1 Aktionszeile) + 1 Modell +
-    // Denied(2 Zeilen + 1 Adder) = 8 · Crews 3 · Safety 4 · Advanced 4 = 19.
-    expect(tab.containerEl.children.length).toBe(19);
+    // Connection: 1 Heading + Kit-Editor (Beschriftungszeile + 1 Zeile + Adder + Preset-/
+    // Prüfzeile) + 1 Sperrliste = 6 · Crews 3 · Safety 4 · Advanced 4 = 17. Die
+    // Fähigkeiten-Zeile fehlt hier, weil ohne aufgelösten Endpunkt nichts zu sagen ist.
+    expect(tab.containerEl.children.length).toBe(17);
   });
 
   it("re-rendering (repeated display() calls) clears the previous content first", () => {
@@ -156,200 +194,100 @@ describe("SettingsTab.display()", () => {
   });
 });
 
-describe("SettingsTab — endpoint row editor", () => {
-  it("editing an endpoint row on blur updates host.settings and persists", () => {
-    const plugin = makeFakePlugin();
-    const host = makeFakeHost({ settings: { ...DEFAULT_SETTINGS, endpoints: ["http://a:1"] } });
-    const texts = captureTexts();
-    const tab = new SettingsTab(plugin, host);
-    tab.display();
-
-    // texts[0] = erste Endpoint-Zeile (Connection wird zuerst gerendert).
-    texts[0]?.setValue("http://b:2");
-    texts[0]?.inputEl.dispatchEvent({ type: "blur" });
-
-    expect(host.settings.endpoints).toEqual(["http://b:2"]);
-    expect(host.saveSettings).toHaveBeenCalledTimes(1);
-  });
-
-  it("an unchanged endpoint row does not re-save on blur (no-op guard)", () => {
-    const plugin = makeFakePlugin();
-    const host = makeFakeHost({ settings: { ...DEFAULT_SETTINGS, endpoints: ["http://a:1"] } });
-    const texts = captureTexts();
-    const tab = new SettingsTab(plugin, host);
-    tab.display();
-
-    texts[0]?.inputEl.dispatchEvent({ type: "blur" }); // Wert unverändert
-
-    expect(host.saveSettings).not.toHaveBeenCalled();
-  });
-
-  it("the trash button removes its endpoint row and persists", () => {
-    const plugin = makeFakePlugin();
-    const host = makeFakeHost({ settings: { ...DEFAULT_SETTINGS, endpoints: ["http://a:1", "http://b:2"] } });
-    const trash = captureExtraButtonClicks();
-    const tab = new SettingsTab(plugin, host);
-    tab.display();
-
-    // trash[0] = Mülleimer der ERSTEN Endpoint-Zeile.
-    trash[0]?.();
-
-    expect(host.settings.endpoints).toEqual(["http://b:2"]);
-    expect(host.saveSettings).toHaveBeenCalledTimes(1);
-  });
-
-  it("a preset button appends its endpoint when not already present", () => {
-    const plugin = makeFakePlugin();
-    const host = makeFakeHost({ settings: { ...DEFAULT_SETTINGS, endpoints: [] } });
-    const clicks = captureButtonClicks();
-    const tab = new SettingsTab(plugin, host);
-    tab.display();
-
-    // clicks[0] = erstes Preset (LM Studio) der Endpoint-Aktionszeile.
-    clicks[0]?.();
-
-    expect(host.settings.endpoints).toEqual(["http://localhost:1234"]);
-    expect(host.saveSettings).toHaveBeenCalledTimes(1);
-  });
-
-  it("probes each configured endpoint on render (per-row status)", () => {
-    const plugin = makeFakePlugin();
-    const host = makeFakeHost({ settings: { ...DEFAULT_SETTINGS, endpoints: ["http://a:1", "http://b:2"] } });
-    const tab = new SettingsTab(plugin, host);
-    tab.display();
-
-    expect(host.probeEndpoint).toHaveBeenCalledWith("http://a:1");
-    expect(host.probeEndpoint).toHaveBeenCalledWith("http://b:2");
-  });
-});
-
-describe("SettingsTab — default model field", () => {
-  it("the load-models button loads models and shows no notice when an endpoint responds", async () => {
+describe("SettingsTab — Verdrahtung des Kit-Editors", () => {
+  it("reicht die eigenen Endpunkte hinein und Aenderungen zurueck", () => {
     const plugin = makeFakePlugin();
     const host = makeFakeHost();
-    const clicks = captureButtonClicks();
+    host.settings.endpoints = [{ url: "http://a:1", apiKey: "k", model: "m" }];
     const tab = new SettingsTab(plugin, host);
-    tab.display();
 
-    // Button-Reihenfolge Connection: 2 Presets + 1 „Verbindungen prüfen" + 1 „Modelle laden".
-    await clicks[3]?.();
-
-    expect(host.loadModels).toHaveBeenCalledTimes(1);
-    expect(Notice.instances).toHaveLength(0);
+    expect(() => tab.display()).not.toThrow();
+    // Der Editor fragt seine Liste ueber get() ab — sie muss unveraendert ankommen,
+    // insbesondere MIT Schluessel und Modell (das war vor dem Umbau nicht speicherbar).
+    expect(host.settings.endpoints).toEqual([{ url: "http://a:1", apiKey: "k", model: "m" }]);
   });
 
-  it("keeps a saved model as a dropdown option even when the active endpoint does not list it", async () => {
+  it("probt jede Zeile mit ihrem eigenen Eintrag, nicht mit einer blanken URL", async () => {
     const plugin = makeFakePlugin();
-    const host = makeFakeHost({
-      settings: { ...DEFAULT_SETTINGS, defaultModel: "gemma4:e4b" },
-      loadModels: vi.fn().mockResolvedValue({ endpoint: "http://a", models: ["m1", "m2"] }),
-    });
-    const options: string[] = [];
-    vi.spyOn(DropdownComponent.prototype, "addOption").mockImplementation(function (
-      this: InstanceType<typeof DropdownComponent>,
-      value: string,
-      display: string,
-    ) {
-      this.options[value] = display;
-      options.push(value);
-      return this;
-    });
-    const clicks = captureButtonClicks();
+    const host = makeFakeHost();
+    host.settings.endpoints = [{ url: "http://a:1", apiKey: "geheim" }];
     const tab = new SettingsTab(plugin, host);
+
     tab.display();
+    await Promise.resolve();
 
-    await clicks[3]?.(); // „Modelle laden" → Re-Render als Dropdown
-
-    // Der gespeicherte, nicht-gelistete Wert bleibt wählbar, die geladenen kommen dazu.
-    expect(options).toContain("gemma4:e4b");
-    expect(options).toContain("m1");
-    expect(options).toContain("m2");
-  });
-
-  it("the load-models button warns via a notice when no endpoint is reachable", async () => {
-    const plugin = makeFakePlugin();
-    const host = makeFakeHost({
-      loadModels: vi.fn().mockResolvedValue({ endpoint: null, models: [] }),
-    });
-    const clicks = captureButtonClicks();
-    const tab = new SettingsTab(plugin, host);
-    tab.display();
-
-    await clicks[3]?.();
-
-    expect(Notice.instances).toHaveLength(1);
-    expect(String(Notice.instances[0]?.message)).toBe(
-      "No reachable endpoint — enter the model manually.",
+    // Der Schluessel MUSS mitgehen: ein Gateway, das unauthentifiziert 401 antwortet,
+    // gaelte sonst als tot und die Zeile bliebe dauerhaft rot.
+    expect(host.probeEndpoint).toHaveBeenCalledWith(
+      expect.objectContaining({ url: "http://a:1", apiKey: "geheim" }),
     );
   });
 });
 
-describe("SettingsTab — other groups", () => {
-  it("the install-examples button never calls saveSettings/probe (host has no install hook)", () => {
+describe("SettingsTab — Sperrliste", () => {
+  it("uebernimmt die Textarea zeilenweise beim Verlassen des Feldes", () => {
     const plugin = makeFakePlugin();
     const host = makeFakeHost();
-    const clicks = captureButtonClicks();
+    host.settings.deniedEndpoints = ["http://alt:1"];
+    const areas = captureTextAreas();
     const tab = new SettingsTab(plugin, host);
+
     tab.display();
+    const area = areas[areas.length - 1];
+    expect(area).toBeTruthy();
+    (area as unknown as { _value: string })._value = "http://x:1\nhttp://y:2\n\n  http://z:3  ";
+    area!.inputEl.dispatchEvent(new Event("blur"));
 
-    // Button-Index 4 = „Install example crews" (Crews-Gruppe, nach den 4 Connection-Buttons).
-    clicks[4]?.();
+    // parseEndpointList trimmt, verwirft Leerzeilen und haelt die Reihenfolge.
+    expect(host.settings.deniedEndpoints).toEqual(["http://x:1", "http://y:2", "http://z:3"]);
+    expect(host.saveSettings).toHaveBeenCalledTimes(1);
+  });
 
-    expect(Notice.instances).toHaveLength(1);
-    // Der Install-Button meldet nur „nutze den Command" — er persistiert nichts.
+  it("speichert nicht, wenn sich nichts geaendert hat", () => {
+    const plugin = makeFakePlugin();
+    const host = makeFakeHost();
+    host.settings.deniedEndpoints = ["http://alt:1"];
+    const areas = captureTextAreas();
+    const tab = new SettingsTab(plugin, host);
+
+    tab.display();
+    const area = areas[areas.length - 1];
+    (area as unknown as { _value: string })._value = "http://alt:1";
+    area!.inputEl.dispatchEvent(new Event("blur"));
+
     expect(host.saveSettings).not.toHaveBeenCalled();
   });
+});
 
-  it("editing the crew-root text field updates host.settings and persists", async () => {
+describe("SettingsTab — Faehigkeiten des aktiven Modells", () => {
+  it("zeigt nichts, solange kein Endpunkt aufgeloest ist", () => {
     const plugin = makeFakePlugin();
     const host = makeFakeHost();
-    const changes = captureTextChanges();
+    host.settings.endpoints = [{ url: "http://a:1", model: "qwen3-8b" }];
+    const texts = captureSettingTexts();
     const tab = new SettingsTab(plugin, host);
+
     tab.display();
 
-    // Endpoint-/Denied-Zeilen editieren über blur (kein onChange). Die onChange-Felder in
-    // Erstellungsreihenfolge: [defaultModel(freetext), crewRoot, maxWrites, wallClock,
-    // undoDepth, callTimeout, stallTimeout] → crewRoot = Index 1.
-    await changes[1]?.("custom-root");
-
-    expect(host.settings.crewRoot).toBe("custom-root");
-    expect(host.saveSettings).toHaveBeenCalledTimes(1);
+    expect(texts.join(" | ")).not.toContain("Reasoning");
   });
 
-  it("editing the max-writes field parses to a number and ignores garbage input", async () => {
+  it("beschreibt das Modell der aktiven Zeile, sobald sie aufgeloest ist", async () => {
     const plugin = makeFakePlugin();
-    const host = makeFakeHost();
-    const changes = captureTextChanges();
+    const host = makeFakeHost({ resolveActive: vi.fn().mockResolvedValue("http://a:1") });
+    host.settings.endpoints = [{ url: "http://a:1", model: "qwen3-8b" }];
+    const texts = captureSettingTexts();
     const tab = new SettingsTab(plugin, host);
+
     tab.display();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
 
-    // onChange-Index 2 = maxWrites (nach defaultModel-Freitext[0] und crewRoot[1]).
-    await changes[2]?.("25");
-    expect(host.settings.maxWrites).toBe(25);
-
-    await changes[2]?.("not-a-number");
-    expect(host.settings.maxWrites).toBe(25); // Fallback: letzter gültiger Wert bleibt erhalten
-  });
-
-  it("toggling verbose logging updates host.settings and persists", async () => {
-    const plugin = makeFakePlugin();
-    const host = makeFakeHost();
-    const toggles: Array<(v: boolean) => unknown> = [];
-    vi.spyOn(ToggleComponent.prototype, "onChange").mockImplementation(function (
-      this: InstanceType<typeof ToggleComponent>,
-      cb: (v: boolean) => unknown,
-    ) {
-      this.onChangeCB = cb;
-      toggles.push(cb);
-      return this;
-    });
-    const tab = new SettingsTab(plugin, host);
-    tab.display();
-
-    expect(toggles).toHaveLength(1);
-    await toggles[0]?.(true);
-
-    expect(host.settings.verboseLogging).toBe(true);
-    expect(host.saveSettings).toHaveBeenCalledTimes(1);
+    const joined = texts.join(" | ");
+    expect(joined).toContain("qwen3-8b");
+    // Und zwar als Vermutung beschriftet — die Namens-Heuristik behauptet nie mehr,
+    // als der Name hergibt.
+    expect(joined).toContain("Reasoning");
   });
 });
