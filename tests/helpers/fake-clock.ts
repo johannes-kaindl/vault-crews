@@ -1,4 +1,4 @@
-import type { ClockPort } from '../../src/core/ports';
+import type { ClockPort } from '../../src/vendor/kit/clock';
 
 export class FakeClock implements ClockPort {
 	private t: number;

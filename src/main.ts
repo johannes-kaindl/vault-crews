@@ -47,7 +47,8 @@ import { executeRun, type RunDeps } from "./core/orchestrator";
 import { parseTeamDef } from "./core/crew-parser";
 import { buildDenylist } from "./core/paths";
 import { buildUndoPlan, type UndoPlan } from "./core/undo-plan";
-import type { ClockPort, LlmClient, MetadataPort, RunEvent, RunReporter, SnapshotStore, VaultPort } from "./core/ports";
+import type { LlmClient, MetadataPort, RunEvent, RunReporter, SnapshotStore, VaultPort } from "./core/ports";
+import { realClock, type ClockPort } from "./vendor/kit/clock";
 import type { ErrorKind, RunLimits, RunResult, RunStatus } from "./core/types";
 
 /** Feste V1-Grenzen, die die Settings-UI (bewusst) nicht exponiert. */
@@ -195,13 +196,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     this.vault = new ObsidianVaultPort(this.app);
     this.meta = new ObsidianMetadataPort(this.app);
     this.snapshot = new AdapterSnapshotStore(this.app);
-    this.clock = {
-      now: () => Date.now(),
-      setTimeout: (fn, ms) => window.setTimeout(fn, ms),
-      clearTimeout: (id) => {
-        window.clearTimeout(id);
-      },
-    };
+    this.clock = realClock;
     this.llm = this.buildLlmClient();
   }
 

@@ -9,9 +9,10 @@ import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { parseLmStudioContext, parseOllamaContext, suppressParams } from './model-info';
 import { isContextOverflow, extractChatContent, extractErrorMessage } from './chat-response';
 import { reasoningHappened } from '../vendor/kit/reasoning';
+import type { ClockPort } from '../vendor/kit/clock';
 import { LlmCallError } from './ports';
 import type {
-	ClockPort, JsonTransport, LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, SseTransport,
+	JsonTransport, LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, SseTransport,
 } from './ports';
 
 const ERROR_BODY_CAP = 4096;

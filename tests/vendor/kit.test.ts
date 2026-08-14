@@ -10,6 +10,7 @@ import {
 	validateEndpointInput,
 } from '../../src/vendor/kit/endpoint_diagnostics';
 import { defineStrings, setLang, t } from '../../src/vendor/kit/i18n';
+import { realClock } from '../../src/vendor/kit/clock';
 
 describe('vendored parseSSE', () => {
 	it('akkumuliert content-Deltas und erkennt [DONE]', () => {
@@ -123,5 +124,37 @@ describe('vendored i18n', () => {
 		expect(t('greet', 'Welt')).toBe('Hallo Welt');
 		setLang('en');
 		expect(t('greet', 'World')).toBe('Hello World');
+	});
+});
+
+describe('vendored clock', () => {
+	it('now() liefert die Wall-Clock', () => {
+		const before = Date.now();
+		const seen = realClock.now();
+		expect(seen).toBeGreaterThanOrEqual(before);
+		expect(seen).toBeLessThanOrEqual(Date.now());
+	});
+
+	// Der ganze Zweck des Ports: getesteter Code ruft nie die bare Global (Store-Linter
+	// verlangt `window`, das es in node-env nicht gibt). Deshalb wird hier gegen ein
+	// window-Stub geprüft — faellt das Delegieren beim Nachziehen weg, ist es sofort sichtbar.
+	it('setTimeout/clearTimeout delegieren an window', () => {
+		const calls: string[] = [];
+		const stub = {
+			setTimeout: (fn: () => void, ms: number) => { calls.push(`set:${ms}`); void fn; return 42; },
+			clearTimeout: (id: number) => { calls.push(`clear:${id}`); },
+		};
+		const g = globalThis as unknown as { window?: unknown };
+		const had = 'window' in g;
+		const prev = g.window;
+		g.window = stub;
+		try {
+			const id = realClock.setTimeout(() => undefined, 250);
+			realClock.clearTimeout(id);
+			expect(id).toBe(42);
+			expect(calls).toEqual(['set:250', 'clear:42']);
+		} finally {
+			if (had) g.window = prev; else delete g.window;
+		}
 	});
 });

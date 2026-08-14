@@ -14,9 +14,10 @@ import { buildRunMd, buildStateJson } from './run-log';
 import { fnv1a } from './collectors';
 import { isAlwaysOnThinker } from './model-info';
 import { normalizeEndpoint, resolveActiveEndpoint } from '../vendor/kit/endpoint';
+import type { ClockPort } from '../vendor/kit/clock';
 import { LlmCallError } from './ports';
 import type {
-	ClockPort, LlmClient, LlmMessage, LlmParams, LlmStreamResult, MetadataPort, RunReporter, SnapshotStore, VaultPort,
+	LlmClient, LlmMessage, LlmParams, LlmStreamResult, MetadataPort, RunReporter, SnapshotStore, VaultPort,
 } from './ports';
 import type {
 	Action, ActionsTaskDef, AgentDef, Artifact, CollectorTaskDef, ErrorKind, LlmTaskDef,
