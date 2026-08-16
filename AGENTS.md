@@ -33,6 +33,20 @@ Cockpit**, nicht hierher. In dieser Reihenfolge lesen:
 - **Deploy:** `npm run deploy` (Copy nach `$OBSIDIAN_PLUGIN_DIR`), nie Symlink/BRAT als Primärweg.
 
 ## Architecture notes (Invarianten + Gotchas)
+
+**OFFEN (gemessen 2026-08-16): die Statusklasse `unauthorized` fehlt im Wörterbuch.**
+Der vendorte `endpoint_diagnostics.ts` kennt sie (Kit 0.24.0), dieses Repo führt die
+Endpunkt-Statusklassen aber selbst über `t()` — und dort fehlt der Schlüssel. `t()` fällt
+bei unbekanntem Schlüssel auf den **Schlüssel** zurück, nicht auf EN: in der Oberfläche
+stünde ``settings.endpoint.status.unauthorized`` und sähe aus wie ein plausibler String, nicht wie ein Fehler. Getroffen
+wird ausgerechnet der Fall, für den die Klasse eingeführt wurde — ein gehosteter Endpunkt
+mit fehlendem oder falschem API-Schlüssel (401/403).
+
+**Fix (zwei Zeilen + ein Wächter):** Schlüssel ``settings.endpoint.status.unauthorized`` in EN **und** DE ergänzen
+(PROF-OBS-07), dazu ein Vollständigkeits-`Record<EndpointStatusKind, true>` im Test — der
+bricht am `typecheck:test`, sobald das nächste Kit-Update eine weitere Klasse mitbringt.
+Referenz-Implementierung: `obsidian-transmute/tests/i18n-status-keys.test.ts`.
+Verbindlich als **CORE-TEST-04**. Gefunden beim Consumer-Sweep, nicht vom Gate.
 - `src/core/**` und `src/vendor/**` importieren NIE `obsidian` (CI-Gate `check:pure`).
   Ports injiziert (`src/core/ports.ts`); Obsidian-Adapter nur in `src/obsidian/`.
 - **Vendoring statt git-Deps:** obsidian-kit-Module liegen kopiert in `src/vendor/kit/`
