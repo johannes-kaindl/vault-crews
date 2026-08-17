@@ -255,3 +255,21 @@ describe("VaultCrewsPlugin.listModels / resolveActive", () => {
     expect(seen.some((h) => h.Authorization === "Bearer sk-test-key-123")).toBe(true);
   });
 });
+
+describe("VaultCrewsPlugin.loadSettings — Migration", () => {
+  // Der GUI-Smoke fand es: mergeSettings kopiert JEDES Feld der alten data.json ins
+  // Settings-Objekt, auch das gestrichene `defaultModel`. Es blieb danach unbenutzt liegen
+  // und wurde bei jedem Speichern wieder in die Datei geschrieben — ein Feld, dessen
+  // Abschaffung das CHANGELOG ankuendigt, ueberlebte die Migration.
+  it("laesst das abgeschaffte defaultModel nicht im Settings-Objekt zurueck", async () => {
+    const plugin = makePlugin();
+    (plugin as unknown as { loadData(): Promise<unknown> }).loadData = () =>
+      Promise.resolve({ endpoints: ["http://a:1"], defaultModel: "altes-modell" });
+
+    await plugin.loadSettings();
+
+    const s = (plugin as unknown as { settings: Record<string, unknown> }).settings;
+    expect(s.endpoints).toEqual([{ url: "http://a:1", model: "altes-modell" }]);
+    expect("defaultModel" in s).toBe(false);
+  });
+});

@@ -150,6 +150,13 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       raw ?? {},
       DEFAULT_SETTINGS.endpoints,
     );
+    // `mergeSettings` kopiert JEDES Feld der alten data.json herüber, auch das
+    // abgeschaffte `defaultModel`. Ohne diese Zeile bliebe es unbenutzt im Objekt liegen
+    // und würde bei jedem Speichern wieder in die Datei geschrieben — ein Feld, dessen
+    // Wegfall das CHANGELOG ankündigt, überlebte die Migration. Gefunden vom GUI-Smoke,
+    // 409 grüne Tests sahen es nicht (sie prüften die Migrationsfunktion, nicht den
+    // Ladepfad). Gleiches Muster wie `lastRuns` weiter unten.
+    delete (this.settings as unknown as Record<string, unknown>).defaultModel;
     this.lastRuns = raw && isRecord(raw.lastRuns) ? filterValidLastRuns(raw.lastRuns) : {};
     // lastRuns ist ein eigenes data.json-Feld, nicht Teil von PluginSettings —
     // aus dem Merge-Ergebnis wieder entfernen, damit `settings` sauber bleibt.
