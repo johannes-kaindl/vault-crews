@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-08-17
+
 ### Added
 
 - **API-Schlüssel je Endpunkt.** Jede Zeile der Endpunkt-Liste trägt jetzt ihren eigenen Schlüssel — damit lässt sich eine Fallback-Liste aus lokalen und gehosteten Anbietern mischen: erst LM Studio, und wenn das aus ist, ein OpenAI-kompatibles Gateway. Der Schlüssel geht auch an die Erreichbarkeitsprobe; ein Gateway, das unauthentifiziert mit 401 antwortet, gilt sonst fälschlich als tot.
