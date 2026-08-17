@@ -323,6 +323,147 @@ async function abschnittDrittanbieter(cdp: Cdp): Promise<void> {
 
 // --- Hauptlauf ---------------------------------------------------------------
 
+// --- Abschnitt: deklarative Settings-API --------------------------------------
+
+/**
+ * Die Umstellung auf `getSettingDefinitions()` (Obsidian ≥ 1.13) verlegt das Zeichnen der
+ * Einstellungen vom eigenen Code zum Host. Was danach in der Oberfläche steht, kann kein
+ * vitest-Fall mehr zeigen — und die Fallstricke der Umstellung sind allesamt **stille**:
+ * eine Zeile, die per `visible: false` versteckt statt weggelassen wird (der native
+ * Renderer wertet das an Gruppen-Items nicht aus, sie bleibt stehen), eine Zeile ohne
+ * eigenen Renderer (die überspringt er stillschweigend), und ein Fallback-Pfad, der
+ * niemandem auffällt, weil der Host ihn ab 1.13 nie mehr aufruft.
+ *
+ * Beides zusammen ist der Grund, aus dem der Umbau überhaupt lohnt: ohne die Methode
+ * erscheint KEINE Einstellung dieses Plugins in Obsidians Einstellungs-Suche.
+ *
+ * Unter 1.12 gibt es den nativen Pfad nicht; dort wird der Abschnitt übersprungen statt rot.
+ */
+async function abschnittDeklarativ(cdp: Cdp): Promise<void> {
+  console.log("\n── Deklarative Settings-API ──");
+
+  const ui = await einstellungenOeffnen(cdp);
+  if (!ui) {
+    skipped("Deklarative API", "Einstellungen-Tab nicht zu oeffnen");
+    return;
+  }
+
+  // Die Definitionen leben im HAUPTfenster: das ausgelagerte Einstellungen-Fenster hat ab
+  // 1.13 einen eigenen JS-Kontext und kennt kein `app` (Fund yijing-oracle 2026-08-16).
+  const defs = await cdp.evaluate<{
+    hatUpdate: boolean;
+    gruppen: number;
+    leereGruppen: number;
+    uebernommen: number | null;
+    mitVisible: number;
+    stumm: number;
+    suchbegriff: string | null;
+    pluginName: string;
+  } | null>(`
+    const tab = app.setting.activeTab;
+    if (!tab || typeof tab.getSettingDefinitions !== "function") return null;
+    const d = tab.getSettingDefinitions();
+    const flach = (items) => items.flatMap((i) => [i, ...flach(i.items || [])]);
+    const alle = flach(d);
+    return {
+      hatUpdate: typeof tab.update === "function",
+      gruppen: d.length,
+      leereGruppen: d.filter((g) => !(g.items || []).length).length,
+      uebernommen: Array.isArray(tab.settingItems) ? tab.settingItems.length : null,
+      mitVisible: alle.filter((i) => i.visible !== undefined).length,
+      stumm: alle.filter((i) => !i.heading && !i.items && !i.control && !i.render).length,
+      suchbegriff: (d[1] && d[1].items && d[1].items[0] && d[1].items[0].name) || null,
+      pluginName: app.plugins.manifests[${JSON.stringify(PLUGIN_ID)}].name,
+    };
+  `);
+
+  if (!defs) {
+    record("Deklarative API vorhanden", false, "getSettingDefinitions() fehlt am aktiven Tab");
+    await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
+    return;
+  }
+  if (!defs.hatUpdate) {
+    skipped("Deklarative API", "Obsidian ohne native 1.13-Settings-API (nur Fallback-Pfad)");
+    await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
+    return;
+  }
+
+  record(
+    "Tab liefert Definitionen und der Host uebernimmt sie",
+    defs.gruppen > 0 && defs.leereGruppen === 0 && defs.uebernommen === defs.gruppen,
+    `${defs.gruppen} Gruppen, ${defs.leereGruppen} leer, vom Host uebernommen: ${String(defs.uebernommen)}`,
+  );
+
+  // Die beiden Fallstricke aus REGISTRY.md, gemessen statt geglaubt: bedingte Zeilen
+  // gehoeren weggelassen (`visible` wirkt nicht), und jede Zeile braucht einen Regler
+  // oder einen eigenen Renderer (sonst ueberspringt der native Renderer sie).
+  record(
+    "keine versteckten und keine stummen Zeilen",
+    defs.mitVisible === 0 && defs.stumm === 0,
+    `${defs.mitVisible} Zeilen mit visible, ${defs.stumm} ohne Regler/Renderer`,
+  );
+
+  // Der eigentliche Gewinn. Der Suchbegriff kommt aus der eigenen Definition, nicht aus
+  // einer festen Zeichenkette — sonst misst der Treiber die UI-Sprache.
+  if (defs.suchbegriff) {
+    const treffer = await sucheInEinstellungen(ui, defs.suchbegriff, defs.pluginName);
+    const nichts = await sucheInEinstellungen(ui, "zzqqxx-gibtesnicht", defs.pluginName);
+    record(
+      "Einstellungen erscheinen in Obsidians Einstellungs-Suche",
+      treffer > 0 && nichts === 0,
+      `„${defs.suchbegriff}" → ${treffer} Treffer unter „${defs.pluginName}", Unsinn → ${nichts}`,
+    );
+  } else {
+    skipped("Einstellungs-Suche", "kein Suchbegriff aus den Definitionen ableitbar");
+  }
+
+  // Der andere Pfad. Unter 1.13 ruft der Host `display()` nie — der Fallback fuer aeltere
+  // Obsidian-Versionen liefe also ungeprueft mit. Ein direkter Aufruf zeichnet ihn in
+  // denselben Container: dieselben Zeilen, mit der klassischen Setting-API gebaut. Das
+  // ersetzt keine Messung auf einem echten 1.12, deckt aber den teuren Fehler ab (der
+  // Walker zeichnet die Struktur gar nicht oder nur halb).
+  const nativZeilen = await zeilenZahl(ui);
+  await cdp.evaluate(`
+    app.setting.activeTab.display();
+    await new Promise((r) => setTimeout(r, 700));
+    return true;
+  `);
+  const fallbackZeilen = await zeilenZahl(ui);
+  record(
+    "Fallback-Pfad (< 1.13) zeichnet dieselbe Struktur",
+    fallbackZeilen === nativZeilen && nativZeilen > 0,
+    `nativ ${nativZeilen} Zeilen, display()-Fallback ${fallbackZeilen}`,
+  );
+
+  await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
+}
+
+/** Gerenderte Setting-Zeilen in der Einstellungen-Oberflaeche. */
+async function zeilenZahl(ui: Cdp): Promise<number> {
+  return ui.evaluate<number>(`
+    const wurzel = document.querySelector(".modal.mod-settings .vertical-tab-content")
+      || document.querySelector(".vertical-tab-content-container .vertical-tab-content")
+      || document.querySelector(".vertical-tab-content");
+    return wurzel ? wurzel.querySelectorAll(".setting-item").length : -1;
+  `);
+}
+
+/** Tippt in Obsidians Einstellungs-Suche und zaehlt die Treffer, die UNSEREM Plugin
+ *  zugeordnet sind — die Ergebnisse stehen je Tab in einer eigenen Gruppe. */
+async function sucheInEinstellungen(ui: Cdp, begriff: string, pluginName: string): Promise<number> {
+  return ui.evaluate<number>(`
+    const feld = document.querySelector('input[type="search"]');
+    if (!feld) return -1;
+    feld.value = ${JSON.stringify(begriff)};
+    feld.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 600));
+    const gruppe = [...document.querySelectorAll(".setting-search-result-group")].find(
+      (g) => g.querySelector(".setting-search-result-tab-label")?.textContent?.trim() === ${JSON.stringify(pluginName)},
+    );
+    return gruppe ? gruppe.querySelectorAll(".setting-search-result-item").length : 0;
+  `);
+}
+
 async function main(): Promise<void> {
   const cdp = await attachTo("workspace", PORT, VAULT);
   if (!cdp) {
@@ -378,6 +519,7 @@ async function main(): Promise<void> {
       await pluginNeuLaden(cdp);
     }
     await abschnittEinstellungen(cdp);
+    await abschnittDeklarativ(cdp);
     await abschnittDrittanbieter(cdp);
   } finally {
     // Zurueckschreiben und das Ergebnis MESSEN statt darauf vertrauen.

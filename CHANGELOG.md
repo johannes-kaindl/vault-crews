@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Die Einstellungen sind wieder auffindbar.** Ab Obsidian 1.13 fragt der Host die Einstellungen deklarativ ab (`getSettingDefinitions()`); wer das nicht anbietet, dessen Felder erscheinen in der Einstellungs-Suche schlicht nicht — keines davon. Das Plugin bietet sie jetzt an und zeichnet dieselbe Struktur über den Kit-Walker weiterhin selbst, solange Obsidian älter als 1.13 ist. Sichtbar ändert sich sonst nichts: dieselben vier Gruppen, dieselben Zeilen, derselbe Endpunkt-Editor.
+
 ## [0.9.1] — 2026-08-17
 
 ### Fixed

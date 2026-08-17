@@ -1,4 +1,4 @@
-import { Notice, PluginSettingTab, Setting, type Plugin } from "obsidian";
+import { Notice, PluginSettingTab, Setting, type Plugin, type SettingDefinitionItem } from "obsidian";
 import { t } from "../vendor/kit/i18n";
 import { ENDPOINT_PRESETS, type EndpointStatus } from "../vendor/kit/endpoint_diagnostics";
 import { parseEndpointList } from "../vendor/kit/endpoint";
@@ -6,6 +6,7 @@ import type { EndpointConfig } from "../vendor/kit/endpoint_config";
 import { createModelListCache, type ModelListCache } from "../vendor/kit/model-list-cache";
 import { guessFromName, type Capabilities } from "../vendor/kit/capabilities";
 import { buildEndpointList, type EndpointListStrings } from "../vendor/kit-obsidian/endpoint-list";
+import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "../vendor/kit-obsidian/settings_walker";
 import { statusKindKey, warnRuleKey } from "./endpoint-labels";
 
 /**
@@ -56,11 +57,6 @@ export interface SettingsHost {
   listModels(cfg: EndpointConfig): Promise<string[]>;
   /** Normalisierte URL des ersten erreichbaren Eintrags, oder null. */
   resolveActive(): Promise<string | null>;
-}
-
-function parseIntSafe(raw: string, fallback: number): number {
-  const n = Number.parseInt(raw, 10);
-  return Number.isFinite(n) ? n : fallback;
 }
 
 /** Der Textbaustein-Satz, den der Kit-Editor bekommt — das Kit formuliert nicht. */
@@ -119,12 +115,29 @@ function capabilityLines(caps: Capabilities): string[] {
   return out;
 }
 
+/** Eine Zeile der deklarativen Struktur: entweder ein generischer Regler (`control`) oder
+ *  ein eigener Renderer (`render`). Beides zusammen gibt es nicht — und keins von beidem
+ *  auch nicht: eine Zeile ohne Regler überspringt der native ≥1.13-Renderer stillschweigend,
+ *  während der Fallback-Walker sie zeichnet (Fund yijing-oracle, REGISTRY). Der Wächter dazu
+ *  steht in `tests/obsidian/settings-definitions.test.ts`. */
+type ControlDef = { type: "text" | "number" | "toggle"; key: keyof PluginSettings; placeholder?: string };
+type ItemDef = { name?: string; desc?: string; control?: ControlDef; render?: (setting: Setting) => void };
+type GroupDef = { type: "group"; heading: string; items: ItemDef[] };
+
 /**
- * Vier Gruppen (Spec §6.4): Connection · Crews · Safety · Advanced. Deklarative
- * Settings-API (`new Setting(containerEl)...`). Der Endpunkt-Zeilen-Editor kommt seit
- * 2026-08-14 vollständig aus dem Kit (`buildEndpointList`) — er trägt URL, Schlüssel und
- * Modell je Zeile. `display()` statt `getSettingDefinitions()`, weil `manifest.json`
- * minAppVersion < 1.13.0 ist (obsidianmd/require-display).
+ * Vier Gruppen (Spec §6.4): Connection · Crews · Safety · Advanced.
+ *
+ * **Zweigleisig, eine Wahrheit.** `getSettingDefinitions()` IST die Struktur; ab Obsidian
+ * 1.13 fragt der Host sie selbst ab und ruft `display()` nie. Darunter zeichnet der
+ * Kit-Walker (`renderSettingDefinitions`) dieselbe Struktur mit der klassischen
+ * `Setting`-API nach. Beides ist nötig, weil `manifest.json` auf minAppVersion 1.8.7 steht.
+ * Ohne die Methode erscheint **keine** Einstellung dieses Plugins in Obsidians
+ * Einstellungs-Suche — gemessen an yijing-oracle (0 → 7 registrierte Zeilen), und der
+ * Store-Scan mahnt sie als `prefer-setting-definitions` an.
+ *
+ * Was nicht deklarativ geht, läuft über `render`-Hatches: der Kit-Endpunkt-Editor bringt
+ * sein eigenes DOM mit, die Sperrliste committet erst beim Verlassen des Feldes, und der
+ * Beispiel-Knopf ist ein Knopf. `settingBodyHost` macht die Zeile dafür zum leeren Block.
  */
 export class SettingsTab extends PluginSettingTab {
   /** Modell-Listen je Endpunkt. Gehört der Lebensdauer DIESES Tabs, nicht der eines
@@ -132,6 +145,10 @@ export class SettingsTab extends PluginSettingTab {
   private readonly modelCache: ModelListCache = createModelListCache();
   /** Normalisierte URL des zuletzt aufgelösten aktiven Endpunkts (für die Rollenzeile). */
   private activeUrl: string | null = null;
+  /** Verhindert, dass jeder Rebuild eine weitere Auflösung nachschiebt. */
+  private resolving = false;
+  /** Cleanups der Hatches des vorigen Fallback-Durchlaufs. */
+  private cleanupPrevious: () => void = () => {};
 
   constructor(
     plugin: Plugin,
@@ -142,23 +159,100 @@ export class SettingsTab extends PluginSettingTab {
     super(plugin.app, plugin);
   }
 
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    // Beide Pfade kommen hier vorbei — der native ≥1.13 direkt, der Fallback über
+    // renderImperative(). Deshalb hängt die Auflösung des aktiven Endpunkts hier und
+    // nicht mehr in display(): unter 1.13 wird display() nie gerufen, und die Rollen-
+    // und Fähigkeiten-Anzeige bliebe für immer leer.
+    this.ensureActiveResolved();
+
+    const defs: GroupDef[] = [
+      {
+        type: "group",
+        heading: t("settings.connection.heading"),
+        items: [
+          {
+            name: t("settings.connection.endpoints.name"),
+            desc: t("settings.connection.endpoints.desc"),
+            render: (setting) => this.renderEndpoints(setting),
+          },
+          // Bedingte Zeile: WEGGELASSEN statt per `visible` versteckt. Der native
+          // 1.13-Renderer wertet `visible: false` nicht aus, die Zeile bliebe stehen
+          // (Fund obsidian-paperize, REGISTRY). Weglassen wirkt in beiden Pfaden, weil
+          // diese Methode bei jedem Rebuild neu ausgewertet wird.
+          ...this.capabilityItems(),
+          {
+            name: t("settings.connection.deniedEndpoints.name"),
+            desc: t("settings.connection.deniedEndpoints.desc"),
+            render: (setting) => this.renderDenied(setting),
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: t("settings.crews.heading"),
+        items: [
+          {
+            name: t("settings.crews.crewRoot.name"),
+            desc: t("settings.crews.crewRoot.desc"),
+            control: { type: "text", key: "crewRoot" },
+          },
+          {
+            name: t("settings.crews.installExamples.name"),
+            desc: t("settings.crews.installExamples.desc"),
+            render: (setting) => this.renderInstallExamples(setting),
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: t("settings.safety.heading"),
+        items: [
+          {
+            name: t("settings.safety.maxWrites.name"),
+            desc: t("settings.safety.maxWrites.desc"),
+            control: { type: "number", key: "maxWrites" },
+          },
+          {
+            name: t("settings.safety.wallClockMinutes.name"),
+            desc: t("settings.safety.wallClockMinutes.desc"),
+            control: { type: "number", key: "wallClockMinutes" },
+          },
+          {
+            name: t("settings.safety.undoHistoryDepth.name"),
+            desc: t("settings.safety.undoHistoryDepth.desc"),
+            control: { type: "number", key: "undoHistoryDepth" },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: t("settings.advanced.heading"),
+        items: [
+          {
+            name: t("settings.advanced.callTimeoutS.name"),
+            desc: t("settings.advanced.callTimeoutS.desc"),
+            control: { type: "number", key: "callTimeoutS" },
+          },
+          {
+            name: t("settings.advanced.stallTimeoutS.name"),
+            desc: t("settings.advanced.stallTimeoutS.desc"),
+            control: { type: "number", key: "stallTimeoutS" },
+          },
+          {
+            name: t("settings.advanced.verboseLogging.name"),
+            desc: t("settings.advanced.verboseLogging.desc"),
+            control: { type: "toggle", key: "verboseLogging" },
+          },
+        ],
+      },
+    ];
+    return defs as unknown as SettingDefinitionItem[];
+  }
+
+  /** Ab 1.13 rendert der Host aus den Definitionen und ruft das hier nie. */
   display(): void {
-    const { containerEl } = this;
-    containerEl.empty();
-
-    this.renderConnection(containerEl);
-    this.renderCrews(containerEl);
-    this.renderSafety(containerEl);
-    this.renderAdvanced(containerEl);
-
-    // Die aktive Zeile steht erst fest, wenn die Proben zurück sind. Einmal je Aufbau
-    // auflösen und dann NUR die Rollen neu zeichnen — nicht den ganzen Tab, sonst
-    // verliert ein gerade getipptes Feld den Fokus.
-    void this.host.resolveActive().then((url) => {
-      if (url === this.activeUrl) return;
-      this.activeUrl = url;
-      this.display();
-    });
+    this.renderImperative();
   }
 
   /** Beim Schließen des Tabs die gecachten Modell-Listen verwerfen — Pflicht des
@@ -172,11 +266,103 @@ export class SettingsTab extends PluginSettingTab {
     super.hide();
   }
 
-  private renderConnection(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName(t("settings.connection.heading")).setHeading();
+  getControlValue(key: string): string | number | boolean | undefined {
+    const s = this.host.settings;
+    switch (key) {
+      case "crewRoot":
+        return s.crewRoot;
+      case "maxWrites":
+        return s.maxWrites;
+      case "wallClockMinutes":
+        return s.wallClockMinutes;
+      case "undoHistoryDepth":
+        return s.undoHistoryDepth;
+      case "callTimeoutS":
+        return s.callTimeoutS;
+      case "stallTimeoutS":
+        return s.stallTimeoutS;
+      case "verboseLogging":
+        return s.verboseLogging;
+      default:
+        return undefined;
+    }
+  }
 
-    buildEndpointList({
+  setControlValue(key: string, value: unknown): void {
+    const s = this.host.settings;
+    // Der Walker reicht bei `number` ein rohes `Number(v)` durch — bei leerem oder
+    // unfertigem Feld ist das `NaN`. Auf den bisherigen Wert zurückfallen, sonst
+    // überschreibt jeder Zwischenzustand beim Tippen die Einstellung.
+    const asInt = (fallback: number): number => {
+      const parsed = Number.parseInt(String(value), 10);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+    switch (key) {
+      case "crewRoot":
+        s.crewRoot = String(value);
+        break;
+      case "maxWrites":
+        s.maxWrites = asInt(s.maxWrites);
+        break;
+      case "wallClockMinutes":
+        s.wallClockMinutes = asInt(s.wallClockMinutes);
+        break;
+      case "undoHistoryDepth":
+        // Mindestens 1 aufheben (0 würde jeden Snapshot sofort wegprunen).
+        s.undoHistoryDepth = Math.max(1, asInt(s.undoHistoryDepth));
+        break;
+      case "callTimeoutS":
+        s.callTimeoutS = asInt(s.callTimeoutS);
+        break;
+      case "stallTimeoutS":
+        s.stallTimeoutS = asInt(s.stallTimeoutS);
+        break;
+      case "verboseLogging":
+        s.verboseLogging = Boolean(value);
+        break;
+      default:
+        return;
+    }
+    void this.host.saveSettings();
+  }
+
+  /** Den vollen Fallback-Baum neu zeichnen. Bewusst NICHT `display()` aufrufen: ein
+   *  interner Aufruf löst ab 1.13 die Deprecation-Warnung aus (Fund obsidian-paperize). */
+  private renderImperative(): void {
+    this.cleanupPrevious();
+    const { containerEl } = this;
+    containerEl.empty();
+    this.cleanupPrevious = renderSettingDefinitions(
       containerEl,
+      this.getSettingDefinitions(),
+      this,
+      this.app,
+    );
+  }
+
+  /** Nach einer Zustandsänderung die Oberfläche nachziehen — ab 1.13 über die native
+   *  `update()`-API, darunter über den vollen Rebuild. */
+  private refreshUi(): void {
+    refreshSettingsTab(this, () => this.renderImperative());
+  }
+
+  /** Die aktive Zeile steht erst fest, wenn die Proben zurück sind. Einmal je Zustand
+   *  auflösen und dann nachziehen — nicht bei jedem Rebuild erneut, sonst dreht sich
+   *  Auflösung und Neuzeichnen im Kreis. */
+  private ensureActiveResolved(): void {
+    if (this.resolving) return;
+    this.resolving = true;
+    void this.host.resolveActive().then((url) => {
+      this.resolving = false;
+      if (url === this.activeUrl) return;
+      this.activeUrl = url;
+      this.refreshUi();
+    });
+  }
+
+  private renderEndpoints(setting: Setting): void {
+    buildEndpointList({
+      containerEl: settingBodyHost(setting),
       label: t("settings.connection.endpoints.name"),
       desc: t("settings.connection.endpoints.desc"),
       placeholder: t("settings.connection.endpoints.add"),
@@ -205,31 +391,29 @@ export class SettingsTab extends PluginSettingTab {
       reconnect: async () => {
         this.activeUrl = await this.host.resolveActive();
       },
-      rerender: () => this.display(),
+      rerender: () => this.refreshUi(),
       presets: ENDPOINT_PRESETS,
     });
-
-    this.renderCapabilities(containerEl);
-    this.renderDenied(containerEl);
   }
 
   /** Was das Modell kann, mit dem der nächste Lauf tatsächlich rechnet — also das der
-   *  aktiven Zeile. Ohne erreichbaren Endpunkt gibt es nichts zu sagen, dann bleibt die
-   *  Zeile weg statt zu raten. */
-  private renderCapabilities(containerEl: HTMLElement): void {
+   *  aktiven Zeile. Ohne erreichbaren Endpunkt gibt es nichts zu sagen, dann entfällt die
+   *  Zeile ganz, statt zu raten. */
+  private capabilityItems(): ItemDef[] {
     const active = this.host.settings.endpoints.find((cfg) => cfg.url === this.activeUrl)
       ?? this.host.settings.endpoints.find((cfg) => cfg.url.replace(/\/+$/, "").replace(/\/v1$/, "") === this.activeUrl);
     const model = active?.model?.trim() ?? "";
-    if (model === "") return;
-    new Setting(containerEl)
-      .setName(model)
-      .setDesc(capabilityLines(guessFromName(model)).join(" · "));
+    if (model === "") return [];
+    const desc = capabilityLines(guessFromName(model)).join(" · ");
+    // Als Hatch, nicht als reine name/desc-Zeile: eine Zeile ohne Regler überspringt der
+    // native ≥1.13-Renderer stillschweigend (Fund yijing-oracle, REGISTRY).
+    return [{ name: model, desc, render: (setting) => { setting.setName(model).setDesc(desc); } }];
   }
 
   /** Sperrliste als schlichte Textarea: eine Sperre ist keine Verbindung — sie braucht
    *  weder Status-Icon noch Modellwahl noch einen Schlüssel. */
-  private renderDenied(containerEl: HTMLElement): void {
-    new Setting(containerEl)
+  private renderDenied(setting: Setting): void {
+    setting
       .setName(t("settings.connection.deniedEndpoints.name"))
       .setDesc(t("settings.connection.deniedEndpoints.desc"))
       .addTextArea((c) => {
@@ -246,20 +430,8 @@ export class SettingsTab extends PluginSettingTab {
       });
   }
 
-  private renderCrews(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName(t("settings.crews.heading")).setHeading();
-
-    new Setting(containerEl)
-      .setName(t("settings.crews.crewRoot.name"))
-      .setDesc(t("settings.crews.crewRoot.desc"))
-      .addText((c) =>
-        c.setValue(this.host.settings.crewRoot).onChange(async (v) => {
-          this.host.settings.crewRoot = v;
-          await this.host.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
+  private renderInstallExamples(setting: Setting): void {
+    setting
       .setName(t("settings.crews.installExamples.name"))
       .setDesc(t("settings.crews.installExamples.desc"))
       .addButton((btn) =>
@@ -268,75 +440,6 @@ export class SettingsTab extends PluginSettingTab {
           // 16b, ruft install-examples.ts aus Task 18 auf) — SettingsHost hält bewusst
           // keinen eigenen Install-Pfad (schmaler, stabiler Vertrag für diese Klasse).
           new Notice(t("notice.install.useCommand"));
-        }),
-      );
-  }
-
-  private renderSafety(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName(t("settings.safety.heading")).setHeading();
-
-    new Setting(containerEl)
-      .setName(t("settings.safety.maxWrites.name"))
-      .setDesc(t("settings.safety.maxWrites.desc"))
-      .addText((c) =>
-        c.setValue(String(this.host.settings.maxWrites)).onChange(async (v) => {
-          this.host.settings.maxWrites = parseIntSafe(v, this.host.settings.maxWrites);
-          await this.host.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.safety.wallClockMinutes.name"))
-      .setDesc(t("settings.safety.wallClockMinutes.desc"))
-      .addText((c) =>
-        c.setValue(String(this.host.settings.wallClockMinutes)).onChange(async (v) => {
-          this.host.settings.wallClockMinutes = parseIntSafe(v, this.host.settings.wallClockMinutes);
-          await this.host.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.safety.undoHistoryDepth.name"))
-      .setDesc(t("settings.safety.undoHistoryDepth.desc"))
-      .addText((c) =>
-        c.setValue(String(this.host.settings.undoHistoryDepth)).onChange(async (v) => {
-          // Mindestens 1 aufheben (0 würde jeden Snapshot sofort wegprunen).
-          this.host.settings.undoHistoryDepth = Math.max(1, parseIntSafe(v, this.host.settings.undoHistoryDepth));
-          await this.host.saveSettings();
-        }),
-      );
-  }
-
-  private renderAdvanced(containerEl: HTMLElement): void {
-    new Setting(containerEl).setName(t("settings.advanced.heading")).setHeading();
-
-    new Setting(containerEl)
-      .setName(t("settings.advanced.callTimeoutS.name"))
-      .setDesc(t("settings.advanced.callTimeoutS.desc"))
-      .addText((c) =>
-        c.setValue(String(this.host.settings.callTimeoutS)).onChange(async (v) => {
-          this.host.settings.callTimeoutS = parseIntSafe(v, this.host.settings.callTimeoutS);
-          await this.host.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.advanced.stallTimeoutS.name"))
-      .setDesc(t("settings.advanced.stallTimeoutS.desc"))
-      .addText((c) =>
-        c.setValue(String(this.host.settings.stallTimeoutS)).onChange(async (v) => {
-          this.host.settings.stallTimeoutS = parseIntSafe(v, this.host.settings.stallTimeoutS);
-          await this.host.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName(t("settings.advanced.verboseLogging.name"))
-      .setDesc(t("settings.advanced.verboseLogging.desc"))
-      .addToggle((c) =>
-        c.setValue(this.host.settings.verboseLogging).onChange(async (v) => {
-          this.host.settings.verboseLogging = v;
-          await this.host.saveSettings();
         }),
       );
   }

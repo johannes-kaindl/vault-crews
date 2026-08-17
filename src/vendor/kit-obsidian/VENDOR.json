@@ -1,7 +1,7 @@
 {
   "source": "obsidian-kit",
   "version": "0.26.1",
-  "sha": "c10f6f4",
-  "vendored": "obsidian/confirm.ts, obsidian/endpoint-list.ts, obsidian/model-picker.ts",
-  "note": "Verbatim snapshot. Never hand-edit. Re-copy from obsidian-kit to update. endpoint-list.ts and model-picker.ts carry ONE mechanical deviation from verbatim: kit-internal imports of ../pure/* are rewritten to ../kit/* to match this repo's vendor layout (obsidian-kit's src/obsidian + src/pure become kit-obsidian + kit here). Reproduce that rewrite on every re-vendor; nothing else may differ. Same deviation precedented in vim-dojo and markdown-presentation."
+  "sha": "a316837",
+  "vendored": "obsidian/confirm.ts, obsidian/endpoint-list.ts, obsidian/model-picker.ts, obsidian/settings_walker.ts, obsidian/folder-suggest.ts",
+  "note": "Verbatim snapshot. Never hand-edit. Re-copy from obsidian-kit to update. settings_walker.ts and folder-suggest.ts are byte-verbatim (they import only obsidian and each other, so the pure/* rewrite does not apply); folder-suggest.ts comes along unused because the walker's folder branch references it -- vendoring it verbatim is cheaper to maintain than a declared deviation (precedent: yijing-oracle). endpoint-list.ts and model-picker.ts carry ONE mechanical deviation from verbatim: kit-internal imports of ../pure/* are rewritten to ../kit/* to match this repo's vendor layout (obsidian-kit's src/obsidian + src/pure become kit-obsidian + kit here). Reproduce that rewrite on every re-vendor; nothing else may differ. Same deviation precedented in vim-dojo and markdown-presentation."
 }

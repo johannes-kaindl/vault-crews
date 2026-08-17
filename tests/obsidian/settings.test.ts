@@ -175,10 +175,32 @@ describe("SettingsTab.display()", () => {
     expect(() => tab.display()).not.toThrow();
 
     // Jede `new Setting(containerEl)` legt über containerEl.createDiv(...) ein Kind an.
-    // Connection: 1 Heading + Kit-Editor (Beschriftungszeile + 1 Zeile + Adder + Preset-/
-    // Prüfzeile) + 1 Sperrliste = 6 · Crews 3 · Safety 4 · Advanced 4 = 17. Die
-    // Fähigkeiten-Zeile fehlt hier, weil ohne aufgelösten Endpunkt nichts zu sagen ist.
-    expect(tab.containerEl.children.length).toBe(17);
+    // Connection: 1 Heading + 1 Endpunkt-Block + 1 Sperrliste = 3 · Crews 3 · Safety 4 ·
+    // Advanced 4 = 14. Die Fähigkeiten-Zeile fehlt hier, weil ohne aufgelösten Endpunkt
+    // nichts zu sagen ist.
+    //
+    // Seit dem Umbau auf `getSettingDefinitions()` (2026-08-17) ist der Kit-Endpunkt-Editor
+    // EIN Kind statt sechs: er sitzt jetzt in einer eigenen Zeile, die `settingBodyHost`
+    // zum leeren Block gemacht hat, statt direkt in den Container zu zeichnen.
+    expect(tab.containerEl.children.length).toBe(14);
+  });
+
+  it("gibt dem Kit-Endpunkt-Editor eine Zeile, die er auch füllt", () => {
+    // Eine Hatch, die nichts zeichnet, fiele in der reinen Zählung oben nicht auf — die
+    // leere Wirtszeile zählt mit.
+    const tab = new SettingsTab(makeFakePlugin(), makeFakeHost());
+
+    tab.display();
+
+    // `settingBodyHost` leert die Zeile und nimmt ihr die Zwei-Spalten-Klasse; der Editor
+    // füllt sie danach mit mehreren eigenen Zeilen. Eine gewöhnliche Setting-Zeile trägt
+    // genau ein Kind (ihr controlEl) — der Block ist also der mit mehreren.
+    const gefuellteBloecke = ([...tab.containerEl.children] as unknown[]).filter(
+      (el) =>
+        (el as { className?: string }).className?.includes("setting-item") === false &&
+        ((el as { children?: unknown[] }).children?.length ?? 0) > 1,
+    );
+    expect(gefuellteBloecke).toHaveLength(1);
   });
 
   it("re-rendering (repeated display() calls) clears the previous content first", () => {
