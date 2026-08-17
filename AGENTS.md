@@ -76,6 +76,13 @@ Verbindlich als **CORE-TEST-04**. Gefunden beim Consumer-Sweep, nicht vom Gate.
   ganze Sitzung so stehen), und `clientFor` braucht **ausgeschriebene Rückgabetypen** —
   die Options-Signatur ist eine Intersection zweier `probe()`-Formen, ein Objekt-Literal
   ohne Annotation erfüllt keine davon.
+- **Live-Token-Streaming braucht CORS am LLM-Server** (gemessen 2026-08-17 bei der
+  README-Bebilderung): Der Ticker läuft als `XMLHttpRequest` aus dem Renderer und sendet
+  zwingend `Origin: app://obsidian.md`. Ohne CORS lehnt LM Studio schon den Preflight ab
+  (`OPTIONS` → 400), das Plugin fällt still auf den Non-Streaming-Pfad über `requestUrl`
+  zurück (Hauptprozess, sendet keinen Origin) — der Lauf gelingt, das Panel zeigt bis zum
+  Ende „Warte auf Ausgabe …". Für Ollama war das als `OLLAMA_ORIGINS` schon notiert; es
+  gilt für **jeden** Anbieter. `lms server start --cors` schaltet es ein.
 - **LM Studio / Ollama:** Kontextlänge aus `/api/v0/models` (LM Studio) oder
   `POST /api/show` (Ollama, unter `model_info["<arch>.context_length"]`);
   Thinking-Suppression provider-übergreifend via `suppressParams`

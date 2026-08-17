@@ -17,6 +17,8 @@ wird eingeschränkt und dann geprüft, bevor sie deinen Vault berührt.
 > **Hinweis:** Diese Übersetzung folgt der englischen [`README.md`](README.md).
 > Bei Abweichungen gilt die englische Fassung.
 
+<p align="center"><img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/hero.png" width="600" alt="Das Run-Panel während eines Laufs: der collect-Task fertig, der summarise-Task läuft, und der Denk-Strom des Modells im geöffneten Thinking-Bereich"></p>
+
 ## Funktionen
 
 - **Deterministische Pipeline, keine freilaufende Agenten-Schleife.** Eine Crew („Team")
@@ -68,6 +70,14 @@ wird eingeschränkt und dann geprüft, bevor sie deinen Vault berührt.
   Vault-/Adapter-API von Obsidian und funktioniert damit in jedem Vault — Git-Repo oder
   nicht. (Frühere Fassungen setzten ein Git-Repo voraus; seit 0.2.0 ist diese
   Anforderung weg.)
+
+
+> **Das Live-Token-Streaming braucht CORS auf dem LLM-Server.** Der Ticker läuft als
+> `XMLHttpRequest` aus Obsidians Renderer, und der sendet immer `Origin: app://obsidian.md`.
+> LM Studio lehnt diesen Preflight ab, solange der Server nicht mit `--cors` gestartet wurde
+> (`lms server start --cors`), Ollama, solange `OLLAMA_ORIGINS` es nicht erlaubt. Ohne CORS
+> läuft der Lauf trotzdem durch — das Plugin fällt auf eine Non-Streaming-Anfrage über
+> Obsidians Hauptprozess zurück —, aber das Panel zeigt bis zum Ende „Warte auf Ausgabe …".
 
 ## Installation
 
@@ -134,6 +144,11 @@ Eigene Teams und Agenten zu schreiben ist schlichtes Markdown im Vault — siehe
 Endpunkt- und Zeitlimit-Einstellungen werden einmal beim Laden des Plugins gelesen;
 Änderungen wirken erst nach Deaktivieren und erneutem Aktivieren.
 
+<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/run-log.png" width="600" alt="Ein Lauf-Protokoll: Frontmatter mit status ok, undoable true, einem Write, einem LLM-Call, Dauer und Modell, darunter die Task-Abschnitte">
+
+
+<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/settings-endpoints.png" width="600" alt="Die Verbindungs-Einstellungen: eine Endpunkt-Zeile mit URL, Schlüsselfeld und Modell-Auswahl, als aktiv markiert">
+
 ## Funktionsweise
 
 Ein Lauf ist ein **Orchestrator, der eine feste Pipeline abgeht** — kein Modell, das
@@ -165,6 +180,8 @@ Schreibvorgänge werden **write-ahead** gesichert: der Inhalt einer Notiz vor de
 wandert über die Vault-/Adapter-API von Obsidian in einen versteckten Speicher je Lauf,
 bevor sie angefasst wird. Deshalb bleibt selbst ein abgestürzter oder abgebrochener Lauf
 vollständig rückgängig zu machen, und deshalb braucht es kein Git-Repository.
+
+<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/history-undo.png" width="300" alt="Der Verlauf-Tab des Panels: ein abgeschlossener Lauf mit einer geschriebenen Datei, Knöpfe zum Log-Öffnen und Rückgängigmachen">
 
 ## Sicherheitsmodell
 
@@ -262,6 +279,8 @@ Dokumentiert, statt stillschweigend zu fehlen:
   „Abort requested…", und war der Lauf vorher fertig, sagt es „der Lauf war vor dem
   Abbruch fertig — es wurde nichts abgebrochen", statt in einem Spinner zu erstarren.
   Einen Mechanismus, bereits fertige Arbeit wegzuwerfen, gibt es bewusst nicht.
+
+<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/crew-file.png" width="600" alt="Eine Crew-Team-Datei im Editor: Frontmatter mit crew-kind team, write_scope und den Tasks collector, llm und actions">
 
 ## Eigene Crews schreiben
 

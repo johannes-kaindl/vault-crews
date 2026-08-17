@@ -13,3 +13,4 @@ node_modules/
 # Panel-Harness-Bundle (Werkzeug, wird lokal gebaut)
 tools/panel-harness/harness.js
 .gui-smoke.mjs
+.shots.mjs

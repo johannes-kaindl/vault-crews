@@ -15,6 +15,8 @@ ever touches your vault.
 
 *Auch auf Deutsch verfügbar: [`README.de.md`](README.de.md).*
 
+<p align="center"><img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/hero.png" width="600" alt="The run panel during a run: the collect task done, the summarise task running, and the model's reasoning streaming into the open Thinking section"></p>
+
 ## Features
 
 - **Deterministic pipeline, not a free-form agent loop.** A crew ("team") is a
@@ -60,6 +62,14 @@ ever touches your vault.
 - **No git repository required.** The undo net is a per-run snapshot taken via the
   Obsidian vault/adapter API, so it works in any vault — git repo or not. (Earlier
   versions required a git repo; as of 0.2.0 that requirement is gone.)
+
+
+> **Live token streaming needs CORS enabled on your LLM server.** The ticker runs as an
+> `XMLHttpRequest` from Obsidian's renderer, which always sends `Origin: app://obsidian.md`.
+> LM Studio rejects that preflight unless the server was started with `--cors`
+> (`lms server start --cors`), Ollama unless `OLLAMA_ORIGINS` allows it. Without it the run
+> still completes — the plugin falls back to a non-streaming request through Obsidian's
+> main process — but the panel shows „Waiting for output…" until the task is done.
 
 ## Install
 
@@ -123,6 +133,11 @@ Writing your own teams and agents is plain Markdown in the vault — see
 Endpoint and timeout settings are read once at plugin load; changing them takes effect
 after disabling and re-enabling the plugin.
 
+<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/run-log.png" width="600" alt="A run log note: frontmatter with status ok, undoable true, one write, one LLM call, duration and model, followed by the per-task sections">
+
+
+<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/settings-endpoints.png" width="600" alt="The Connection settings: one endpoint row with URL, API key field and model dropdown, marked Active">
+
 ## How it works
 
 A run is an **orchestrator walking a fixed pipeline**, not a model deciding what to do
@@ -151,6 +166,8 @@ instead of applying a half-consistent state.
 Writes are snapshotted **write-ahead**: a note's pre-run content is copied into a hidden
 per-run store through the Obsidian vault/adapter API before it is touched. That is why
 even a crashed or aborted run stays fully undoable, and why no git repository is needed.
+
+<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/history-undo.png" width="300" alt="The panel's History tab: a finished run with one file written, an Open log and an Undo button">
 
 ## Safety model
 
@@ -250,6 +267,8 @@ Documented rather than silently missing:
   "Abort requested…", and if the run finished first it states "the run finished before
   the abort took effect — nothing was aborted" rather than freezing on a spinner. There
   is deliberately no mechanism to throw away already-completed work.
+
+<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/crew-file.png" width="600" alt="A crew team file in the editor: frontmatter with crew-kind team, write scope and the collector, llm and actions tasks">
 
 ## Writing your own crews
 
