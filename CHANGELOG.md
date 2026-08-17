@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Ein Endpunkt mit fehlendem oder falschem API-Schlüssel sagt das jetzt auch.** Statt einer Erklärung stand an dieser Stelle der rohe Übersetzungs-Schlüssel `settings.endpoint.status.unauthorized` — er sah aus wie ein Text, war aber keiner. Getroffen wurde ausgerechnet der Fall, für den die Statusklasse mit 0.9.0 eingeführt wurde: ein gehostetes Gateway, das mit 401 oder 403 antwortet. Jetzt steht dort „Zugriff verweigert — Schlüssel fehlt oder ist ungültig." (EN: „Access denied — API key missing or invalid."). Ein Vollständigkeits-Wächter im Typecheck sorgt dafür, dass eine künftige Statusklasse aus dem Kit nicht wieder unübersetzt durchrutscht.
+
 ## [0.9.0] — 2026-08-17
 
 ### Added

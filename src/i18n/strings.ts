@@ -64,6 +64,7 @@ export const EN: Record<string, string> = {
   "settings.endpoint.status.timeout": "Timed out — network unreachable (wrong network / VPN off?).",
   "settings.endpoint.status.not-an-llm-api":
     "Responds, but is not an OpenAI-compatible endpoint — wrong path/service?",
+  "settings.endpoint.status.unauthorized": "Access denied — API key missing or invalid.",
   "settings.endpoint.status.unknown": "Not reachable.",
   "settings.endpoint.warn.scheme": "Address needs http:// or https://",
   "settings.endpoint.warn.malformed": "Address is not a valid URL",
@@ -258,6 +259,7 @@ export const DE: Record<string, string> = {
   "settings.endpoint.status.timeout": "Zeitüberschreitung — Netz nicht erreichbar (falsches Netz / VPN aus?).",
   "settings.endpoint.status.not-an-llm-api":
     "Antwortet, ist aber kein OpenAI-kompatibler Endpunkt — falscher Pfad/Dienst?",
+  "settings.endpoint.status.unauthorized": "Zugriff verweigert — Schlüssel fehlt oder ist ungültig.",
   "settings.endpoint.status.unknown": "Nicht erreichbar.",
   "settings.endpoint.warn.scheme": "Adresse braucht http:// oder https://",
   "settings.endpoint.warn.malformed": "Adresse ist keine gültige URL",

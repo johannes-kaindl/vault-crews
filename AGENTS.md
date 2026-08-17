@@ -34,19 +34,22 @@ Cockpit**, nicht hierher. In dieser Reihenfolge lesen:
 
 ## Architecture notes (Invarianten + Gotchas)
 
-**OFFEN (gemessen 2026-08-16): die Statusklasse `unauthorized` fehlt im Wörterbuch.**
-Der vendorte `endpoint_diagnostics.ts` kennt sie (Kit 0.24.0), dieses Repo führt die
-Endpunkt-Statusklassen aber selbst über `t()` — und dort fehlt der Schlüssel. `t()` fällt
-bei unbekanntem Schlüssel auf den **Schlüssel** zurück, nicht auf EN: in der Oberfläche
-stünde ``settings.endpoint.status.unauthorized`` und sähe aus wie ein plausibler String, nicht wie ein Fehler. Getroffen
-wird ausgerechnet der Fall, für den die Klasse eingeführt wurde — ein gehosteter Endpunkt
-mit fehlendem oder falschem API-Schlüssel (401/403).
+**Statusklassen kommen aus dem Kit, die Sätze dazu aus diesem Repo — die Naht ist ungesichert
+(erledigt 2026-08-17, 0.9.1, bleibt als Begründung stehen).** Der vendorte
+`endpoint_diagnostics.ts` führt die Klassen (Kit 0.24.0), dieses Repo formuliert sie selbst
+über `t()`. Fällt dabei ein Schlüssel aus, ist das **unsichtbar**: `t()` fällt bei unbekanntem
+Schlüssel auf den **Schlüssel** zurück, nicht auf EN — in der Oberfläche stünde
+``settings.endpoint.status.unauthorized`` und sähe aus wie ein plausibler String, nicht wie ein
+Fehler. Genau das war bis 0.9.1 der Fall, und getroffen wurde ausgerechnet der Fall, für den
+die Klasse eingeführt wurde: ein gehosteter Endpunkt mit fehlendem oder falschem API-Schlüssel
+(401/403). Gefunden hat es der Consumer-Sweep, nicht das Gate.
 
-**Fix (zwei Zeilen + ein Wächter):** Schlüssel ``settings.endpoint.status.unauthorized`` in EN **und** DE ergänzen
-(PROF-OBS-07), dazu ein Vollständigkeits-`Record<EndpointStatusKind, true>` im Test — der
-bricht am `typecheck:test`, sobald das nächste Kit-Update eine weitere Klasse mitbringt.
-Referenz-Implementierung: `obsidian-transmute/tests/i18n-status-keys.test.ts`.
-Verbindlich als **CORE-TEST-04**. Gefunden beim Consumer-Sweep, nicht vom Gate.
+**Der Wächter, der das ab jetzt verhindert:** `tests/i18n-status-keys.test.ts` hält ein
+`Record<EndpointStatusKind, true>` — bringt ein Kit-Update eine weitere Klasse mit, bricht
+der `typecheck:test`, bevor der rohe Schlüssel in die Oberfläche gelangt (per Gegenprobe
+belegt: fiktive Klasse eingesetzt → TS2741 an genau dieser Zeile). Wer eine neue
+Kit-Aufzählung an `t()` anschließt, zieht diesen Wächter mit. Verbindlich als
+**CORE-TEST-04**; Referenz-Implementierung `obsidian-transmute/tests/i18n-status-keys.test.ts`.
 - `src/core/**` und `src/vendor/**` importieren NIE `obsidian` (CI-Gate `check:pure`).
   Ports injiziert (`src/core/ports.ts`); Obsidian-Adapter nur in `src/obsidian/`.
 - **Vendoring statt git-Deps:** obsidian-kit-Module liegen kopiert in `src/vendor/kit/`
