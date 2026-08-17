@@ -414,7 +414,16 @@ async function abschnittDeklarativ(cdp: Cdp): Promise<void> {
       `„${defs.suchbegriff}" → ${treffer} Treffer unter „${defs.pluginName}", Unsinn → ${nichts}`,
     );
   } else {
-    skipped("Einstellungs-Suche", "kein Suchbegriff aus den Definitionen ableitbar");
+    // Bewusst ROT statt übersprungen: kein ableitbarer Suchbegriff heißt, dass die
+    // Definitionen leer oder umgebaut sind — und ohne Definitionen findet die Suche
+    // nachweislich nichts. Genau das ist der Defekt, den dieser Abschnitt messen soll.
+    // (Die Gegenprobe gegen den Vor-Stand hat diesen Skip als Lücke aufgedeckt: er ließ
+    // den Defektfall wie „nicht gemessen" aussehen statt wie „durchgefallen".)
+    record(
+      "Einstellungen erscheinen in Obsidians Einstellungs-Suche",
+      false,
+      "kein Suchbegriff aus den Definitionen ableitbar — sie sind leer oder umgebaut",
+    );
   }
 
   // Der andere Pfad. Unter 1.13 ruft der Host `display()` nie — der Fallback fuer aeltere
