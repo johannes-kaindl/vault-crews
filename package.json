@@ -1,6 +1,6 @@
 {
   "name": "vault-crews",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Run autonomous local LLM agent teams (crews) on your vault via LM Studio",
   "type": "module",
   "scripts": {
