@@ -223,6 +223,44 @@ describe('executeRun — repair loop', () => {
     expect(h.snapshot.finalized).toEqual([]);
   });
 
+  it('truncated: finishReason length + ungueltiges JSON → failed output_truncated OHNE Repair-Runde', async () => {
+    // Ein Repair gegen dasselbe max_tokens trifft dieselbe Grenze — der Call waere verbrannt.
+    const llm = new ScriptLlmClient([{ content: '{"items": [{"id": "a.md", "prio', finishReason: 'length' }]);
+    const h = await harness({ llm });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.status).toBe('failed');
+    expect(result.errorKind).toBe('output_truncated');
+    expect(result.errorTask).toBe('analyse');
+    expect(llm.calls).toHaveLength(1);
+  });
+
+  it('truncated: der abgeschnittene Rohtext bleibt als Artifact lesbar', async () => {
+    const llm = new ScriptLlmClient([{ content: '{"items": [{"id": "a.md", "prio', finishReason: 'length' }]);
+    const h = await harness({ llm });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(await h.vault.read(`_crews/runs/${result.runId}/artifacts/analyse-1.txt`)).toBe('{"items": [{"id": "a.md", "prio');
+  });
+
+  it('truncated, aber gueltig: length mit vollstaendigem JSON bleibt ok — abgeschnitten ist nicht automatisch kaputt', async () => {
+    const llm = new ScriptLlmClient([{ content: TRIAGE_OK, finishReason: 'length' }]);
+    const h = await harness({ llm });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.status).toBe('ok');
+    expect(result.errorKind).toBeNull();
+  });
+
+  it('truncated im Repair: erste Antwort nur kaputt, die Reparatur laeuft ins Limit → output_truncated', async () => {
+    const llm = new ScriptLlmClient([
+      { content: 'kein json' },
+      { content: '{"items": [{"id": "a.md", "prio', finishReason: 'length' },
+    ]);
+    const h = await harness({ llm });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.status).toBe('failed');
+    expect(result.errorKind).toBe('output_truncated');
+    expect(llm.calls).toHaveLength(2);
+  });
+
   it('repair-fail-skip: on_error skip → task skipped, downstream skipped, status partial', async () => {
     const llm = new ScriptLlmClient([{ content: 'kaputt' }, { content: 'immer noch kaputt' }]);
     const teamFm = triageTeamFm({

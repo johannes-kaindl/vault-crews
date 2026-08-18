@@ -116,6 +116,7 @@ export class LocalLlmClient implements LlmClient {
 		let rawBody = '';
 		let abortKind: 'timeout' | 'stalled' | null = null;
 		let sawToken = false;
+		let serverFinish: string | undefined;
 
 		const hardTimer = this.clock.setTimeout(() => {
 			abortKind = 'timeout';
@@ -152,6 +153,7 @@ export class LocalLlmClient implements LlmClient {
 					if (rawBody.length < ERROR_BODY_CAP) rawBody += raw;
 					const parsed = parseSSE(rest + raw);
 					rest = parsed.rest;
+					if (serverFinish === undefined) serverFinish = parsed.finishReason;
 					for (const delta of parsed.content) emit(delta);
 					for (const r of parsed.reasoning) { reasoningText += r; onToken(r, true); }
 					if (parsed.content.length > 0 || parsed.reasoning.length > 0) {
@@ -209,7 +211,7 @@ export class LocalLlmClient implements LlmClient {
 			const detail = extractErrorMessage(tryJson(rawBody)) ?? rawBody.slice(0, 300);
 			throw new LlmCallError(`HTTP ${status}: ${oneLine(detail)}`, 'http');
 		}
-		return { content, thinkTokens: thinkTokens(reasoningText), reasoned: reasoningHappened(content, reasoningText), finishReason: 'stop' };
+		return { content, thinkTokens: thinkTokens(reasoningText), reasoned: reasoningHappened(content, reasoningText), finishReason: serverFinish === 'length' ? 'length' : 'stop' };
 	}
 
 	/** Non-Streaming-Fallback (CORS-frei via JsonTransport.postJson). Content wird zuerst
@@ -239,7 +241,7 @@ export class LocalLlmClient implements LlmClient {
 				content: extracted.content,
 				thinkTokens: thinkTokens(extracted.reasoning),
 				reasoned: reasoningHappened(extracted.content, extracted.reasoning),
-				finishReason: 'stop',
+				finishReason: extracted.finishReason === 'length' ? 'length' : 'stop',
 			};
 		}
 		// Kein content extrahierbar → das ist ein echter Fehlerbody, hier erst auf Overflow sniffen.

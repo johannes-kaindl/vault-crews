@@ -44,6 +44,21 @@ describe('vendored parseSSE', () => {
 		expect(r.content).toEqual([]);
 		expect(r.rest).toContain('"content":"a');
 	});
+
+	it('liest finish_reason aus dem letzten Chunk und ignoriert die null-Zwischenwerte', () => {
+		const buf =
+			'data: {"choices":[{"delta":{"content":"abge"},"finish_reason":null}]}\n' +
+			'data: {"choices":[{"delta":{"content":"schnitten"},"finish_reason":"length"}]}\n' +
+			'data: [DONE]\n';
+		const r = parseSSE(buf);
+		expect(r.finishReason).toBe('length');
+		expect(r.content.join('')).toBe('abgeschnitten');
+	});
+
+	it('laesst finishReason undefiniert, solange kein Chunk einen nennt', () => {
+		const r = parseSSE('data: {"choices":[{"delta":{"content":"x"},"finish_reason":null}]}\n');
+		expect(r.finishReason).toBeUndefined();
+	});
 });
 
 describe('vendored ThinkSplitter', () => {

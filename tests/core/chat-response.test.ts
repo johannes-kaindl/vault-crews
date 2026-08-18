@@ -24,6 +24,14 @@ describe('extractChatContent', () => {
 		const res = { choices: [{ message: { content: 'Hallo', reasoning_content: 'denk' } }] };
 		expect(extractChatContent(res)).toEqual({ content: 'Hallo', reasoning: 'denk' });
 	});
+	it('reicht finish_reason der Choice durch (Token-Limit-Truncation erkennbar)', () => {
+		const res = { choices: [{ message: { content: 'ang' }, finish_reason: 'length' }] };
+		expect(extractChatContent(res)?.finishReason).toBe('length');
+	});
+	it('finishReason undefiniert, wenn die Antwort keins nennt', () => {
+		const res = { choices: [{ message: { content: 'Hallo' } }] };
+		expect(extractChatContent(res)?.finishReason).toBeUndefined();
+	});
 	it('reasoning = "" wenn reasoning_content fehlt', () => {
 		const res = { choices: [{ message: { content: 'Hallo' } }] };
 		expect(extractChatContent(res)).toEqual({ content: 'Hallo', reasoning: '' });

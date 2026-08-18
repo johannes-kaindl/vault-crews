@@ -90,7 +90,7 @@ export interface ActionOutcome { action: Action; result: ActionResult; reason: s
 export type RunStatus = 'ok' | 'partial' | 'failed' | 'aborted' | 'refused';
 export type ErrorKind =
 	| 'endpoint_unreachable' | 'endpoint_error' | 'model_missing' | 'timeout' | 'stalled'
-	| 'invalid_output' | 'context_overflow' | 'crew_invalid'
+	| 'invalid_output' | 'output_truncated' | 'context_overflow' | 'crew_invalid'
 	| 'write_limit' | 'consistency' | 'aborted' | 'io';
 
 export interface TaskRecord {
