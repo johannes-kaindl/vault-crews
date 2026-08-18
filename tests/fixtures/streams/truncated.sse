@@ -1,0 +1,5 @@
+data: {"model":"qwen/qwen3.6-35b-a3b","choices":[{"delta":{"content":"{\"items\": [{\"title\": \"ang"},"finish_reason":null}]}
+
+data: {"choices":[{"delta":{"content":"efangen"},"finish_reason":"length"}]}
+
+data: [DONE]

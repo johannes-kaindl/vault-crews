@@ -85,6 +85,16 @@ describe('LocalLlmClient.stream', () => {
 		expect(sse.lastBody.stream).toBe(true);
 	});
 
+	it('meldet finishReason length, wenn der Server die Antwort am Token-Limit abschneidet (truncated.sse)', async () => {
+		const { client, sse, clock } = make();
+		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
+		await tickAsync(clock, 1);
+		sse.play(fixture('truncated.sse'));
+		const r = await p;
+		expect(r.finishReason).toBe('length');
+		expect(r.content).toBe('{"items": [{"title": "angefangen');
+	});
+
 	it('zählt reasoning_content als Think-Tokens, nie im content (reasoning.sse)', async () => {
 		const { client, sse, clock } = make();
 		const tokens: string[] = [];
@@ -257,6 +267,18 @@ describe('LocalLlmClient CORS-Fallback', () => {
 		expect(r.finishReason).toBe('stop');
 		expect(json.lastPostUrl).toBe('http://localhost:1234/v1/chat/completions');
 		expect((json.lastPostBody as { stream?: boolean }).stream).toBe(false);
+	});
+
+	it('meldet finishReason length auch im Non-Streaming-Fallback', async () => {
+		const { client, sse, json } = make();
+		json.responses.set('http://localhost:1234/v1/chat/completions', {
+			choices: [{ message: { content: '{"items": [{"title": "ang' }, finish_reason: 'length' }],
+		});
+		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
+		await Promise.resolve();
+		sse.fail('StreamNetworkError');
+		const r = await p;
+		expect(r.finishReason).toBe('length');
 	});
 
 	it('propagiert AbortError statt zurückzufallen', async () => {

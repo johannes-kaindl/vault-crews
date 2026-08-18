@@ -50,6 +50,23 @@ der `typecheck:test`, bevor der rohe Schlüssel in die Oberfläche gelangt (per 
 belegt: fiktive Klasse eingesetzt → TS2741 an genau dieser Zeile). Wer eine neue
 Kit-Aufzählung an `t()` anschließt, zieht diesen Wächter mit. Verbindlich als
 **CORE-TEST-04**; Referenz-Implementierung `obsidian-transmute/tests/i18n-status-keys.test.ts`.
+
+**Dieselbe Naht existiert ein zweites Mal — bei den Fehlerklassen (seit 2026-08-18).** `ErrorKind`
+ist ein Core-Typ, die Sätze dazu führt die Obsidian-Schicht über `t("notice.errorKind." + kind)`
+(`main.ts`, `panel-view-model.ts`). Ein neuer Kind ohne Satz fällt genauso still auf den rohen
+Schlüssel zurück. Wächter: `tests/i18n-error-kinds.test.ts` — `Record<ErrorKind, true>` (Typ-Ebene)
+plus ein Abgleich gegen `ERROR_KINDS` aus `run-log.ts`, weil run.md und Oberfläche sonst
+auseinanderlaufen können, ohne dass irgendwo etwas bricht. Beide Stufen sind per Gegenprobe belegt
+(TS2741 bzw. „EN fehlt: notice.errorKind.…"). **Wer einen `ErrorKind` hinzufügt, fasst drei Stellen
+an: `types.ts`, `run-log.ts` und beide Sprachblöcke in `strings.ts`** — der Wächter erzwingt genau das.
+
+**`finishReason` ist ein echter Wert, kein Platzhalter (seit 2026-08-18).** Der Streaming-Pfad gab
+lange hart `'stop'` zurück, obwohl `LlmStreamResult` seit jeher `'length'` kennt — der Zweig war tot,
+weil die vendorte `sse.ts` auf Kit 0.2.0 stand und `finish_reason` verwarf. Beides ist behoben (Kopie
+auf 0.3.0, beide Client-Pfade lesen den Wert). Folge für den Orchestrator: **abgeschnitten ist nicht
+automatisch kaputt** — `'length'` wird erst zum Fehler (`output_truncated`), wenn die Validierung
+zusätzlich fehlschlägt; dann aber ohne Repair-Runde, weil die dieselbe Grenze träfe. Gemessen an
+LM Studio: `finish_reason` steht im letzten Chunk, dessen `delta` leer ist.
 - **Der Settings-Tab ist zweigleisig — und beide Gleise müssen bedient bleiben.**
   `getSettingDefinitions()` IST die Struktur (Obsidian ≥ 1.13 rendert daraus und ruft
   `display()` nie); der vendorte Kit-Walker zeichnet dieselbe Struktur mit der klassischen

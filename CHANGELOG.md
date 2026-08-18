@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Eine am Token-Limit abgeschnittene Antwort heißt jetzt so — und kostet keinen zweiten Anlauf mehr.** Läuft ein Agent in sein `max_tokens`-Budget, bricht die Antwort mitten im Satz ab; das Ergebnis ist unvollständiges JSON. Gemeldet wurde das bisher als „Die Ausgabe des Modells ließ sich auch nach einem Reparatur-Versuch nicht parsen" — also als Qualitätsproblem des Modells, während die Ursache eine Zahl in der Agenten-Notiz ist. Zusätzlich lief eine Reparatur-Runde gegen exakt dieselbe Grenze und war damit sicher verbrannt. Jetzt endet der Lauf als `output_truncated` mit dem Hinweis, `max_tokens` zu erhöhen, und ohne den zweiten Aufruf (gemessen an einem Live-Lauf: vorher `invalid_output` nach 2 Aufrufen und 9 s, jetzt `output_truncated` nach 1 Aufruf und 2 s). Eine abgeschnittene Antwort, die trotzdem gültig ist, bleibt weiterhin ein erfolgreicher Lauf.
+
 ## [0.9.2] — 2026-08-17
 
 ### Changed

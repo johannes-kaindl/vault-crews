@@ -294,6 +294,12 @@ class RunFsm {
 
 		let validated = validateOutput(result.content, schema, sources, slugTables, target);
 		if (!validated.ok) await this.writeArtifact(task.id, 1, result.content);
+		// Am Token-Limit abgeschnitten UND ungültig: die Reparatur-Runde träfe dieselbe Grenze
+		// und wäre ein verbrannter Call. Ursache ist ein Budget, nicht das Modell — also auch
+		// nicht als invalid_output melden, sonst sucht der Nutzer an der falschen Stelle.
+		if (!validated.ok && result.finishReason === 'length') {
+			return this.failLlm(task, rec, 'output_truncated', truncatedMsg(params.maxTokens));
+		}
 		if (!validated.ok && this.state.llmCalls < this.limits.maxLlmCalls) {
 			// genau ein Repair-Zyklus
 			try {
@@ -303,6 +309,9 @@ class RunFsm {
 				if (repair.finishReason === 'aborted') { this.abortRun(task.id, 'Stream abgebrochen'); rec.error = { kind: 'aborted', message: 'Stream abgebrochen' }; return 'failed'; }
 				validated = validateOutput(repair.content, schema, sources, slugTables, target);
 				if (!validated.ok) await this.writeArtifact(task.id, 2, repair.content);
+				if (!validated.ok && repair.finishReason === 'length') {
+					return this.failLlm(task, rec, 'output_truncated', truncatedMsg(params.maxTokens));
+				}
 			} catch (e) {
 				return this.failLlm(task, rec, llmErrorKind(e), errMsg(e));
 			}
@@ -568,6 +577,11 @@ function actionsErrorKind(outcomes: { reason: string | null }[]): ErrorKind {
 	if (reasons.some((r) => r.includes('write_limit'))) return 'write_limit';
 	if (reasons.some((r) => r.includes('consistency'))) return 'consistency';
 	return 'io';
+}
+
+/** Detailtext fuer `output_truncated` — nennt die Stellschraube, nicht nur den Befund. */
+function truncatedMsg(maxTokens: number): string {
+	return `Antwort am Token-Limit abgeschnitten (max_tokens: ${maxTokens})`;
 }
 
 function llmErrorKind(e: unknown): ErrorKind {
