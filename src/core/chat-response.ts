@@ -1,5 +1,7 @@
 /** Pure Interpretation OpenAI-kompatibler Chat-Completion-Responses.
- *  Kein Transport, kein Streaming — nur Response-Shape + Fehler-Klassifikation.
+ *  Kein Transport, kein Streaming — nur Response-Shape + Overflow-Klassifikation.
+ *  Die Message-Extraktion aus Fehlerkörpern wohnt seit dem Kit-0.27.0-Vendoring
+ *  nicht mehr hier, sondern in `../vendor/kit/error_body` (`errorMessageFromBody`).
  *  Kein `obsidian`-Import (check:pure). */
 
 const OVERFLOW_RE = /context (length|window)|too many tokens/i;
@@ -22,19 +24,6 @@ export function extractChatContent(res: unknown): { content: string; reasoning: 
 	const reasoning = msg && typeof msg.reasoning_content === 'string' ? msg.reasoning_content : '';
 	const raw = isRecord(choice) && typeof choice.finish_reason === 'string' ? choice.finish_reason : '';
 	return { content, reasoning, finishReason: raw === '' ? undefined : raw };
-}
-
-/** Zieht eine sinnvolle einzeilige Fehler-Message aus einem (bereits geparsten)
- *  JSON-Fehlerbody. Reihenfolge: error.message → error (String) → message.
- *  null, wenn kein bekanntes Feld greift (Aufrufer nutzt dann den Rohbody).
- *  Verhindert D2: firstLine() kollabierte pretty-printed JSON auf "{". */
-export function extractErrorMessage(body: unknown): string | null {
-	if (!isRecord(body)) return null;
-	const err = body.error;
-	if (isRecord(err) && typeof err.message === 'string') return err.message;
-	if (typeof err === 'string') return err;
-	if (typeof body.message === 'string') return body.message;
-	return null;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {

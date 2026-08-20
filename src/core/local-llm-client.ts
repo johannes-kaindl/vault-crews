@@ -8,7 +8,8 @@ import { ThinkSplitter } from '../vendor/kit/think';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { authHeaders, type EndpointConfig } from '../vendor/kit/endpoint_config';
 import { parseLmStudioContext, parseOllamaContext, suppressParams } from './model-info';
-import { isContextOverflow, extractChatContent, extractErrorMessage } from './chat-response';
+import { isContextOverflow, extractChatContent } from './chat-response';
+import { errorMessageFromBody, errorMessageFromText } from '../vendor/kit/error_body';
 import { reasoningHappened } from '../vendor/kit/reasoning';
 import type { ClockPort } from '../vendor/kit/clock';
 import { LlmCallError } from './ports';
@@ -208,7 +209,7 @@ export class LocalLlmClient implements LlmClient {
 			if (isContextOverflow(rawBody)) {
 				throw new LlmCallError(`HTTP ${status}: Kontextfenster überschritten`, 'overflow');
 			}
-			const detail = extractErrorMessage(tryJson(rawBody)) ?? rawBody.slice(0, 300);
+			const detail = errorMessageFromText(rawBody) ?? rawBody.slice(0, 300);
 			throw new LlmCallError(`HTTP ${status}: ${oneLine(detail)}`, 'http');
 		}
 		return { content, thinkTokens: thinkTokens(reasoningText), reasoned: reasoningHappened(content, reasoningText), finishReason: serverFinish === 'length' ? 'length' : 'stop' };
@@ -249,7 +250,7 @@ export class LocalLlmClient implements LlmClient {
 		if (isContextOverflow(rawBody)) {
 			throw new LlmCallError('Kontextfenster überschritten (Non-Streaming)', 'overflow');
 		}
-		const detail = extractErrorMessage(res) ?? oneLine(rawBody.slice(0, 300));
+		const detail = errorMessageFromBody(res) ?? oneLine(rawBody.slice(0, 300));
 		throw new LlmCallError(`Non-Streaming-Antwort ohne content: ${oneLine(detail)}`, 'http');
 	}
 }
@@ -260,10 +261,6 @@ function thinkTokens(reasoningText: string): number {
 
 function oneLine(s: string): string {
 	return s.replace(/\s+/g, ' ').trim();
-}
-
-function tryJson(s: string): unknown {
-	try { return JSON.parse(s) as unknown; } catch { return null; }
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
