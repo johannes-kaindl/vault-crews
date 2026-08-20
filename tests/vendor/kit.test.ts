@@ -21,6 +21,7 @@ import { createModelListCache } from '../../src/vendor/kit/model-list-cache';
 import { extractModelIds } from '../../src/vendor/kit/endpoint_diagnostics';
 import { withTimeout } from '../../src/vendor/kit/timeout';
 import { guessFromName, resolveCapabilities } from '../../src/vendor/kit/capabilities';
+import { errorMessageFromBody, errorMessageFromText } from '../../src/vendor/kit/error_body';
 
 describe('vendored parseSSE', () => {
 	it('akkumuliert content-Deltas und erkennt [DONE]', () => {
@@ -292,5 +293,50 @@ describe('vendored capabilities', () => {
 		expect(guessed.thinking.confidence).not.toBe('confirmed');
 		const resolved = resolveCapabilities(null, 'irgendwas-unbekanntes', { thinking: true });
 		expect(resolved.thinking.confidence).toBe('confirmed');
+	});
+});
+
+describe('vendored error_body', () => {
+	// Loeste am 2026-08-20 die repo-eigene Message-Extraktion aus src/core/chat-response.ts
+	// ab (Kit-0.27.0-Vendoring). Die ersten drei
+	// Kaskadenquellen kannte sie auch; `detail`, der Leerwert-Durchfall und der
+	// choices-Waechter sind mit dem Vendoring dazugekommen.
+	it('faehrt die Kaskade error.message -> error -> message -> detail', () => {
+		expect(errorMessageFromBody({ error: { message: "model 'foo' not loaded" } })).toBe("model 'foo' not loaded");
+		expect(errorMessageFromBody({ error: 'bad request' })).toBe('bad request');
+		expect(errorMessageFromBody({ message: 'something failed' })).toBe('something failed');
+		expect(errorMessageFromBody({ detail: 'Not authenticated' })).toBe('Not authenticated');
+	});
+	it('nimmt error.message vor error-als-String und message vor detail', () => {
+		expect(errorMessageFromBody({ error: { message: 'genau' }, message: 'grob' })).toBe('genau');
+		expect(errorMessageFromBody({ message: 'zuerst', detail: 'danach' })).toBe('zuerst');
+	});
+	it('laesst Leerwerte durchfallen und trimmt jeden Treffer', () => {
+		expect(errorMessageFromBody({ error: '', message: 'model not found' })).toBe('model not found');
+		expect(errorMessageFromBody({ error: { message: '   ' }, detail: '  spaet  ' })).toBe('spaet');
+		expect(errorMessageFromBody({ error: '', message: '', detail: '' })).toBeNull();
+	});
+	it('null bei Nicht-Objekt, Array, null und unbekannten Feldern', () => {
+		expect(errorMessageFromBody('plain text')).toBeNull();
+		expect(errorMessageFromBody(null)).toBeNull();
+		expect(errorMessageFromBody([])).toBeNull();
+		expect(errorMessageFromBody({ foo: 'bar' })).toBeNull();
+	});
+	it('bodyMayBeSuccess blendet message/detail neben choices aus — error aber nicht', () => {
+		// Dieses Repo nutzt den Waechter an keiner Aufrufstelle (beide kommen ueber einen
+		// Fehlerpfad); der Vertrag gehoert trotzdem in die Kopie.
+		expect(errorMessageFromBody({ choices: [], detail: 'stray' }, { bodyMayBeSuccess: true })).toBeNull();
+		expect(errorMessageFromBody({ choices: [], message: 'stray' }, { bodyMayBeSuccess: true })).toBeNull();
+		expect(errorMessageFromBody({ choices: [], error: { message: 'HTTP-200-Fehler' } }, { bodyMayBeSuccess: true }))
+			.toBe('HTTP-200-Fehler');
+		expect(errorMessageFromBody({ choices: [], detail: 'stray' })).toBe('stray');
+	});
+	it('errorMessageFromText parst selbst und gibt bei kaputtem JSON null', () => {
+		expect(errorMessageFromText('{"error":"bad request"}')).toBe('bad request');
+		expect(errorMessageFromText('<html>502</html>')).toBeNull();
+		expect(errorMessageFromText('')).toBeNull();
+		expect(errorMessageFromText('   ')).toBeNull();
+		expect(errorMessageFromText('123')).toBeNull();
+		expect(errorMessageFromText('[]')).toBeNull();
 	});
 });
