@@ -294,7 +294,7 @@ const SHOTS: Shot[] = [
       const imHauptfenster = await cdp.evaluate<boolean>(
         `return Boolean(document.querySelector(".modal.mod-settings"));`,
       );
-      const ui = imHauptfenster ? cdp : await attachTo("settings", PORT);
+      const ui = imHauptfenster ? cdp : await attachTo("settings", PORT, REPO_NAME);
       if (!ui) {
         console.log("      · Einstellungs-Fenster nicht gefunden");
         return null;

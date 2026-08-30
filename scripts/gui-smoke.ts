@@ -103,7 +103,7 @@ async function einstellungenOeffnen(cdp: Cdp): Promise<Cdp | null> {
     `return Boolean(document.querySelector(".modal.mod-settings"));`,
   );
   if (imHauptfenster) return cdp;
-  return attachTo("settings", PORT);
+  return attachTo("settings", PORT, PLUGIN_ID);
 }
 
 /** Innentext des Einstellungs-Containers. `null`, wenn es ihn nicht gibt — die
