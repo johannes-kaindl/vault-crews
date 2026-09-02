@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Ein API-Schlüssel mit Anführungszeichen, Backslash oder Zeilenumbruch landete unmaskiert im Vault.** Läufe werden als `run.md`/`state.json` in den Vault geschrieben, und ein Vault wird gesynct — die Maskierung soll genau das verhindern. Sie lief über die Serialisierung und suchte den Schlüssel in seiner **rohen** Form; im JSON-Text steht ein `"` aber als `\"` und ein Zeilenumbruch als `\n`, die Suche fand also nichts, ersetzte nichts, und der Schlüssel wurde geschrieben. Ohne Fehler, ohne Hinweis. Gesucht wird jetzt zusätzlich nach der JSON-escapten Form — zusätzlich, nicht statt: Umlaute, CJK und Emoji escapt JSON gerade nicht, dort trägt allein die Rohform. Wer einen betroffenen Schlüssel verwendet hat, sollte ihn als kompromittiert behandeln und die bestehenden Run-Logs prüfen.
+
 ## [0.9.4] — 2026-09-02
 
 ### Fixed

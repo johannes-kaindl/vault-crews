@@ -5,7 +5,12 @@
  *  seine Läufe als Notizen IN den Vault (`run.md`, `state.json`) — und ein Vault wird
  *  gesynct. Ein Schlüssel, der einmal in einem Run-Log steht, ist danach überall dort, wo der
  *  Vault ist. Fehlerkörper sind der wahrscheinliche Weg dahin: manche Gateways spiegeln den
- *  gesendeten Authorization-Header in ihrer 401-Antwort. */
+ *  gesendeten Authorization-Header in ihrer 401-Antwort.
+ *
+ *  Der Zwei-Nadeln-Fix unten kam am 2026-09-02 aus `llm-lab/src/core/redact_secrets.ts`
+ *  zurueck — jene Datei ist eine Uebernahme DIESER hier (Stempel dort: 2026-08-22). Es sind
+ *  also nicht zwei unabhaengige Instanzen, sondern eine Kopier-Kette; fuer die
+ *  Kit-Extraktions-Schwelle zaehlt das als n=1. */
 import type { EndpointConfig } from '../vendor/kit/endpoint_config';
 
 const MASK = '••••';
@@ -25,7 +30,17 @@ export function redactSecrets(text: string, endpoints: EndpointConfig[]): string
 	for (const cfg of endpoints) {
 		const key = cfg.apiKey?.trim();
 		if (!key || key.length < MIN_KEY_LENGTH) continue;
-		out = out.replace(new RegExp(escapeRegExp(key), 'g'), MASK);
+		// Zwei Nadeln: die rohe Form (fuer direkte Aufrufe auf unserialisiertem Text) UND die
+		// JSON-escapte Form (fuer den Aufruf ueber redactRunState — dort steht ein Schluessel
+		// mit `"`, `\` oder Zeilenumbruch serialisiert anders da, und die rohe Suche faende ihn
+		// nie). Nur zusaetzlich, nicht statt: keine der beiden ersetzt die andere, denn
+		// JSON.stringify escapt Nicht-ASCII (Umlaute, CJK, Emoji) gerade NICHT — dort traegt
+		// allein die Rohform.
+		const escaped = JSON.stringify(key).slice(1, -1);
+		const needles = escaped === key ? [key] : [key, escaped];
+		for (const needle of needles) {
+			out = out.replace(new RegExp(escapeRegExp(needle), 'g'), MASK);
+		}
 	}
 	return out.replace(BEARER, `$1${MASK}`);
 }
