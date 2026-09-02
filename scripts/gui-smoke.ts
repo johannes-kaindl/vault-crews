@@ -45,7 +45,7 @@
  */
 
 import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { attachTo, Cdp, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
+import { attachTo, Cdp, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
 
 const PLUGIN_ID = "vault-crews";
 
@@ -489,6 +489,101 @@ async function sucheInEinstellungen(ui: Cdp, begriff: string, pluginName: string
   `);
 }
 
+// --- Abschnitt: Panel — die drei stummen Zustände -----------------------------
+
+/** Wartet auf eine Bedingung im Renderer und meldet, OB sie eintrat — statt zu werfen.
+ *  Ein Prüfpunkt soll rot werden, nicht den Lauf abbrechen. Der Ausdruck wird hier in
+ *  `return Boolean(...)` gewickelt, weil `cdp.evaluate` einen Funktionskörper nimmt: ein
+ *  Ausdruck ohne `return` ist still falsy und liefe in jeden Timeout. */
+async function wartetAuf(cdp: Cdp, ausdruck: string, timeoutMs = 6000): Promise<boolean> {
+  return Boolean(await pollUntil<boolean>(cdp, `return Boolean(${ausdruck});`, timeoutMs, 250));
+}
+
+const PANEL = `document.querySelector('.workspace-leaf-content[data-type="vault-crews-panel"]')`;
+
+/**
+ * Misst die drei Lagen, in denen das Panel bis 0.9.5 schwieg — und misst dabei zwei davon
+ * in EINEM Zug: die verirrte Datei wird angelegt, **während das Panel offen steht**. Sie
+ * kann dort also nur erscheinen, wenn der Vault-Watcher greift (Punkt 2) UND die Zählung
+ * stimmt (Punkt 1). Ohne Watcher bliebe das Panel stumm, bis jemand es neu öffnet.
+ *
+ * Der Abschnitt legt zwei Dateien im crewRoot an und räumt sie im `finally` wieder weg;
+ * die Gegenprobe „Hinweis verschwindet wieder" ist selbst ein Prüfpunkt — ein Hinweis, der
+ * bleibt, wäre so falsch wie einer, der nie kommt.
+ */
+async function abschnittPanel(cdp: Cdp): Promise<void> {
+  const root = await cdp.evaluate<string>(
+    `return app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.crewRoot;`,
+  );
+  if (!root) {
+    skipped("Panel — verirrte Crew-Datei", "crewRoot nicht lesbar");
+    skipped("Panel — Warndreieck an ungültiger Crew", "crewRoot nicht lesbar");
+    return;
+  }
+  const verirrt = `${root}/zz-smoke-verirrt.md`;
+  const kaputt = `${root}/teams/zz-smoke-kaputt.md`;
+
+  await cdp.evaluate(`await app.commands.executeCommandById("${PLUGIN_ID}:open-crews-panel"); return true;`);
+  if (!await wartetAuf(cdp, PANEL)) {
+    skipped("Panel — verirrte Crew-Datei", "Panel öffnete nicht");
+    skipped("Panel — Warndreieck an ungültiger Crew", "Panel öffnete nicht");
+    return;
+  }
+
+  // Ausgangslage: ohne Anlass kein Hinweis. Ohne diese Messung wäre ein Hinweis, der
+  // IMMER steht, von einem korrekt erschienenen nicht zu unterscheiden.
+  const vorher = await cdp.evaluate<boolean>(`return Boolean(${PANEL}.querySelector(".vault-crews-stray"));`);
+  record("Panel — kein Streuner-Hinweis ohne Anlass", vorher === false,
+    vorher === false ? "kein .vault-crews-stray im Ausgangszustand" : "Hinweis stand schon vor der Testdatei");
+
+  try {
+    await cdp.evaluate(`
+      await app.vault.create(${JSON.stringify(verirrt)}, "---\ncrew-kind: team\n---\n");
+      return true;
+    `);
+    const kam = await wartetAuf(cdp, `${PANEL}.querySelector(".vault-crews-stray")`);
+    const text = kam
+      ? await cdp.evaluate<string>(`return ${PANEL}.querySelector(".vault-crews-stray").textContent;`)
+      : "";
+    record("Panel — verirrte Crew-Datei wird benannt, ohne das Panel neu zu öffnen",
+      kam && text.includes("1"),
+      kam ? `Hinweis erschien: „${text.slice(0, 70)}…"` : "kein .vault-crews-stray nach dem Anlegen");
+
+    await cdp.evaluate(`
+      await app.vault.create(${JSON.stringify(kaputt)}, "---\ncrew-kind: team\n---\n");
+      return true;
+    `);
+    const warn = await wartetAuf(cdp, `${PANEL}.querySelector(".vault-crews-team-problem")`);
+    const label = warn
+      ? await cdp.evaluate<string>(`return ${PANEL}.querySelector(".vault-crews-team-problem").getAttribute("aria-label");`)
+      : "";
+    // Form UND Farbe UND aria-label (UI-STANDARD §8): ein Dreieck ohne Text sagt nur „irgendwas".
+    record("Panel — ungültige Crew trägt ein Warndreieck mit Fehlertext",
+      warn && typeof label === "string" && label.length > 0,
+      warn ? `aria-label: „${String(label).slice(0, 70)}…"` : "kein .vault-crews-team-problem");
+
+    // Die Zeile muss STARTBAR bleiben — das ist Absicht, nicht Nachlässigkeit: der
+    // Preflight zeigt den vollständigen Fehler, das Dreieck nimmt nur den Umweg ab.
+    const startbar = await cdp.evaluate<boolean>(`
+      const row = ${PANEL}.querySelector(".vault-crews-team-problem")?.closest(".vault-crews-team-row");
+      return Boolean(row && row.querySelector("button.vault-crews-run"));
+    `);
+    record("Panel — die ungültige Crew bleibt startbar", startbar === true,
+      startbar ? "Ausführen-Knopf in derselben Zeile vorhanden" : "kein Ausführen-Knopf in der Warnzeile");
+  } finally {
+    await cdp.evaluate(`
+      for (const p of [${JSON.stringify(verirrt)}, ${JSON.stringify(kaputt)}]) {
+        const f = app.vault.getAbstractFileByPath(p);
+        if (f) await app.vault.delete(f, true);
+      }
+      return true;
+    `).catch(() => undefined);
+    const weg = await wartetAuf(cdp, `!${PANEL}.querySelector(".vault-crews-stray")`);
+    record("Panel — der Hinweis verschwindet wieder (Gegenprobe)", weg,
+      weg ? "kein .vault-crews-stray nach dem Löschen" : "Hinweis blieb stehen");
+  }
+}
+
 async function main(): Promise<void> {
   const cdp = await attachTo("workspace", PORT, VAULT);
   if (!cdp) {
@@ -546,6 +641,7 @@ async function main(): Promise<void> {
     await abschnittEinstellungen(cdp);
     await abschnittDeklarativ(cdp);
     await abschnittDrittanbieter(cdp);
+    await abschnittPanel(cdp);
   } finally {
     // Zurueckschreiben und das Ergebnis MESSEN statt darauf vertrauen.
     if (vorwert) {
