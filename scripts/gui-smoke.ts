@@ -499,6 +499,19 @@ async function wartetAuf(cdp: Cdp, ausdruck: string, timeoutMs = 6000): Promise<
   return Boolean(await pollUntil<boolean>(cdp, `return Boolean(${ausdruck});`, timeoutMs, 250));
 }
 
+/** Legt eine Crew-Datei an und gibt "ok" oder den Fehlertext des Renderers zurueck.
+ *  `cdp.evaluate` wirft bei einer Renderer-Ausnahme nur „Uncaught" — der Grund bleibt drin
+ *  stecken. Hier wird er gefangen und als Wert herausgereicht, damit er im Pruefpunkt steht. */
+async function anlegen(cdp: Cdp, pfad: string): Promise<string> {
+  return await cdp.evaluate<string>(`
+    try {
+      const inhalt = ["---", "crew-kind: team", "---", ""].join(String.fromCharCode(10));
+      await app.vault.create(${JSON.stringify(pfad)}, inhalt);
+      return "ok";
+    } catch (e) { return (e && e.message) ? e.message : String(e); }
+  `);
+}
+
 const PANEL = `document.querySelector('.workspace-leaf-content[data-type="vault-crews-panel"]')`;
 
 /**
@@ -512,6 +525,18 @@ const PANEL = `document.querySelector('.workspace-leaf-content[data-type="vault-
  * bleibt, wäre so falsch wie einer, der nie kommt.
  */
 async function abschnittPanel(cdp: Cdp): Promise<void> {
+  try {
+    await panelMessungen(cdp);
+  } catch (e) {
+    // Gemessen 2026-09-02: ein Absturz mitten im Abschnitt liess drei Pruefpunkte weg, und
+    // die Schlusszeile meldete trotzdem „20/20 gemessene Pruefpunkte gruen". Nicht erreicht
+    // ist nicht dasselbe wie bestanden.
+    record("Panel — Abschnitt lief bis zum Ende", false,
+      `abgebrochen: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+async function panelMessungen(cdp: Cdp): Promise<void> {
   const root = await cdp.evaluate<string>(
     `return app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.crewRoot;`,
   );
@@ -522,6 +547,23 @@ async function abschnittPanel(cdp: Cdp): Promise<void> {
   }
   const verirrt = `${root}/zz-smoke-verirrt.md`;
   const kaputt = `${root}/teams/zz-smoke-kaputt.md`;
+
+  // Der crewRoot ist eine Einstellung und kann nach dem Migrations-Abschnitt auf einen Ordner
+  // zeigen, den es im Vault nicht gibt — `app.vault.create` wirft dann, und zwar im Renderer.
+  // Beides absichern: Ordner anlegen, und den Wert in die Detailzeile schreiben, damit ein
+  // Fehlschlag nicht raten laesst, gegen WELCHEN Ordner gemessen wurde.
+  const ordnerDa = await cdp.evaluate<string>(`
+    try {
+      for (const d of [${JSON.stringify("${root}")}, ${JSON.stringify("${root}")} + "/teams"]) {
+        if (!app.vault.getAbstractFileByPath(d)) await app.vault.createFolder(d);
+      }
+      return "ok";
+    } catch (e) { return "Ordner fehlt und laesst sich nicht anlegen: " + (e && e.message ? e.message : String(e)); }
+  `.replace(/\$\{root\}/g, root));
+  if (ordnerDa !== "ok") {
+    record("Panel — crewRoot ist bespielbar", false, `crewRoot „${root}": ${ordnerDa}`);
+    return;
+  }
 
   await cdp.evaluate(`await app.commands.executeCommandById("${PLUGIN_ID}:open-crews-panel"); return true;`);
   // KEIN skipped() hier: ein Panel, das auf seinen eigenen Befehl nicht aufgeht, ist ein
@@ -549,10 +591,12 @@ async function abschnittPanel(cdp: Cdp): Promise<void> {
     vorher === false ? "kein .vault-crews-stray im Ausgangszustand" : "Hinweis stand schon vor der Testdatei");
 
   try {
-    await cdp.evaluate(`
-      await app.vault.create(${JSON.stringify(verirrt)}, "---\ncrew-kind: team\n---\n");
-      return true;
-    `);
+    const angelegt = await anlegen(cdp, verirrt);
+    if (angelegt !== "ok") {
+      record("Panel — verirrte Crew-Datei wird benannt, ohne das Panel neu zu öffnen", false,
+        `Testdatei „${verirrt}" liess sich nicht anlegen: ${angelegt}`);
+      return;
+    }
     const kam = await wartetAuf(cdp, `${PANEL}.querySelector(".vault-crews-stray")`);
     const text = kam
       ? await cdp.evaluate<string>(`return ${PANEL}.querySelector(".vault-crews-stray").textContent;`)
@@ -561,10 +605,12 @@ async function abschnittPanel(cdp: Cdp): Promise<void> {
       kam && text.includes("1"),
       kam ? `Hinweis erschien: „${text.slice(0, 70)}…"` : "kein .vault-crews-stray nach dem Anlegen");
 
-    await cdp.evaluate(`
-      await app.vault.create(${JSON.stringify(kaputt)}, "---\ncrew-kind: team\n---\n");
-      return true;
-    `);
+    const angelegt2 = await anlegen(cdp, kaputt);
+    if (angelegt2 !== "ok") {
+      record("Panel — ungültige Crew trägt ein Warndreieck mit Fehlertext", false,
+        `Testdatei „${kaputt}" liess sich nicht anlegen: ${angelegt2}`);
+      return;
+    }
     const warn = await wartetAuf(cdp, `${PANEL}.querySelector(".vault-crews-team-problem")`);
     const label = warn
       ? await cdp.evaluate<string>(`return ${PANEL}.querySelector(".vault-crews-team-problem").getAttribute("aria-label");`)
