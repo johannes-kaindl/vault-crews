@@ -24,7 +24,9 @@
  * hing an Ollama, nicht am Port.
  *
  * ```bash
- * export STAGING_VAULTS_DIR="$HOME/StagingVaults"   # einmalig
+ * # STAGING_VAULTS_DIR muss gesetzt sein (steht in ~/.zshenv, kanonischer Ort:
+ * # obsidian-plugins/AGENTS.md § Staging-Vaults). Hier KEIN Beispielwert — ein
+ * # zweiter Ort in der Doku gabelt die Konvention, genau so entstand der Drift.
  * npm run build && npm run shots -- --setup
  *
  * osascript -e 'quit app "Obsidian"'

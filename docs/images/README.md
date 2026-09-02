@@ -74,7 +74,9 @@ Port wartet; am 2026-08-30 hätte sie einen zwei Stunden alten Reindex nicht gez
 hing an Ollama, nicht am Port.
 
 ```bash
-export STAGING_VAULTS_DIR="$HOME/StagingVaults"   # einmalig
+# STAGING_VAULTS_DIR muss gesetzt sein (~/.zshenv; kanonischer Ort steht in
+# obsidian-plugins/AGENTS.md § Staging-Vaults). Bewusst ohne Beispielwert:
+# ein zweiter Ort in der Doku gabelt die Konvention.
 npm run build && npm run shots -- --setup         # Vault aus dem Fixture bauen
 
 osascript -e 'quit app "Obsidian"'
