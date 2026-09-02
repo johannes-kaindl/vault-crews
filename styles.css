@@ -310,3 +310,28 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+
+/* Hinweis auf Crew-Dateien, die flach im crewRoot liegen und deshalb nicht geladen werden.
+   Kein CTA — der eine CTA des leeren Zustands bleibt "Beispiel-Crews installieren"
+   (UI-STANDARD §8 Empty-State: optional GENAU ein mod-cta). */
+.vault-crews-stray {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  background: var(--background-secondary);
+  border-left: 3px solid var(--text-warning);
+  border-radius: var(--radius-s);
+  padding: var(--size-4-2) var(--size-4-3);
+  margin-bottom: var(--size-4-3);
+}
+
+/* Warndreieck vor dem Crew-Namen: die Definition parst nicht vollstaendig. Die Zeile bleibt
+   startbar (der Preflight zeigt den echten Fehler) — das Icon nimmt nur den Umweg
+   "starten, scheitern, Log oeffnen" ab. Form + Farbe + aria-label, nie Farbe allein. */
+.vault-crews-team-problem {
+  display: inline-flex;
+  align-items: center;
+  margin-right: var(--size-4-1);
+  vertical-align: middle;
+}
+.vault-crews-team-problem svg { width: 14px; height: 14px; }
+.vault-crews-team-problem.is-warning { color: var(--text-warning); }

@@ -151,6 +151,9 @@ export interface TeamRowVM {
   description: string;
   statusText: string;
   runLabel: string;
+  /** Erste Fehlermeldung, falls die Definition nicht vollstaendig parst — die Zeile bleibt
+   *  startbar (der Preflight zeigt den echten Fehler), deutet ihn aber schon hier an. */
+  problem: string | null;
 }
 
 export interface SummaryVM {
@@ -172,7 +175,7 @@ export interface SummaryVM {
 export interface CrewHistoryRowVM { teamId: string; text: string; }
 
 export type BodyVM =
-  | { kind: "crewsIdle"; empty: boolean; emptyText: string; installLabel: string; teams: TeamRowVM[] }
+  | { kind: "crewsIdle"; empty: boolean; emptyText: string; installLabel: string; teams: TeamRowVM[]; strayText: string | null }
   | { kind: "crewsRunning"; lines: { icon: string; label: string }[]; streamText: string; thinkText: string; streamEmptyText: string; thinkingLabel: string }
   | { kind: "crewsDone"; summary: SummaryVM; backLabel: string }
   | { kind: "history"; empty: boolean; emptyText: string; latest: SummaryVM | null; crewsHeading: string; crews: CrewHistoryRowVM[] };
@@ -193,6 +196,8 @@ export interface TeamInfo {
   name: string;
   description: string;
   lastRun: { status: RunStatus; when: number } | null;
+  /** Siehe TeamRowVM.problem — null, solange die Definition sauber parst. */
+  problem: string | null;
 }
 
 export interface PanelInputs {
@@ -201,10 +206,13 @@ export interface PanelInputs {
   teams: TeamInfo[];
   latest: RunSummary | null;
   nowMs: number;
+  /** Markdown-Dateien mit `crew-kind:`, die flach im crewRoot liegen statt in teams/ oder
+   *  agents/. Sie werden nicht geladen — ohne Hinweis sieht das aus wie ein leerer Vault. */
+  strayCount: number;
 }
 
 export function buildPanelViewModel(inputs: PanelInputs): PanelViewModel {
-  const { navState, runState, teams, latest, nowMs } = inputs;
+  const { navState, runState, teams, latest, nowMs, strayCount } = inputs;
   return {
     title: t("panel.title"),
     tabs: [
@@ -213,12 +221,12 @@ export function buildPanelViewModel(inputs: PanelInputs): PanelViewModel {
     ],
     body: navState === "history"
       ? buildHistoryBody(teams, latest, nowMs)
-      : buildCrewsBody(runState, teams, nowMs),
+      : buildCrewsBody(runState, teams, nowMs, strayCount),
     statusLine: runState.kind === "running" ? buildStatusLine(runState) : null,
   };
 }
 
-function buildCrewsBody(runState: RunState, teams: TeamInfo[], nowMs: number): BodyVM {
+function buildCrewsBody(runState: RunState, teams: TeamInfo[], nowMs: number, strayCount: number): BodyVM {
   if (runState.kind === "running") {
     return {
       kind: "crewsRunning",
@@ -244,6 +252,9 @@ function buildCrewsBody(runState: RunState, teams: TeamInfo[], nowMs: number): B
     empty: teams.length === 0,
     emptyText: t("panel.idle.empty"),
     installLabel: t("cmd.installExamples"),
+    // Auch bei nicht-leerer Liste: eine verirrte Datei ist sonst genauso unsichtbar, und
+    // der leere Zustand ist nur der Fall, in dem es am meisten weh tut.
+    strayText: strayCount > 0 ? t("panel.idle.stray", strayCount) : null,
     teams: teams.map((tm) => ({
       id: tm.id,
       name: tm.name,
@@ -252,6 +263,7 @@ function buildCrewsBody(runState: RunState, teams: TeamInfo[], nowMs: number): B
         ? t("panel.idle.never")
         : `${t(`panel.status.${tm.lastRun.status}`)} · ${formatRelative(nowMs, tm.lastRun.when)}`,
       runLabel: t("panel.idle.run"),
+      problem: tm.problem,
     })),
   };
 }

@@ -5,7 +5,7 @@
 // gelieferte, deklarative ViewModel via createEl. ALLE Entscheidungslogik lebt in der
 // puren panel-view-model.ts (node-testbar); dieses Modul trifft keine Entscheidung.
 // DOM ausschließlich über createEl/createDiv/createSpan — nie HTML-String-Zuweisung.
-import { ItemView, type WorkspaceLeaf } from "obsidian";
+import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
 import { t } from "../vendor/kit/i18n";
 import type { RunEvent } from "../core/ports";
 import type { RunStatus } from "../core/types";
@@ -24,6 +24,8 @@ export interface PanelTeam {
   name: string;
   description: string;
   lastRun: { status: RunStatus; when: number } | null;
+  /** Erste Parse-Fehlermeldung der Crew-Definition, sonst null. Die Zeile bleibt startbar. */
+  problem: string | null;
 }
 
 /** Schmaler Vertrag statt eines main.ts-Imports. main.ts übergibt sein Plugin-Objekt,
@@ -39,6 +41,8 @@ export interface PanelHost {
   installExamples(): void;
   getLastRunSummary(): RunSummary | null;
   openCrewLog(teamId: string): void;
+  /** Dateien mit `crew-kind:`, die flach im crewRoot liegen statt in teams/ oder agents/. */
+  getStrayCrewCount(): number;
 }
 
 export class RunPanelView extends ItemView {
@@ -108,6 +112,13 @@ export class RunPanelView extends ItemView {
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }
 
+  /** Neu zeichnen, ohne dass sich der Lauf-Zustand geaendert hat — fuer Aenderungen, die
+   *  von aussen kommen (eine Crew-Datei wird angelegt, umbenannt, geloescht). Der navState
+   *  und der Aufklapp-Zustand ueberleben, weil beide Felder der View sind. */
+  refreshFromVault(): void {
+    this.render();
+  }
+
   private render(): void {
     const vm = buildPanelViewModel({
       navState: this.navState,
@@ -115,6 +126,7 @@ export class RunPanelView extends ItemView {
       teams: this.host.getTeams(),
       latest: this.host.getLastRunSummary(),
       nowMs: Date.now(),
+      strayCount: this.host.getStrayCrewCount(),
     });
     this.renderViewModel(vm);
   }
@@ -151,6 +163,11 @@ export class RunPanelView extends ItemView {
   private renderBody(root: HTMLElement, body: BodyVM): void {
     switch (body.kind) {
       case "crewsIdle": {
+        // Steht VOR dem Empty-Zweig: eine verirrte Datei ist genau dann die Erklaerung fuer
+        // "keine Crews", und sie bleibt auch bei gefuellter Liste sichtbar.
+        if (body.strayText !== null) {
+          root.createDiv({ cls: "vault-crews-stray", text: body.strayText });
+        }
         if (body.empty) {
           root.createDiv({ cls: "vault-crews-empty", text: body.emptyText });
           const install = root.createEl("button", { cls: "mod-cta", text: body.installLabel });
@@ -160,7 +177,15 @@ export class RunPanelView extends ItemView {
         const list = root.createDiv({ cls: "vault-crews-team-list" });
         for (const team of body.teams) {
           const row = list.createDiv({ cls: "vault-crews-team-row" });
-          row.createDiv({ cls: "vault-crews-team-name", text: team.name });
+          const nameEl = row.createDiv({ cls: "vault-crews-team-name" });
+          // Bedeutung traegt Form (Dreieck) UND Farbe UND aria-label — nie Farbe allein
+          // (UI-STANDARD §8 Status-Indikator, WCAG 1.4.1).
+          if (team.problem !== null) {
+            const warn = nameEl.createSpan({ cls: "vault-crews-team-problem is-warning" });
+            setIcon(warn, "alert-triangle");
+            warn.setAttribute("aria-label", team.problem);
+          }
+          nameEl.createSpan({ text: team.name });
           row.createDiv({ cls: "vault-crews-team-desc", text: team.description });
           row.createDiv({ cls: "vault-crews-team-status", text: team.statusText });
           const runBtn = row.createEl("button", { cls: "vault-crews-run", text: team.runLabel });

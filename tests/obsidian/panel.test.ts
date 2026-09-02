@@ -31,6 +31,7 @@ function makeHost(overrides: Partial<PanelHost> = {}): PanelHost {
     installExamples: vi.fn(),
     getLastRunSummary: vi.fn().mockReturnValue(null),
     openCrewLog: vi.fn(),
+    getStrayCrewCount: vi.fn().mockReturnValue(0),
     ...overrides,
   };
 }
@@ -84,8 +85,8 @@ describe("RunPanelView — identity & shell", () => {
 
 describe("RunPanelView — crews idle", () => {
   const teams: PanelTeam[] = [
-    { id: "task-triage", name: "Task triage", description: "Sorts inbox tasks.", lastRun: null },
-    { id: "daily-briefing", name: "Daily briefing", description: "Writes the daily note.", lastRun: { status: "ok", when: 0 } },
+    { id: "task-triage", name: "Task triage", description: "Sorts inbox tasks.", lastRun: null, problem: null },
+    { id: "daily-briefing", name: "Daily briefing", description: "Writes the daily note.", lastRun: { status: "ok", when: 0 }, problem: null },
   ];
 
   it("renders one Run button per team, wired to host.runCrew with the team id", async () => {
@@ -218,7 +219,7 @@ describe("RunPanelView — done state", () => {
   });
 
   it("Back to overview returns to the idle team list", () => {
-    const host = makeHost({ getTeams: vi.fn().mockReturnValue([{ id: "t", name: "T", description: "", lastRun: null }]) });
+    const host = makeHost({ getTeams: vi.fn().mockReturnValue([{ id: "t", name: "T", description: "", lastRun: null, problem: null }]) });
     const view = new RunPanelView(makeLeaf(), host);
     done(view, okResult());
     const [back] = buttons(view.contentEl, "Back to overview");
@@ -246,7 +247,7 @@ describe("RunPanelView — history tab", () => {
     when: 0, writes: 3, durationS: 7, errorKind: null,
   };
   const teams: PanelTeam[] = [
-    { id: "task-triage", name: "Task triage", description: "", lastRun: { status: "ok", when: 100 } },
+    { id: "task-triage", name: "Task triage", description: "", lastRun: { status: "ok", when: 100 }, problem: null },
   ];
 
   it("switching to History shows the latest run summary and a per-crew row wired to openCrewLog", async () => {

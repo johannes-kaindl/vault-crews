@@ -27,7 +27,7 @@ function applyEvents(events: RunEvent[]): RunState {
 }
 
 function inputsWith(runState: RunState): PanelInputs {
-  return { navState: "crews", runState, teams: [], latest: null, nowMs: 0 };
+  return { navState: "crews", runState, teams: [], latest: null, nowMs: 0, strayCount: 0 };
 }
 
 const okResult = (o: Partial<RunResult> = {}): RunResult => ({
@@ -120,28 +120,28 @@ describe("reduceRun", () => {
 });
 
 const teams: TeamInfo[] = [
-  { id: "task-triage", name: "Task triage", description: "Sorts inbox.", lastRun: { status: "ok", when: 500 } },
-  { id: "daily-briefing", name: "Daily briefing", description: "Writes the note.", lastRun: null },
+  { id: "task-triage", name: "Task triage", description: "Sorts inbox.", lastRun: { status: "ok", when: 500 }, problem: null },
+  { id: "daily-briefing", name: "Daily briefing", description: "Writes the note.", lastRun: null, problem: null },
 ];
 
 describe("buildPanelViewModel — tabs & navigation", () => {
   it("marks the active tab from navState", () => {
-    const vm = buildPanelViewModel({ navState: "history", runState: { kind: "idle" }, teams, latest: null, nowMs: 1000 });
+    const vm = buildPanelViewModel({ navState: "history", runState: { kind: "idle" }, teams, latest: null, nowMs: 1000 , strayCount: 0 });
     expect(vm.tabs.map((t) => [t.id, t.active])).toEqual([["crews", false], ["history", true]]);
   });
 
   it("shows no status line unless a run is active", () => {
-    const idle = buildPanelViewModel({ navState: "crews", runState: { kind: "idle" }, teams, latest: null, nowMs: 0 });
+    const idle = buildPanelViewModel({ navState: "crews", runState: { kind: "idle" }, teams, latest: null, nowMs: 0 , strayCount: 0 });
     expect(idle.statusLine).toBeNull();
     const running = reduceRun({ kind: "idle" }, { type: "runStarted", runId: "r1", teamId: "t" });
-    const vm = buildPanelViewModel({ navState: "history", runState: running, teams, latest: null, nowMs: 0 });
+    const vm = buildPanelViewModel({ navState: "history", runState: running, teams, latest: null, nowMs: 0 , strayCount: 0 });
     expect(vm.statusLine).not.toBeNull(); // reachable even from the history tab
   });
 });
 
 describe("buildPanelViewModel — crews body", () => {
   it("idle with teams lists a run label per team and a status line per team", () => {
-    const vm = buildPanelViewModel({ navState: "crews", runState: { kind: "idle" }, teams, latest: null, nowMs: 500 });
+    const vm = buildPanelViewModel({ navState: "crews", runState: { kind: "idle" }, teams, latest: null, nowMs: 500 , strayCount: 0 });
     expect(vm.body.kind).toBe("crewsIdle");
     if (vm.body.kind === "crewsIdle") {
       expect(vm.body.empty).toBe(false);
@@ -151,7 +151,7 @@ describe("buildPanelViewModel — crews body", () => {
   });
 
   it("idle with no teams flags empty and offers the install label", () => {
-    const vm = buildPanelViewModel({ navState: "crews", runState: { kind: "idle" }, teams: [], latest: null, nowMs: 0 });
+    const vm = buildPanelViewModel({ navState: "crews", runState: { kind: "idle" }, teams: [], latest: null, nowMs: 0 , strayCount: 0 });
     expect(vm.body.kind === "crewsIdle" && vm.body.empty).toBe(true);
     expect(vm.body.kind === "crewsIdle" && vm.body.installLabel.length).toBeGreaterThan(0);
   });
@@ -164,7 +164,7 @@ describe("buildPanelViewModel — crews body", () => {
       { type: "token", taskId: "collect", isThink: true, text: "" },
       { type: "taskFinished", taskId: "collect", status: "ok" },
     ]);
-    const vm = buildPanelViewModel({ navState: "crews", runState: running, teams, latest: null, nowMs: 0 });
+    const vm = buildPanelViewModel({ navState: "crews", runState: running, teams, latest: null, nowMs: 0 , strayCount: 0 });
     expect(vm.body.kind).toBe("crewsRunning");
     if (vm.body.kind === "crewsRunning") {
       expect(vm.body.lines[0]?.icon).toBe("✓");
@@ -204,7 +204,7 @@ describe("buildPanelViewModel — abort honesty (§3)", () => {
   }
 
   it("clicked abort but finished ok → 'finished first' note, not a frozen cancelling state", () => {
-    const vm = buildPanelViewModel({ navState: "crews", runState: doneAfterAbort("ok"), teams, latest: null, nowMs: 0 });
+    const vm = buildPanelViewModel({ navState: "crews", runState: doneAfterAbort("ok"), teams, latest: null, nowMs: 0 , strayCount: 0 });
     expect(vm.statusLine).toBeNull();
     expect(vm.body.kind === "crewsDone" && vm.body.summary.abortNote).toBe(
       "The run finished before the abort took effect — nothing was aborted.",
@@ -212,13 +212,13 @@ describe("buildPanelViewModel — abort honesty (§3)", () => {
   });
 
   it("actually aborted → aborted note", () => {
-    const vm = buildPanelViewModel({ navState: "crews", runState: doneAfterAbort("aborted"), teams, latest: null, nowMs: 0 });
+    const vm = buildPanelViewModel({ navState: "crews", runState: doneAfterAbort("aborted"), teams, latest: null, nowMs: 0 , strayCount: 0 });
     expect(vm.body.kind === "crewsDone" && vm.body.summary.abortNote).toContain("Aborted");
   });
 
   it("no abort click → no note", () => {
     const done = reduceRun(reduceRun({ kind: "idle" }, { type: "runStarted", runId: "r1", teamId: "t" }), { type: "runFinished", result: okResult() });
-    const vm = buildPanelViewModel({ navState: "crews", runState: done, teams, latest: null, nowMs: 0 });
+    const vm = buildPanelViewModel({ navState: "crews", runState: done, teams, latest: null, nowMs: 0 , strayCount: 0 });
     expect(vm.body.kind === "crewsDone" && vm.body.summary.abortNote).toBeNull();
   });
 });
@@ -230,13 +230,13 @@ describe("buildPanelViewModel — history body", () => {
   };
 
   it("empty history when there is no latest run", () => {
-    const vm = buildPanelViewModel({ navState: "history", runState: { kind: "idle" }, teams: [], latest: null, nowMs: 0 });
+    const vm = buildPanelViewModel({ navState: "history", runState: { kind: "idle" }, teams: [], latest: null, nowMs: 0 , strayCount: 0 });
     expect(vm.body.kind === "history" && vm.body.empty).toBe(true);
     expect(vm.body.kind === "history" && vm.body.latest).toBeNull();
   });
 
   it("shows the latest run summary (with team name, files count, undoable) and a per-crew list", () => {
-    const vm = buildPanelViewModel({ navState: "history", runState: { kind: "idle" }, teams, latest, nowMs: 1000 });
+    const vm = buildPanelViewModel({ navState: "history", runState: { kind: "idle" }, teams, latest, nowMs: 1000 , strayCount: 0 });
     expect(vm.body.kind).toBe("history");
     if (vm.body.kind === "history") {
       expect(vm.body.latest?.teamName).toBe("Task triage");
@@ -246,5 +246,57 @@ describe("buildPanelViewModel — history body", () => {
       expect(vm.body.crews).toHaveLength(1);
       expect(vm.body.crews[0]?.teamId).toBe("task-triage");
     }
+  });
+});
+
+// Drei Zustaende, in denen das Panel bisher schwieg, obwohl es etwas zu sagen hatte
+// (gemessen 2026-08-17 beim Bauen des Aufnahme-Fixtures). Alle drei kosten genau die
+// Person Zeit, die gerade ihre ERSTE eigene Crew schreibt.
+describe("stumme Zustaende", () => {
+  const team = (o: Partial<TeamInfo> = {}): TeamInfo => ({
+    id: "t1", name: "Team 1", description: "d", lastRun: null, problem: null, ...o,
+  });
+
+  // 1. Eine Crew-Datei flach im crewRoot wird ignoriert, und der leere Zustand sah
+  //    genauso aus wie bei einem voellig leeren Vault: "No crews yet."
+  it("benennt verirrte Crew-Dateien im leeren Zustand", () => {
+    const vm = buildPanelViewModel({ ...inputsWith({ kind: "idle" }), strayCount: 2 });
+    expect(vm.body.kind).toBe("crewsIdle");
+    if (vm.body.kind !== "crewsIdle") return;
+    expect(vm.body.empty).toBe(true);
+    expect(vm.body.strayText).not.toBeNull();
+    expect(vm.body.strayText).toContain("2");
+  });
+
+  it("benennt verirrte Dateien auch dann, wenn schon Crews da sind", () => {
+    const vm = buildPanelViewModel({
+      ...inputsWith({ kind: "idle" }), teams: [team()], strayCount: 1,
+    });
+    if (vm.body.kind !== "crewsIdle") return;
+    expect(vm.body.empty).toBe(false);
+    expect(vm.body.strayText).not.toBeNull();
+  });
+
+  it("schweigt, wenn nichts verirrt ist — kein Hinweis ohne Anlass", () => {
+    const vm = buildPanelViewModel(inputsWith({ kind: "idle" }));
+    if (vm.body.kind !== "crewsIdle") return;
+    expect(vm.body.strayText).toBeNull();
+  });
+
+  // 3. Eine ungueltige Crew blieb gelistet (absichtlich — die Zeile soll startbar sein),
+  //    aber ohne jeden Hinweis: starten, scheitern, Log oeffnen.
+  it("reicht den Parse-Fehler einer Crew an die Zeile durch", () => {
+    const vm = buildPanelViewModel({
+      ...inputsWith({ kind: "idle" }),
+      teams: [team({ problem: "agent 'fehlt' ist nicht bekannt" })],
+    });
+    if (vm.body.kind !== "crewsIdle") return;
+    expect(vm.body.teams[0].problem).toBe("agent 'fehlt' ist nicht bekannt");
+  });
+
+  it("laesst problem null, wo die Crew in Ordnung ist", () => {
+    const vm = buildPanelViewModel({ ...inputsWith({ kind: "idle" }), teams: [team()] });
+    if (vm.body.kind !== "crewsIdle") return;
+    expect(vm.body.teams[0].problem).toBeNull();
   });
 });

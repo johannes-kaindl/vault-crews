@@ -78,12 +78,20 @@ interface LastRunInfo {
 }
 type LastRuns = Record<string, LastRunInfo>;
 
+/** Wartezeit, bis eine Salve von Vault-Ereignissen als eine Aenderung gilt. Kurz genug,
+ *  dass das Panel unmittelbar wirkt; lang genug, dass Tippen im Editor nicht jedes Mal
+ *  alle Team-Dateien neu liest. */
+const CREW_REFRESH_DELAY_MS = 400;
+
 /** Leichte Team-Kopfdaten für Picker + Panel-Liste (id/name/description). Der letzte
  *  Lauf-Status wird erst in getTeams() aus `lastRuns` dazugemischt. */
 interface TeamListEntry {
   id: string;
   name: string;
   description: string;
+  /** Erste Meldung, falls parseTeamDef scheitert — die Zeile bleibt startbar, deutet den
+   *  Fehler aber schon in der Liste an, statt ihn erst im Preflight zu zeigen. */
+  problem: string | null;
 }
 
 export default class VaultCrewsPlugin extends Plugin implements SettingsHost, PanelHost {
@@ -93,6 +101,12 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
 
   private lastRuns: LastRuns = {};
   private teamCache: TeamListEntry[] = [];
+  // Dateien mit crew-kind:, die flach im crewRoot liegen. Werden nicht geladen — ohne
+  // Hinweis sieht das im Panel aus wie ein leerer Vault.
+  private strayCount = 0;
+  // Sammelt Vault-Events: "modify" feuert bei jedem Speichern, und refreshTeams liest
+  // Frontmatter aller Team-Dateien. Ohne Zusammenfassung liefe das bei jedem Tastendruck.
+  private crewWatchTimer: number | null = null;
 
   private vault!: VaultPort;
   private meta!: MetadataPort;
@@ -287,6 +301,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     try {
       await this.refreshTeams();
       this.registerTeamCommands();
+      this.registerCrewWatcher();
       await this.checkRecovery();
     } catch {
       // Best-effort Hintergrund-Init: bei einem Fehler bleibt die Team-Liste leer,
@@ -414,8 +429,13 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
         name: tm.name,
         description: tm.description,
         lastRun: info ? { status: info.status, when: info.when } : null,
+        problem: tm.problem,
       };
     });
+  }
+
+  getStrayCrewCount(): number {
+    return this.strayCount;
   }
 
   abortCurrentRun(): void {
@@ -480,6 +500,67 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
 
   private async refreshTeams(): Promise<void> {
     this.teamCache = await this.loadTeamList();
+    this.strayCount = await this.countStrayCrewFiles();
+  }
+
+  /** Markdown-Dateien mit `crew-kind:`, die DIREKT im crewRoot liegen. Das Plugin liest
+   *  Crews nur aus `teams/` und `agents/`; eine flach abgelegte Datei wird ignoriert, und
+   *  das Panel meldete bisher „Noch keine Crews" — dasselbe wie bei leerem Vault. */
+  private async countStrayCrewFiles(): Promise<number> {
+    const root = this.settings.crewRoot.trim().replace(/\/+$/, "");
+    if (root === "") return 0;
+    let paths: string[] = [];
+    try {
+      paths = await this.meta.listMarkdownFiles(root);
+    } catch {
+      return 0;
+    }
+    // Direkt darunter heisst: nach dem Praefix folgt kein weiterer Schraegstrich.
+    const flat = paths.filter((p) => !p.slice(root.length + 1).includes("/"));
+    let n = 0;
+    for (const path of flat) {
+      try {
+        const fm = await this.meta.getFrontmatter(path);
+        if (fm !== null && typeof fm["crew-kind"] === "string") n += 1;
+      } catch {
+        // unlesbare Datei zaehlt nicht — ein Hinweis auf etwas Ungewisses hilft niemandem
+      }
+    }
+    return n;
+  }
+
+  /** Haelt das Panel aktuell, wenn eine Crew-Datei dazukommt, umbenannt oder geloescht wird.
+   *  Vorher baute das Panel seine Liste nur beim Oeffnen: wer eine Crew anlegte und
+   *  hinsah, musste es schliessen und wieder oeffnen, um sie zu sehen. */
+  private registerCrewWatcher(): void {
+    const touched = (path: string): boolean => {
+      const root = this.settings.crewRoot.trim().replace(/\/+$/, "");
+      return root !== "" && path.startsWith(root + "/");
+    };
+    const onChange = (file: { path: string }, oldPath?: string): void => {
+      if (!touched(file.path) && !(oldPath !== undefined && touched(oldPath))) return;
+      this.scheduleCrewRefresh();
+    };
+    this.registerEvent(this.app.vault.on("create", onChange));
+    this.registerEvent(this.app.vault.on("delete", onChange));
+    this.registerEvent(this.app.vault.on("rename", onChange));
+    this.registerEvent(this.app.vault.on("modify", onChange));
+  }
+
+  /** Fasst eine Ereignis-Salve zu einem Neuaufbau zusammen. `modify` feuert bei jedem
+   *  Speichern, und ein Neuaufbau liest das Frontmatter jeder Team-Datei. */
+  private scheduleCrewRefresh(): void {
+    if (this.crewWatchTimer !== null) window.clearTimeout(this.crewWatchTimer);
+    this.crewWatchTimer = window.setTimeout(() => {
+      this.crewWatchTimer = null;
+      void this.refreshTeams().then(() => {
+        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_CREWS)) {
+          if (leaf.view instanceof RunPanelView) leaf.view.refreshFromVault();
+        }
+      }).catch(() => {
+        // Best-effort wie initDeferred: die Liste bleibt stehen, kein UI-Laerm.
+      });
+    }, CREW_REFRESH_DELAY_MS);
   }
 
   private async loadTeamList(): Promise<TeamListEntry[]> {
@@ -521,16 +602,22 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     try {
       const fm = await this.meta.getFrontmatter(path);
       const parsed = parseTeamDef(path, fm, { knownAgents: agentIds, maxima: limits, denylist });
-      if (parsed.ok) return { id, name: parsed.value.name, description: parsed.value.description };
+      if (parsed.ok) {
+        return { id, name: parsed.value.name, description: parsed.value.description, problem: null };
+      }
+      // Genau die erste Meldung: der Tooltip soll den Einstieg geben, nicht das ganze
+      // Protokoll — das steht im Preflight.
+      const problem = parsed.errors[0] ?? null;
       if (fm !== null) {
         const name = typeof fm.name === "string" && fm.name.trim() !== "" ? fm.name.trim() : id;
         const description = typeof fm.description === "string" ? fm.description : "";
-        return { id, name, description };
+        return { id, name, description, problem };
       }
+      return { id, name: id, description: "", problem };
     } catch {
       // rohes Lesen fehlgeschlagen → Slug-Fallback
     }
-    return { id, name: id, description: "" };
+    return { id, name: id, description: "", problem: null };
   }
 
   private async checkRecovery(): Promise<void> {

@@ -5,7 +5,7 @@
 // der Orchestrator (`executeRun`) wird gemockt, damit `runCrew` einen kontrollierbaren,
 // nie auflösenden Lauf startet und der Mutex isoliert beobachtbar wird.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { makeFakeApp, Notice, Plugin, requestUrl } from "../__mocks__/obsidian";
+import { makeFakeApp, Notice, Plugin, requestUrl, TFile } from "../__mocks__/obsidian";
 import type { App, PluginManifest } from "obsidian";
 import { setLang, t } from "../../src/vendor/kit/i18n";
 import * as strings from "../../src/i18n/strings";
@@ -271,5 +271,65 @@ describe("VaultCrewsPlugin.loadSettings — Migration", () => {
     const s = (plugin as unknown as { settings: Record<string, unknown> }).settings;
     expect(s.endpoints).toEqual([{ url: "http://a:1", model: "altes-modell" }]);
     expect("defaultModel" in s).toBe(false);
+  });
+});
+
+// Zwei der drei stummen Panel-Zustaende haengen an der Wiring-Schicht, nicht am ViewModel:
+// das Zaehlen verirrter Dateien und das Nachziehen bei Vault-Aenderungen.
+describe("VaultCrewsPlugin — verirrte Crew-Dateien und Live-Aktualisierung", () => {
+  /** Baut ein App-Double, dessen Vault die genannten Pfade fuehrt; jeder Pfad mit
+   *  `crewKind` bekommt entsprechendes Frontmatter. */
+  function appWithFiles(files: Record<string, string | null>): any {
+    const app = makeFakeApp();
+    const tfiles = Object.keys(files).map((path) => {
+      const f = new TFile();
+      (f as unknown as { path: string }).path = path;
+      return f;
+    });
+    app.vault.getMarkdownFiles.mockReturnValue(tfiles);
+    app.vault.getAbstractFileByPath.mockImplementation((p: string) =>
+      tfiles.find((f) => (f as unknown as { path: string }).path === p) ?? null);
+    app.metadataCache.getFileCache.mockImplementation((f: unknown) => {
+      const path = (f as { path: string }).path;
+      const kind = files[path];
+      return kind === null || kind === undefined ? null : { frontmatter: { "crew-kind": kind } };
+    });
+    return app;
+  }
+
+  async function loadedWith(files: Record<string, string | null>): Promise<VaultCrewsPlugin> {
+    const plugin = new VaultCrewsPlugin(appWithFiles(files) as App, MANIFEST);
+    await plugin.onload();
+    await vi.waitFor(() => { expect(plugin.getStrayCrewCount()).toBeGreaterThanOrEqual(0); });
+    return plugin;
+  }
+
+  it("zaehlt nur Dateien mit crew-kind, die FLACH im crewRoot liegen", async () => {
+    const plugin = await loadedWith({
+      "_crews/verirrt.md": "team",          // zaehlt
+      "_crews/auch-verirrt.md": "agent",    // zaehlt
+      "_crews/teams/richtig.md": "team",    // liegt korrekt → zaehlt nicht
+      "_crews/agents/richtig.md": "agent",  // liegt korrekt → zaehlt nicht
+      "_crews/notiz.md": null,              // kein crew-kind → zaehlt nicht
+      "woanders/fremd.md": "team",          // ausserhalb des crewRoot → zaehlt nicht
+    });
+    await vi.waitFor(() => { expect(plugin.getStrayCrewCount()).toBe(2); });
+  });
+
+  it("meldet 0, wenn nichts verirrt ist — kein Hinweis ohne Anlass", async () => {
+    const plugin = await loadedWith({ "_crews/teams/richtig.md": "team" });
+    await vi.waitFor(() => { expect(plugin.getStrayCrewCount()).toBe(0); });
+  });
+
+  // Das Panel baute seine Liste nur beim Oeffnen: wer eine Crew anlegte, sah sie erst
+  // nach Schliessen und erneutem Oeffnen.
+  it("horcht auf create, delete, rename und modify im Vault", async () => {
+    const app = appWithFiles({ "_crews/teams/t.md": "team" });
+    const plugin = new VaultCrewsPlugin(app as App, MANIFEST);
+    await plugin.onload();
+    await vi.waitFor(() => {
+      const events = app.vault.on.mock.calls.map((c: unknown[]) => c[0]);
+      expect(events).toEqual(expect.arrayContaining(["create", "delete", "rename", "modify"]));
+    });
   });
 });
