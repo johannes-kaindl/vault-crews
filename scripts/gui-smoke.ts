@@ -524,11 +524,23 @@ async function abschnittPanel(cdp: Cdp): Promise<void> {
   const kaputt = `${root}/teams/zz-smoke-kaputt.md`;
 
   await cdp.evaluate(`await app.commands.executeCommandById("${PLUGIN_ID}:open-crews-panel"); return true;`);
+  // KEIN skipped() hier: ein Panel, das auf seinen eigenen Befehl nicht aufgeht, ist ein
+  // Befund am Prüfling, keine fehlende Umgebung. `skipped` zählt als grün — wer das
+  // verwechselt, verbucht den gesuchten Defekt als Nichtmessung (gemessen 2026-09-02 in
+  // obsidian-transmute: zwei Punkte standen monatelang „übersprungen", Bilanz sah 25/25 aus).
   if (!await wartetAuf(cdp, PANEL)) {
-    skipped("Panel — verirrte Crew-Datei", "Panel öffnete nicht");
-    skipped("Panel — Warndreieck an ungültiger Crew", "Panel öffnete nicht");
+    record("Panel — öffnet auf den eigenen Befehl", false, "Panel-Blatt erschien nicht");
     return;
   }
+
+  // Vor der Abwesenheits-Messung warten, bis der Panel-INHALT steht. Sonst misst der
+  // Prüfpunkt unten nur, dass noch nichts gerendert ist — eine Abwesenheit ist erst dann
+  // eine Aussage, wenn die Anwesenheit überhaupt möglich war. (Dieselbe Klasse Fehler wie
+  // ein Klick vor der ersten UI-Freigabe: die Messung misst ihren eigenen Zeitpunkt.)
+  const inhaltDa = await wartetAuf(cdp,
+    `${PANEL}.querySelector(".vault-crews-team-list, .vault-crews-empty")`);
+  record("Panel — Inhalt ist gerendert, bevor gemessen wird", inhaltDa,
+    inhaltDa ? "Team-Liste oder Empty-State steht" : "weder Liste noch Empty-State nach 6s");
 
   // Ausgangslage: ohne Anlass kein Hinweis. Ohne diese Messung wäre ein Hinweis, der
   // IMMER steht, von einem korrekt erschienenen nicht zu unterscheiden.
