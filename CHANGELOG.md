@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.5] — 2026-09-02
+
 ### Changed
 
 - **Das Panel schweigt nicht mehr in drei Lagen, in denen es etwas zu sagen hat.** Alle drei kosten die Person Zeit, die gerade ihre erste eigene Crew schreibt. (1) Eine Crew-Datei, die flach im Crew-Ordner liegt statt in `teams/` oder `agents/`, wird nicht geladen — das Panel meldete dafür „Noch keine Crews", also dasselbe wie für einen leeren Vault. Jetzt steht dort, wie viele Dateien mit `crew-kind:` am falschen Ort liegen. (2) Wer eine Crew anlegt, umbenennt oder ändert, sah sie erst nach Schließen und erneutem Öffnen des Panels; die Liste zieht jetzt selbst nach. (3) Eine Crew, deren Definition nicht vollständig parst, blieb ohne Hinweis in der Liste — der Fehler zeigte sich erst nach dem Starten im Preflight. Die Zeile bleibt startbar (der Preflight nennt weiterhin den vollständigen Fehler), trägt aber ein Warndreieck, dessen Tooltip die erste Meldung nennt.
