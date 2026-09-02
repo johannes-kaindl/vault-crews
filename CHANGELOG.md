@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.4] — 2026-09-02
+
 ### Fixed
 
 - **Ein Endpunkt, der seinen Fehler im FastAPI-Format meldet, zeigt jetzt die Servermeldung statt rohem JSON.** Antwortet ein Backend mit `{"detail":"Not authenticated"}` — die Form, die OpenWebUI und andere Python-Gateways schicken —, stand bisher genau dieser JSON-Rumpf in der Fehlermeldung, weil das Feld `detail` nirgends gelesen wurde. Jetzt steht dort „Not authenticated". Drei Feldformen kannte das Plugin schon (`error.message`, `error`, `message`); `detail` ist die vierte.
