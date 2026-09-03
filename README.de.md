@@ -81,18 +81,47 @@ wird eingeschränkt und dann geprüft, bevor sie deinen Vault berührt.
 
 ## Installation
 
-**Aus den Community-Plugins (sobald gelistet):** **Einstellungen → Community-Plugins →
+Repository: [git.jkaindl.de/jkaindl/vault-crews](https://git.jkaindl.de/jkaindl/vault-crews)
+
+> **Hinweis (2026-09-03):** Vault Crews ist derzeit **nicht im Community-Plugin-Browser
+> gelistet**. Das GitHub-Konto, auf dem der Mirror liegt, ist nicht verfügbar, und damit
+> entfiel auch der Store-Eintrag. Das Plugin selbst ist davon unberührt und wird weiter
+> gepflegt — die Releases erscheinen auf Forgejo, und beide Wege unten funktionieren heute.
+
+### Mit dem AnySource Sideloader (empfohlen)
+
+Der [AnySource Sideloader](https://git.jkaindl.de/jkaindl/anysource-sideloader) installiert und
+aktualisiert Plugins von jeder git-Forge, unabhängig vom Community Store.
+
+1. AnySource Sideloader installieren und aktivieren. (Seine eigene Erstinstallation ist
+   manuell — vom Store unabhängig zu sein ist ja der Zweck —, aber sie fällt nur einmal an;
+   danach hält er sich und alles andere selbst aktuell.)
+2. Dieses Repository als Quelle hinzufügen:
+   `https://git.jkaindl.de/jkaindl/vault-crews`
+3. **Vault Crews** installieren und aktivieren.
+
+Updates kommen danach genauso wie bei jedem anderen Plugin.
+
+### Manuelle Installation
+
+`main.js`, `manifest.json` und `styles.css` aus dem
+[neuesten Forgejo-Release](https://git.jkaindl.de/jkaindl/vault-crews/releases/latest)
+herunterladen und ins Vault kopieren. Jedes Release liefert zusätzlich `checksums.sha256`, du
+kannst das Heruntergeladene also mit `shasum -a 256 -c checksums.sha256` prüfen.
+
+```bash
+cp main.js manifest.json styles.css "<dein-vault>/.obsidian/plugins/vault-crews/"
+```
+
+Danach: Obsidian → **Einstellungen → Community-Plugins → neu laden** → **Vault Crews**
+aktivieren.
+
+### Aus dem Community-Plugin-Browser
+
+Wieder verfügbar, sobald der Store-Eintrag zurück ist: **Einstellungen → Community-Plugins →
 Durchsuchen** öffnen, nach **Vault Crews** suchen, installieren und aktivieren.
 
-**Vorher — über BRAT** ([Beta Reviewers Auto-update
-Tool](https://github.com/TfTHacker/obsidian42-brat)):
-
-1. Das Community-Plugin **BRAT** über den Plugin-Browser von Obsidian installieren.
-2. In den BRAT-Einstellungen „Add beta plugin" wählen und auf dieses Repository zeigen
-   (`https://git.jkaindl.de/jkaindl/vault-crews`).
-3. **Vault Crews** unter Community-Plugins aktivieren.
-
-**Nach dem Aktivieren** den Befehl **„Install example crews"** ausführen, um `_crews/`
+**Nach dem Aktivieren** (egal auf welchem Weg) den Befehl **„Install example crews"** ausführen, um `_crews/`
 (Standard-Wurzel, in den Einstellungen änderbar) mit den Beispiel-Teams Task-Triage und
 Daily-Briefing, ihren Agenten und dem `runs.base`-Dashboard zu befüllen. Installierte
 Dateien werden von einem zweiten Lauf nie überschrieben — bearbeite sie danach frei.

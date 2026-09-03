@@ -150,8 +150,10 @@ Der Klon muss **kein git-Repo** mehr sein (Snapshot-Undo, 0.2.0).
 1. `scripts/clone-vault.sh` (Default: Pallas → `/tmp/vault-crews-smoke`;
    Quelle/Ziel optional als Argumente).
 2. Klon in Obsidian öffnen; Plugin-Build hineinkopieren
-   (`OBSIDIAN_PLUGIN_DIR=<Klon>/.obsidian/plugins/vault-crews npm run deploy`)
-   oder per BRAT gegen den Klon installieren.
+   (`OBSIDIAN_PLUGIN_DIR=<Klon>/.obsidian/plugins/vault-crews npm run deploy`).
+   *Bis 2026-09-03 stand hier „oder per BRAT" — der Weg zeigte auf Forgejo, und ob BRAT
+   eine Nicht-GitHub-Forge bedient, ist ungeprüft. Wer den Installationsweg statt des
+   Builds smoken will, nimmt den `anysource-sideloader` (er kann Gitea/Forgejo nachweislich).*
 3. Command **„Install example crews"** ausführen.
 4. **BEIDE** Beispiel-Crews laufen lassen (Task-Triage **und** Daily-Briefing —
    nicht nur eine).

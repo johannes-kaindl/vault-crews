@@ -73,18 +73,46 @@ ever touches your vault.
 
 ## Install
 
-**From Community plugins (once listed):** open **Settings → Community plugins →
+Repository: [git.jkaindl.de/jkaindl/vault-crews](https://git.jkaindl.de/jkaindl/vault-crews)
+
+> **Note (2026-09-03):** Vault Crews is currently **not listed in the Community plugins
+> browser**. The GitHub account hosting the mirror is unavailable, which also removed the
+> store listing. The plugin itself is unaffected and fully maintained — releases are
+> published on Forgejo, and the two routes below both work today.
+
+### With AnySource Sideloader (recommended)
+
+[AnySource Sideloader](https://git.jkaindl.de/jkaindl/anysource-sideloader) installs and
+updates plugins from any git forge, independent of the Community Store.
+
+1. Install and enable AnySource Sideloader. (Its own first install is manual — being
+   independent of the store is the point — but it only has to be done once, and it then
+   keeps itself and everything else updated.)
+2. Add this repository as a source:
+   `https://git.jkaindl.de/jkaindl/vault-crews`
+3. Install **Vault Crews** and enable it.
+
+Updates then arrive the same way any other plugin update does.
+
+### Manual install
+
+Download `main.js`, `manifest.json` and `styles.css` from the
+[latest Forgejo release](https://git.jkaindl.de/jkaindl/vault-crews/releases/latest) and copy
+them into your vault. Each release also ships `checksums.sha256`, so you can verify what you
+downloaded with `shasum -a 256 -c checksums.sha256`.
+
+```bash
+cp main.js manifest.json styles.css "<your-vault>/.obsidian/plugins/vault-crews/"
+```
+
+Then: Obsidian → **Settings → Community plugins → reload** → enable **Vault Crews**.
+
+### From Obsidian's Community plugins browser
+
+Available again once the store listing returns: open **Settings → Community plugins →
 Browse**, search for **Vault Crews**, install and enable it.
 
-**Before it is listed — via BRAT** ([Beta Reviewers Auto-update
-Tool](https://github.com/TfTHacker/obsidian42-brat)):
-
-1. Install the **BRAT** community plugin from Obsidian's community plugin browser.
-2. In BRAT's settings, "Add beta plugin" and point it at this repository
-   (`https://git.jkaindl.de/jkaindl/vault-crews`).
-3. Enable **Vault Crews** under Community plugins.
-
-**After enabling**, run the command **"Install example crews"** to seed `_crews/`
+**After enabling** (whichever route), run the command **"Install example crews"** to seed `_crews/`
 (default root, configurable in settings) with the Task-Triage and Daily-Briefing
 example teams, their agents, and the `runs.base` dashboard. Installed files are never
 overwritten by a second run — edit them freely afterwards.
