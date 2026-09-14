@@ -18,13 +18,13 @@
 # Usage:
 #   scripts/clone-vault.sh [SOURCE_VAULT] [DEST_DIR]
 #
-#   SOURCE_VAULT  Default: /Users/Shared/10_ObsidianVaults/Y3_ProtoVault
+#   SOURCE_VAULT  Default: ~/Archive/vaults/Y3_ProtoVault
 #                 (kleiner, sauberer Proto-Vault, der die Beispiel-Crew-Struktur
 #                  spiegelt: 10_Aufgaben, 30_Chronos/10_Tage, _types/_status/
 #                  _priority — die mitgelieferten Crews laufen darauf out-of-the-box.
 #                  Für einen realistischeren Klon einen echten Vault als $1 übergeben.)
-#   DEST_DIR      Default: /Users/Shared/10_ObsidianVaults/vault-crews-smoke
-#                 (neben den echten Vaults, damit er im Obsidian-Ordner-Picker
+#   DEST_DIR      Default: ~/Work/StagingVaults/vault-crews-smoke
+#                 (bei den Staging-Vaults unter ~/Work, damit er im Obsidian-Ordner-Picker
 #                  auftaucht — /tmp ist versteckt und dort nicht auswählbar)
 #
 # Danach: DEST_DIR in Obsidian öffnen (community plugins bleiben erhalten,
@@ -37,8 +37,8 @@
 
 set -euo pipefail
 
-SOURCE_VAULT="${1:-/Users/Shared/10_ObsidianVaults/Y3_ProtoVault}"
-DEST_DIR="${2:-/Users/Shared/10_ObsidianVaults/vault-crews-smoke}"
+SOURCE_VAULT="${1:-$HOME/Archive/vaults/Y3_ProtoVault}"
+DEST_DIR="${2:-$HOME/Work/StagingVaults/vault-crews-smoke}"
 
 if [ ! -d "$SOURCE_VAULT" ]; then
   echo "clone-vault: Quell-Vault nicht gefunden: $SOURCE_VAULT" >&2
