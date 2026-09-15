@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Kit-Pin `obsidian-kit` 0.27.0 → 0.35.0 (+ code-kit 0.6.0).** Alle vendorten pure-Module ziehen seit obsidian-kit 2ab1bb5 aus code-kit; `tools/sync-kit.sh` (neu, aus `lingotuner` übernommen) macht das Re-Vendoring wiederholbar. `think.ts` heißt jetzt `think-splitter.ts` (Modulname = Dateiname, wie in allen anderen Kit-Consumern).
+
 ## [0.9.5] — 2026-09-02
 
 ### Changed

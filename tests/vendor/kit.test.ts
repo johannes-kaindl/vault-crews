@@ -2,7 +2,7 @@
 // damit ein künftiges manuelles Nachziehen der Vendor-Kopien Abweichungen sofort zeigt.
 import { describe, expect, it } from 'vitest';
 import { parseSSE } from '../../src/vendor/kit/sse';
-import { ThinkSplitter } from '../../src/vendor/kit/think';
+import { ThinkSplitter } from '../../src/vendor/kit/think-splitter';
 import { normalizeEndpoint, parseEndpointList, resolveActiveEndpoint } from '../../src/vendor/kit/endpoint';
 import {
 	ENDPOINT_PRESETS,

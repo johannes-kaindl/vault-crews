@@ -1,4 +1,4 @@
-// vendored from obsidian-kit#0.17.1, src/obsidian/confirm.ts
+// vendored from obsidian-kit@0.35.0, src/obsidian/confirm.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 import { App, ButtonComponent, Modal } from "obsidian";
 
 export interface ConfirmOptions {

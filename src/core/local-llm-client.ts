@@ -4,7 +4,7 @@
  *  ersten Token scharf (JIT-Modell-Laden braucht > 60 s bis zum ersten Token).
  *  Thinking-Suppression nach vault-rag-Muster (reasoning_effort + chat_template_kwargs). */
 import { parseSSE } from '../vendor/kit/sse';
-import { ThinkSplitter } from '../vendor/kit/think';
+import { ThinkSplitter } from '../vendor/kit/think-splitter';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { authHeaders, type EndpointConfig } from '../vendor/kit/endpoint_config';
 import { parseLmStudioContext, parseOllamaContext, suppressParams } from './model-info';

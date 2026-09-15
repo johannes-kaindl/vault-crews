@@ -1,7 +1,8 @@
 {
   "source": "obsidian-kit",
-  "version": "0.27.0",
-  "sha": "548041b",
-  "vendored": "pure/capabilities.ts, pure/endpoint.ts, pure/endpoint_config.ts, pure/endpoint_diagnostics.ts, pure/error_body.ts, pure/i18n.ts, pure/model-context.ts, pure/model-choice.ts, pure/model-list-cache.ts, pure/reasoning.ts, pure/settings.ts, pure/sse.ts, pure/think-splitter.ts, pure/timeout.ts, obsidian/clock.ts",
-  "note": "Verbatim snapshot. Never hand-edit. Re-copy from obsidian-kit to update. Each file's first line names the tag its CONTENT was introduced with (measured by content comparison across all kit tags), which is older than the version above for modules that have not changed since. sse.ts was pulled up to 0.3.0 on 2026-08-18 (finishReason), verified against a live LM Studio run: the server sends finish_reason \"length\" in the final chunk, and the run now fails as output_truncated with one LLM call instead of invalid_output with two. obsidian/clock.ts lives here rather than in kit-obsidian because it imports no obsidian symbol; it only touches window (UI-STANDARD §9 draws the line at the import)."
+  "version": "0.35.0",
+  "sha": "e7e3e19",
+  "code_kit_version": "0.6.0",
+  "vendored": "capabilities.ts, endpoint.ts, endpoint_config.ts, endpoint_diagnostics.ts, error_body.ts, i18n.ts, model-context.ts, model-choice.ts, model-list-cache.ts, reasoning.ts, settings.ts, sse.ts, think-splitter.ts, timeout.ts (code-kit), obsidian/clock.ts (obsidian-kit)",
+  "note": "Verbatim snapshot aus ZWEI Quellen (obsidian-kit + code-kit); welche Datei woher stammt, sagt ihr eigener Kopf. Never hand-edit. Re-vendor via tools/sync-kit.sh. version/sha gelten fuer clock.ts; code_kit_version fuer die uebrigen. clock.ts liegt hier statt in kit-obsidian, weil sie kein Obsidian-Symbol importiert."
 }

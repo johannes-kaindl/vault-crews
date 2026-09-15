@@ -1,4 +1,5 @@
-// vendored from obsidian-kit#0.26.0, src/obsidian/model-picker.ts
+// vendored from obsidian-kit@0.35.0, src/obsidian/model-picker.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// ONE mechanical deviation from verbatim: kit-internal imports (../pure/ and ../vendor/code-kit/{pure,web}/) → ../kit/ (vendor layout); reproduce on every re-vendor, nothing else may differ.
 /* Zeichnet eine Modell-Auswahl in eine bestehende Setting-Zeile. Kennt die Regeln nicht --
  * die stehen in resolveModelChoice (pure/model-choice.ts).
  *
