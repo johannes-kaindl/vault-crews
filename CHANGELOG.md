@@ -9,6 +9,11 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - **Kit-Pin `obsidian-kit` 0.27.0 → 0.35.0 (+ code-kit 0.6.0).** Alle vendorten pure-Module ziehen seit obsidian-kit 2ab1bb5 aus code-kit; `tools/sync-kit.sh` (neu, aus `lingotuner` übernommen) macht das Re-Vendoring wiederholbar. `think.ts` heißt jetzt `think-splitter.ts` (Modulname = Dateiname, wie in allen anderen Kit-Consumern).
+- **Streaming-Antwortbereich auf `buildStreamArea` aus dem Kit umgestellt** (UI-STANDARD §8, der verbindliche Baustein; vorher Eigenbau). Drei Verhaltensänderungen (CORE-META-21):
+  1. Der Gedankenblock bleibt während des Streams offen, wenn der Nutzer ihn geöffnet hat — vorher schloss ihn jeder volle Re-Render implizit wieder zu, bis `thinkOpen` ihn erneut öffnete.
+  2. Der Scroll folgt dem laufenden Text nur, wenn man ohnehin (nahe) am unteren Rand ist (`atBottom`-Schwelle 40px statt vorher 24px) — reißt nicht mehr hoch, wenn man zurückgescrollt mitliest.
+  3. Der Gedankenblock entsteht jetzt **lazy** beim ersten Denk-Token (kein leeres `<details>` als Ballast, solange ein Task nichts denkt) — vorher stand die (leere) Zusammenfassungszeile immer schon da.
+  4. Der Token-Zähler in der Zusammenfassungszeile („Denkt … N Token") aktualisiert sich nur noch bei einem vollen Render (Task-Grenzen), nicht mehr bei jedem einzelnen Denk-Token — das Kit kapselt die Zusammenfassungszeile und bietet keinen Haken für eine Live-Aktualisierung von außen an; der Gedankentext selbst streamt weiterhin live.
 
 ## [0.9.5] — 2026-09-02
 

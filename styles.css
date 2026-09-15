@@ -109,29 +109,39 @@
   color: var(--text-normal);
   font-size: var(--font-ui-small);
 }
-.vault-crews-think summary {
-  color: var(--text-faint);
-  font-size: var(--font-ui-smaller);
-  cursor: pointer;
+/* Streaming-Antwortbereich (UI-STANDARD §8, obsidian-kit `buildStreamArea`).
+   Übernommen aus STREAM_AREA_CSS in src/vendor/kit-obsidian/stream-area.ts — das Kit
+   injiziert kein CSS, Consumer kopieren es (Vertrag, kein Import). Beim Re-Vendoring
+   (tools/sync-kit.sh) prüfen, ob sich STREAM_AREA_CSS geändert hat, und hier nachziehen. */
+.okit-stream { display: flex; flex-direction: column; min-height: 0; gap: var(--size-4-2); }
+.okit-stream-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  font-size: var(--font-ui-small); line-height: var(--line-height-normal);
 }
-.vault-crews-live-content,
-.vault-crews-live-think {
-  margin-top: var(--size-4-2);
-  padding: var(--size-4-2);
+.okit-stream--host-scroll .okit-stream-body { flex: 0 0 auto; min-height: auto; overflow-y: visible; }
+.okit-stream-block > :first-child { margin-top: 0; }
+.okit-stream-block > :last-child { margin-bottom: 0; }
+.okit-stream-tail { white-space: pre-wrap; color: var(--text-muted); }
+.okit-stream-status {
+  flex: 0 0 auto;
+  display: flex; align-items: center; gap: var(--size-4-1);
+  font-size: var(--font-ui-smaller); color: var(--text-muted);
+}
+.okit-stream-reasoning {
+  flex: 0 0 auto;
+  font-size: var(--font-ui-smaller); color: var(--text-muted);
+}
+.okit-stream-reasoning > summary { cursor: var(--cursor); color: var(--text-faint); }
+.okit-stream-reasoning > pre {
+  max-height: 12em; overflow-y: auto; white-space: pre-wrap;
+  background: var(--background-secondary); padding: var(--size-4-2);
+}
+
+/* Eigene Ergänzung (kein Teil von STREAM_AREA_CSS): der alte Live-Bereich begrenzte
+   sich auf 40vh, damit die Task-Liste + Statuszeile bei langen Antworten sichtbar
+   bleiben. Der Body ist hier weiterhin ein eigener Scroll-Container (kein scrollEl-Host). */
+.vault-crews-stream .okit-stream-body {
   max-height: 40vh;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: var(--font-monospace);
-  font-size: var(--font-ui-smaller);
-  color: var(--text-muted);
-  background: var(--background-secondary);
-  border-radius: var(--radius-s);
-}
-.vault-crews-live-empty {
-  margin-top: var(--size-4-2);
-  color: var(--text-faint);
-  font-size: var(--font-ui-smaller);
 }
 
 /* ── Ergebnis-Karte (done + Verlauf-jüngster-Lauf) ─────────────────────────── */

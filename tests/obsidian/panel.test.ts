@@ -163,18 +163,27 @@ describe("RunPanelView — running state & status line", () => {
     expect(host.abortCurrentRun).toHaveBeenCalledTimes(1);
   });
 
-  it("task lines carry the fixed vocabulary icon and the think counter lives in a never-open <details>", () => {
+  it("task lines carry the fixed vocabulary icon; the think block stays closed by default", () => {
     const host = makeHost();
     const view = new RunPanelView(makeLeaf(), host);
     driveEvents(view, [
       { type: "runStarted", runId: "r1", teamId: "task-triage" },
       { type: "taskStarted", taskId: "collect", index: 1, total: 1 },
-      { type: "token", taskId: "collect", isThink: true, text: "" },
+      { type: "token", taskId: "collect", isThink: true, text: "th" },
       { type: "taskFinished", taskId: "collect", status: "ok" },
     ]);
     expect(view.contentEl.textContent).toContain("✓");
+    // Der Denkblock entsteht lazy (buildStreamArea: kein Ballast vor dem ersten Gedanken) —
+    // aber der Token kam vor `taskFinished`, dessen voller Render das Kit-Modul neu baut;
+    // reasoningOpen bleibt am Default (zu), solange niemand aufgeklappt hat.
     const [details] = findAll(view.contentEl, (e) => e.tagName === "DETAILS");
-    expect(details?.getAttribute("open")).toBeNull();
+    expect((details as unknown as { open: boolean } | undefined)?.open).toBe(false);
+  });
+
+  it("shows no think block at all before the first reasoning token (kein leeres <details> als Ballast)", () => {
+    const view = startRunning(makeHost());
+    const [details] = findAll(view.contentEl, (e) => e.tagName === "DETAILS");
+    expect(details).toBeUndefined();
   });
 });
 
@@ -279,7 +288,7 @@ describe("RunPanelView — history tab", () => {
   });
 });
 
-describe("RunPanelView — live streaming (content + think)", () => {
+describe("RunPanelView — live streaming (content + think, buildStreamArea)", () => {
   it("shows accumulated live content text while running", () => {
     const view = makeView();
     view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });
@@ -287,8 +296,8 @@ describe("RunPanelView — live streaming (content + think)", () => {
     view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "Hello " });
     view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "world" });
 
-    const live = byClass(view.contentEl, "vault-crews-live-content");
-    expect(live?.textContent).toContain("Hello world");
+    const tail = byClass(view.contentEl, "okit-stream-tail");
+    expect(tail?.textContent).toContain("Hello world");
   });
 
   it("shows a placeholder before the first content token", () => {
@@ -298,55 +307,57 @@ describe("RunPanelView — live streaming (content + think)", () => {
     expect(view.contentEl.textContent).toContain("Waiting for output");
   });
 
-  it("appends think tokens into the details and updates the counter without losing content", () => {
+  it("appends think tokens into the reasoning block without losing tail content — the block is lazy (kein leeres <details>)", () => {
     const view = makeView();
     view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });
     view.handleEvent({ type: "taskStarted", taskId: "a", index: 1, total: 1 });
+    expect(findAll(view.contentEl, (e) => e.tagName === "DETAILS")).toHaveLength(0);
+
     view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "body" });
     view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "th1" });
     view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "th2" });
 
-    expect(byClass(view.contentEl, "vault-crews-live-content")?.textContent).toContain("body");
-    expect(byClass(view.contentEl, "vault-crews-live-think")?.textContent).toContain("th1th2");
-    const [summary] = findAll(view.contentEl, (e) => e.tagName === "SUMMARY");
-    expect(summary?.textContent).toContain("2");
+    expect(byClass(view.contentEl, "okit-stream-tail")?.textContent).toContain("body");
+    const reasoning = byClass(view.contentEl, "okit-stream-reasoning");
+    expect(findAll(reasoning as HTMLElement, (e) => e.tagName === "PRE")[0]?.textContent).toContain("th1th2");
   });
 
-  it("keeps a think section the user opened open across the next full re-render", () => {
+  it("the reasoning block stays open across the next full re-render once the user opened it (Verhaltenswechsel: bleibt WÄHREND des Streams offen, buildStreamArea steuert per Property statt Attribut)", () => {
     const view = makeView();
     view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });
     view.handleEvent({ type: "taskStarted", taskId: "a", index: 1, total: 1 });
     view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "th1" });
 
-    // Default zu (Spec §4: „nie aufgedrängt") — dieselbe Zusicherung wie im shell-Test.
+    // Default zu (Spec §4: „nie aufgedrängt") — buildStreamArea steuert `open` als
+    // Property, nicht als Attribut (Kit-Vertrag, s. tests/stream-area.test.ts im Kit).
     const [details] = findAll(view.contentEl, (e) => e.tagName === "DETAILS");
-    expect(details?.getAttribute("open")).toBeNull();
+    expect((details as unknown as { open: boolean } | undefined)?.open).toBe(false);
 
-    // Nutzer klappt auf: der Browser spiegelt das in das open-Attribut und feuert `toggle`.
-    details?.setAttr("open", "");
+    // Nutzer klappt auf: der reale <details> spiegelt das in die Property, der Browser
+    // feuert `toggle`.
+    (details as unknown as { open: boolean }).open = true;
     details?.dispatchEvent({ type: "toggle" } as unknown as Event);
 
-    // Erster Content-Token fällt bewusst auf den vollen Render zurück (Platzhalter→Text) —
-    // genau dort ging die Aufklappung vorher verloren, mitten im Mitlesen.
+    // Folge-Token (kein voller Render nötig, buildStreamArea aktualisiert per Fast-Path)
+    // — der Denkblock bleibt sichtbar offen, während weiter gestreamt wird.
     view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "answer" });
 
     const [after] = findAll(view.contentEl, (e) => e.tagName === "DETAILS");
-    expect(after?.getAttribute("open")).toBe("");
-    expect(byClass(view.contentEl, "vault-crews-live-think")?.textContent).toContain("th1");
+    expect((after as unknown as { open: boolean } | undefined)?.open).toBe(true);
+    const reasoning = byClass(view.contentEl, "okit-stream-reasoning");
+    expect(findAll(reasoning as HTMLElement, (e) => e.tagName === "PRE")[0]?.textContent).toContain("th1");
   });
 
-  it("caps the fast-path live-content node at MAX_LIVE_CHARS (tail kept), matching the reducer's cap", () => {
+  it("caps the live tail at MAX_LIVE_CHARS (tail kept), matching the reducer's cap", () => {
     const view = makeView();
     view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });
     view.handleEvent({ type: "taskStarted", taskId: "a", index: 1, total: 1 });
-    // Erster Content-Token erzeugt den Live-Node über den vollen Render (Platzhalter→Text).
     view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "small-first-token" });
-    // Zweiter Token nimmt den Fast-Path (appendLive) — hier greift der Cap.
     const oversized = "a".repeat(300) + "b".repeat(MAX_LIVE_CHARS);
     view.handleEvent({ type: "token", taskId: "a", isThink: false, text: oversized });
 
-    const live = byClass(view.contentEl, "vault-crews-live-content");
-    const text = live?.textContent ?? "";
+    const tail = byClass(view.contentEl, "okit-stream-tail");
+    const text = tail?.textContent ?? "";
     expect(text.length).toBe(MAX_LIVE_CHARS);
     expect(text).not.toContain("small-first-token");
     expect(text).not.toContain("a");

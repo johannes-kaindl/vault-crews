@@ -7,10 +7,11 @@
 // DOM ausschließlich über createEl/createDiv/createSpan — nie HTML-String-Zuweisung.
 import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
 import { t } from "../vendor/kit/i18n";
+import { buildStreamArea, type StreamArea } from "../vendor/kit-obsidian/stream-area";
 import type { RunEvent } from "../core/ports";
 import type { RunStatus } from "../core/types";
 import {
-  buildPanelViewModel, markAborting, MAX_LIVE_CHARS, reduceRun,
+  buildPanelViewModel, markAborting, reduceRun,
   type BodyVM, type NavState, type PanelViewModel, type RunState,
   type RunSummary, type StatusLineVM, type SummaryVM,
 } from "./panel-view-model";
@@ -48,11 +49,9 @@ export interface PanelHost {
 export class RunPanelView extends ItemView {
   private navState: NavState = "crews";
   private runState: RunState = { kind: "idle" };
-  // Live-Node-Referenzen für den Token-Fast-Path (handleEvent): nur gültig zwischen
-  // zwei vollen Renders, siehe reset in renderViewModel.
-  private liveContentEl: HTMLElement | null = null;
-  private liveThinkEl: HTMLElement | null = null;
-  private thinkSummaryEl: HTMLElement | null = null;
+  // Referenz auf den Streaming-Antwortbereich (buildStreamArea) für den Token-Fast-Path
+  // (handleEvent): nur gültig zwischen zwei vollen Renders, siehe reset in renderViewModel.
+  private streamArea: StreamArea | null = null;
   // Aufklapp-Zustand des <think>-Bereichs: gehört zur Navigation, nicht zum Lauf — er muss
   // vollen Re-Render überleben (wie navState), sonst schnappt der Bereich beim ersten
   // Content-Token zu, also genau während man den Gedankengang mitliest.
@@ -82,34 +81,20 @@ export class RunPanelView extends ItemView {
     this.render();
   }
 
-  /** Hängt ein Token an den passenden Live-Node an, ohne das Panel neu zu bauen.
-   *  Voraussetzung: der crewsRunning-Body ist gerade gerendert (Node vorhanden).
-   *  Der erste Token eines Puffers (Node noch null → Übergang Platzhalter→Text bzw.
-   *  Think-Node fehlt) fällt bewusst auf den vollen Render zurück. */
+  /** Setzt Gedanken bzw. Text im Streaming-Antwortbereich, ohne das Panel neu zu bauen.
+   *  `runState.streamText`/`thinkText` sind vom Reducer bereits auf MAX_LIVE_CHARS
+   *  gekappt (Tail behalten) — der Fast-Path übernimmt nur, prüft nicht selbst nach.
+   *  Der Gedankenblock entsteht dabei lazy (buildStreamArea legt ihn beim ersten
+   *  `setReasoning`-Aufruf an), ein Fallback auf den vollen Render ist dafür nicht nötig. */
   private tryFastPathToken(e: Extract<RunEvent, { type: "token" }>): boolean {
-    if (this.navState !== "crews" || this.runState.kind !== "running") return false;
+    if (this.navState !== "crews" || this.runState.kind !== "running" || this.streamArea === null) return false;
     if (e.isThink) {
-      if (this.liveThinkEl === null || this.thinkSummaryEl === null) return false;
-      this.appendLive(this.liveThinkEl, e.text);
-      this.thinkSummaryEl.setText(t("panel.thinking", this.runState.thinkCount));
-      return true;
+      this.streamArea.setReasoning(this.runState.thinkText);
+    } else {
+      this.streamArea.setTail(this.runState.streamText);
     }
-    if (this.liveContentEl === null) return false;
-    this.appendLive(this.liveContentEl, e.text);
+    this.streamArea.followTail();
     return true;
-  }
-
-  /** Append + Stick-to-bottom: nur mitscrollen, wenn der Nutzer schon (nahe) am
-   *  unteren Rand ist — reißt nicht runter, wenn man hochgescrollt mitliest. Kappt den
-   *  DOM-Knoten auf MAX_LIVE_CHARS (Tail behalten), analog zum Reducer (appendCapped
-   *  in panel-view-model.ts) — der Fast-Path IST der Hot-Path bei einem Amoklauf-Modell,
-   *  ohne Cap würde der Live-Knoten bis zum nächsten vollen Render unbegrenzt wachsen. */
-  private appendLive(el: HTMLElement, text: string): void {
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-    el.appendText(text);
-    const current = el.textContent ?? "";
-    if (current.length > MAX_LIVE_CHARS) el.setText(current.slice(current.length - MAX_LIVE_CHARS));
-    if (nearBottom) el.scrollTop = el.scrollHeight;
   }
 
   /** Neu zeichnen, ohne dass sich der Lauf-Zustand geaendert hat — fuer Aenderungen, die
@@ -136,11 +121,10 @@ export class RunPanelView extends ItemView {
   private renderViewModel(vm: PanelViewModel): void {
     const root = this.contentEl;
     root.empty();
-    // root.empty() wirft alle bisherigen Live-Nodes weg — Referenzen müssen bei jedem
-    // vollen Render zurückgesetzt werden, sonst zeigt der Fast-Path auf tote Nodes.
-    this.liveContentEl = null;
-    this.liveThinkEl = null;
-    this.thinkSummaryEl = null;
+    // root.empty() wirft den bisherigen Streaming-Antwortbereich weg — die Referenz muss
+    // bei jedem vollen Render zurückgesetzt werden, sonst zeigt der Fast-Path auf einen
+    // toten Node.
+    this.streamArea = null;
     root.addClass("vault-crews-panel");
 
     root.createEl("h2", { cls: "vault-crews-title", text: vm.title });
@@ -200,22 +184,19 @@ export class RunPanelView extends ItemView {
           row.createSpan({ cls: "vault-crews-task-icon", text: line.icon });
           row.createSpan({ cls: "vault-crews-task-label", text: line.label });
         }
-        // Content-Live-Bereich: Platzhalter solange leer, sonst scrollbarer Text.
-        if (body.streamText === "") {
-          root.createDiv({ cls: "vault-crews-live-empty", text: body.streamEmptyText });
-        } else {
-          this.liveContentEl = root.createDiv({ cls: "vault-crews-live-content", text: body.streamText });
-        }
-        // <think> aufklappbar (zu per Default). Live-Think-Node nur wenn Text da ist.
-        const think = root.createEl("details", { cls: "vault-crews-think" });
-        // Default zu (Spec §4 „nie aufgedrängt"); eine Aufklappung des Nutzers wird
-        // wiederhergestellt. Über das open-ATTRIBUT, das <details> beidseitig spiegelt.
-        if (this.thinkOpen) think.setAttr("open", "");
-        think.addEventListener("toggle", () => { this.thinkOpen = think.getAttribute("open") !== null; });
-        this.thinkSummaryEl = think.createEl("summary", { text: body.thinkingLabel });
-        if (body.thinkText !== "") {
-          this.liveThinkEl = think.createDiv({ cls: "vault-crews-live-think", text: body.thinkText });
-        }
+        // Streaming-Antwortbereich aus dem Kit (UI-STANDARD §8, `buildStreamArea`):
+        // Gedankenblock (lazy, nur bei vorhandenem Denktext) über dem laufenden Absatz.
+        // Aufklapp-Zustand ist Sache der View (`thinkOpen`, überlebt volle Renders), nicht
+        // des Kit-Moduls — es speichert selbst nichts (Spec §4 „nie aufgedrängt").
+        this.streamArea = buildStreamArea(root, {
+          strings: { reasoning: body.thinkingLabel },
+          cls: "vault-crews-stream",
+          reasoningOpen: this.thinkOpen,
+          onReasoningToggle: (open) => { this.thinkOpen = open; },
+        });
+        if (body.thinkText !== "") this.streamArea.setReasoning(body.thinkText);
+        this.streamArea.setTail(body.streamText === "" ? body.streamEmptyText : body.streamText);
+        this.streamArea.followTail();
         return;
       }
       case "crewsDone": {
