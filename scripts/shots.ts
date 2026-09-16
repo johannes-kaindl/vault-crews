@@ -493,11 +493,13 @@ async function main(): Promise<void> {
   }
   await requireVisible(cdp);
 
-  const sprache = await cdp.evaluate<string>(`return window.localStorage.getItem("language") || "en";`);
+  const sprache = await cdp.evaluate<string>(
+    `return document.documentElement.lang || (window.localStorage && localStorage.getItem("language")) || "en";`,
+  );
   if (!sprache.startsWith("en")) {
     console.error(
       `Aufnahmesprache ist „${sprache}", erwartet Englisch — README.md ist die kanonische Fassung.\n`
-      + `  localStorage["language"] = "en" setzen und Obsidian neu starten.`,
+      + `  Sprache in den Einstellungen auf English stellen und Obsidian neu starten.`,
     );
     cdp.close();
     exit(1);
