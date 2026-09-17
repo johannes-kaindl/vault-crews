@@ -718,13 +718,25 @@ async function main(): Promise<void> {
       writeFileSync(dataPfad, vorwert);
       const jetzt = readFileSync(dataPfad);
       console.log(jetzt.equals(vorwert) ? "data.json zurueckgeschrieben: byte-gleich" : "data.json ABWEICHUNG — Rettungskopie bleibt liegen: " + rettung);
-      if (jetzt.equals(vorwert) && !KEEP && existsSync(rettung)) rmSync(rettung);
     }
     void (async () => {
-      // Auf der Platte steht der Vorwert schon (synchron, oben) — dieser Teil bringt nur
-      // Obsidians IM SPEICHER gehaltene Plugin-Instanz auf denselben Stand, damit eine
-      // parallel geoeffnete Instanz nicht mit der Migrations-Fixtur weiterlebt.
+      // Der try-Zweig kann NACH dem synchronen writeFileSync oben noch weiterlaufen (er
+      // merkt vom Signal nichts, bis der Node-Event-Loop wieder frei ist) — schreibt
+      // abschnittMigration in diesem Zeitfenster seine Fixtur erneut nach data.json, waere
+      // die Rettungskopie schon geloescht, waehrend die Datei erneut kaputt ist. Deshalb
+      // NACH dem await hier nochmal gegen `vorwert` pruefen und im Zweifel ERNEUT
+      // zurueckschreiben; geloescht wird die Rettungskopie nur, wenn der Endzustand passt
+      // (gemeldeter Fund: Master-Review 2026-09-17, ctrlc-w7b).
       await pluginNeuLaden(cdp).catch(() => undefined);
+      if (vorwert) {
+        const nochmal = existsSync(dataPfad) ? readFileSync(dataPfad) : null;
+        if (nochmal === null || !nochmal.equals(vorwert)) {
+          writeFileSync(dataPfad, vorwert);
+          console.log("data.json erneut zurueckgeschrieben (try lief nach dem Signal weiter)");
+        }
+        const endstand = readFileSync(dataPfad);
+        if (endstand.equals(vorwert) && !KEEP && existsSync(rettung)) rmSync(rettung);
+      }
       cdp.close();
       process.exit(130);
     })();
