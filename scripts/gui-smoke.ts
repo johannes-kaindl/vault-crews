@@ -678,11 +678,59 @@ async function main(): Promise<void> {
   const dataPfad = `${basis}/${await cdp.evaluate<string>("return app.vault.configDir;")}/plugins/${PLUGIN_ID}/data.json`;
   const rettung = `${dataPfad}.smoke-rettung`;
 
+  // Eine Rettungskopie aus einem VORLAUF (SIGKILL oder Absturz vor diesem Handler existierte)
+  // waere sonst still gefaehrlich: weicht sie vom aktuellen data.json ab, steht dort noch die
+  // Migrations-Fixtur eines fruehen Laufs — und DIESER Lauf wuerde sie gleich als "vorwert"
+  // (Original) capturen und am Ende treu auf sich selbst zurueckschreiben, statt die echten
+  // Einstellungen wiederherzustellen. Deshalb: vor dem Lesen von `vorwert` erst pruefen und
+  // im Zweifel aus der Rettungskopie restaurieren.
+  const rettungVorher = existsSync(rettung) ? readFileSync(rettung) : null;
+  const aktuellVorRestore = existsSync(dataPfad) ? readFileSync(dataPfad) : null;
+  const rettungWeichtAb = rettungVorher !== null
+    && (aktuellVorRestore === null || !rettungVorher.equals(aktuellVorRestore));
+  record(
+    "Keine liegen gebliebene Rettungskopie aus einem abgebrochenen Vorlauf",
+    !rettungWeichtAb,
+    rettungWeichtAb
+      ? `${rettung} weicht vom aktuellen data.json ab — data.json daraus wiederhergestellt`
+      : "kein abweichender Rest gefunden",
+  );
+  if (rettungWeichtAb && rettungVorher) writeFileSync(dataPfad, rettungVorher);
+
   // Der Vorwert wird VOR dem try gelesen und liegt zusaetzlich als Datei neben dem
   // Original: das `finally` laeuft bei Ctrl-C oder einem Absturz des Node-Prozesses
   // nicht mehr — und was dann im produktiven Vault stuende, waere eine Testfixtur.
   const vorwert = existsSync(dataPfad) ? readFileSync(dataPfad) : null;
   if (vorwert) copyFileSync(dataPfad, rettung);
+
+  // Die Rettungskopie oben ist die Absicherung GEGEN einen SIGKILL/Absturz (von Hand
+  // wiederherstellbar); dieser Handler ist die Absicherung FUER den haeufigeren Fall SIGINT
+  // (Ctrl-C) — er schreibt automatisch zurueck, statt nur eine Kopie liegen zu lassen, die
+  // jemand erst finden und von Hand einspielen muss. `writeFileSync` ist synchron und lief
+  // schon VOR diesem Handler unbedingt — das Risiko ist also nicht die Datei selbst, sondern
+  // dass ohne Handler NIEMAND automatisch zurueckschreibt.
+  let signalCleanupRunning = false;
+  const onAbortSignal = (signal: NodeJS.Signals): void => {
+    if (signalCleanupRunning) return;
+    signalCleanupRunning = true;
+    console.log(`\n\nAbbruch durch ${signal} — schreibe data.json zurueck...`);
+    if (vorwert) {
+      writeFileSync(dataPfad, vorwert);
+      const jetzt = readFileSync(dataPfad);
+      console.log(jetzt.equals(vorwert) ? "data.json zurueckgeschrieben: byte-gleich" : "data.json ABWEICHUNG — Rettungskopie bleibt liegen: " + rettung);
+      if (jetzt.equals(vorwert) && !KEEP && existsSync(rettung)) rmSync(rettung);
+    }
+    void (async () => {
+      // Auf der Platte steht der Vorwert schon (synchron, oben) — dieser Teil bringt nur
+      // Obsidians IM SPEICHER gehaltene Plugin-Instanz auf denselben Stand, damit eine
+      // parallel geoeffnete Instanz nicht mit der Migrations-Fixtur weiterlebt.
+      await pluginNeuLaden(cdp).catch(() => undefined);
+      cdp.close();
+      process.exit(130);
+    })();
+  };
+  process.on("SIGINT", onAbortSignal);
+  process.on("SIGTERM", onAbortSignal);
 
   try {
     if (vorwert) {
@@ -729,6 +777,10 @@ async function main(): Promise<void> {
     for (const c of rot) console.log(`  ✗ ${c.name} — ${c.detail}`);
     for (const c of uebersprungen) console.log(`  · ${c.name} — ${c.detail}`);
     cdp.close();
+    // Abmelden, sonst haengt ein SPAETES Signal (nach normalem Abschluss, cdp schon zu) den
+    // Prozess in onAbortSignal an einer toten Verbindung auf.
+    process.off("SIGINT", onAbortSignal);
+    process.off("SIGTERM", onAbortSignal);
     if (rot.length > 0) process.exitCode = 1;
   }
 }
