@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **`thinking:off` unterdrückt Thinking nicht mehr bei gpt-oss/harmony-Modellen** (`local-llm-client.ts`). Diese Modelle lehnen `reasoning_effort`/`chat_template_kwargs`/`reasoning_budget` mit HTTP 400 ab, statt sie als No-op zu ignorieren — der Request schlug also bisher fehl, sobald die Thinking-Abschaltung aktiv war. Guard `isAlwaysOnThinker(params.model)` (bereits vendort) vor `suppressParams`.
+
 ### Changed
 
 - **Kit-Pin `obsidian-kit` 0.27.0 → 0.35.0 (+ code-kit 0.6.0).** Alle vendorten pure-Module ziehen seit obsidian-kit 2ab1bb5 aus code-kit; `tools/sync-kit.sh` (neu, aus `lingotuner` übernommen) macht das Re-Vendoring wiederholbar. `think.ts` heißt jetzt `think-splitter.ts` (Modulname = Dateiname, wie in allen anderen Kit-Consumern).

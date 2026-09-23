@@ -2,12 +2,14 @@
  *  Transport ist injiziert (PROF-OBS-12) — der pure-Layer kennt kein XHR/requestUrl.
  *  Timeout-Realität (Spec §7): Hard-Timeout ab Call-Start; Stall-Detektor erst NACH dem
  *  ersten Token scharf (JIT-Modell-Laden braucht > 60 s bis zum ersten Token).
- *  Thinking-Suppression nach vault-rag-Muster (reasoning_effort + chat_template_kwargs). */
+ *  Thinking-Suppression nach vault-rag-Muster (reasoning_effort + chat_template_kwargs) —
+ *  greift nur, wenn das Modell abschaltbar ist (`isAlwaysOnThinker`): gpt-oss/harmony lehnt
+ *  die Suppress-Felder mit HTTP 400 ab, statt sie als No-op zu ignorieren. */
 import { parseSSE } from '../vendor/kit/sse';
 import { ThinkSplitter } from '../vendor/kit/think-splitter';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { authHeaders, type EndpointConfig } from '../vendor/kit/endpoint_config';
-import { parseLmStudioContext, parseOllamaContext, suppressParams } from './model-info';
+import { isAlwaysOnThinker, parseLmStudioContext, parseOllamaContext, suppressParams } from './model-info';
 import { isContextOverflow, extractChatContent } from './chat-response';
 import { errorMessageFromBody, errorMessageFromText } from '../vendor/kit/error_body';
 import { reasoningHappened } from '../vendor/kit/reasoning';
@@ -103,7 +105,7 @@ export class LocalLlmClient implements LlmClient {
 			temperature: params.temperature,
 			max_tokens: params.maxTokens,
 			stream: true,
-			...suppressParams(params.thinking === 'off'),
+			...suppressParams(params.thinking === 'off' && !isAlwaysOnThinker(params.model)),
 		};
 
 		const ctrl = new AbortController();
@@ -232,7 +234,7 @@ export class LocalLlmClient implements LlmClient {
 			temperature: params.temperature,
 			max_tokens: params.maxTokens,
 			stream: false,
-			...suppressParams(params.thinking === 'off'),
+			...suppressParams(params.thinking === 'off' && !isAlwaysOnThinker(params.model)),
 		};
 		const res = await this.json.postJson(`${this.base}/v1/chat/completions`, body, this.headers());
 		if (signal.aborted) return { content: '', thinkTokens: 0, reasoned: false, finishReason: 'aborted' };
