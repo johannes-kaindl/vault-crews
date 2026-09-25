@@ -51,6 +51,7 @@ function makeFakeHost(overrides: Partial<SettingsHost> = {}): SettingsHost {
     probeEndpoint: vi.fn().mockResolvedValue(OK_STATUS),
     listModels: vi.fn().mockResolvedValue(["m1", "m2"]),
     resolveActive: vi.fn().mockResolvedValue(null),
+    installExamples: vi.fn(),
     ...overrides,
   };
 }
@@ -335,5 +336,29 @@ describe("SettingsTab.hide()", () => {
     await Promise.resolve();
 
     expect((host.listModels as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(ersteAbfragen);
+  });
+});
+
+describe("Beispiel-Crews installieren (Settings-Knopf)", () => {
+  it("ruft denselben Host-Pfad wie der Panel-Knopf und zeigt keinen Befehlspaletten-Hinweis", () => {
+    const installExamples = vi.fn();
+    const host = makeFakeHost({ installExamples });
+    const klicks = new Map<string, () => unknown>();
+    vi.spyOn(ButtonComponent.prototype, "onClick").mockImplementation(function (
+      this: InstanceType<typeof ButtonComponent>,
+      cb: () => unknown,
+    ) {
+      this.clickCB = cb;
+      klicks.set(this.textValue, cb);
+      return this;
+    });
+    new SettingsTab(makeFakePlugin(), host).display();
+
+    const klick = klicks.get("Install example crews");
+    expect(klick, "Knopf „Install example crews“ fehlt").toBeDefined();
+    klick?.();
+
+    expect(installExamples).toHaveBeenCalledTimes(1);
+    expect(Notice.instances).toHaveLength(0);
   });
 });

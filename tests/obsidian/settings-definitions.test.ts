@@ -35,6 +35,7 @@ function makeFakeHost(overrides: Partial<SettingsHost> = {}): SettingsHost {
     probeEndpoint: vi.fn().mockResolvedValue(OK_STATUS),
     listModels: vi.fn().mockResolvedValue(["m1", "m2"]),
     resolveActive: vi.fn().mockResolvedValue(null),
+    installExamples: vi.fn(),
     ...overrides,
   };
 }

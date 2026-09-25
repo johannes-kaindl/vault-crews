@@ -107,7 +107,6 @@ export const EN: Record<string, string> = {
   // --- Notices — install --------------------------------------------------
   "notice.install.ok": "Example crews installed ({0} file(s)).",
   "notice.install.exists": "Example crews are already installed.",
-  "notice.install.useCommand": "Use the “Install example crews” command from the command palette.",
 
   // --- Notices — one per run end (Spec §6.2) ------------------------------
   "notice.run.ok": "{0}: run completed — {1} file(s) written.",
@@ -305,7 +304,6 @@ export const DE: Record<string, string> = {
   // --- Notices — Installation ---------------------------------------------
   "notice.install.ok": "Beispiel-Crews installiert ({0} Datei(en)).",
   "notice.install.exists": "Beispiel-Crews sind bereits installiert.",
-  "notice.install.useCommand": "Nutze den Befehl „Beispiel-Crews installieren“ aus der Befehlspalette.",
 
   // --- Notices — eine pro Lauf-Ende (Spec §6.2) ---------------------------
   "notice.run.ok": "{0}: Lauf abgeschlossen — {1} Datei(en) geschrieben.",

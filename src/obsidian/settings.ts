@@ -1,4 +1,4 @@
-import { Notice, PluginSettingTab, Setting, type Plugin, type SettingDefinitionItem } from "obsidian";
+import { PluginSettingTab, Setting, type Plugin, type SettingDefinitionItem } from "obsidian";
 import { t } from "../vendor/kit/i18n";
 import { ENDPOINT_PRESETS, type EndpointStatus } from "../vendor/kit/endpoint_diagnostics";
 import { parseEndpointList } from "../vendor/kit/endpoint";
@@ -57,6 +57,9 @@ export interface SettingsHost {
   listModels(cfg: EndpointConfig): Promise<string[]>;
   /** Normalisierte URL des ersten erreichbaren Eintrags, oder null. */
   resolveActive(): Promise<string | null>;
+  /** Installiert die Beispiel-Crews — derselbe Pfad wie der Empty-State-Knopf im Panel
+   *  (`PanelHost.installExamples`), damit zwei gleich beschriftete Knöpfe dasselbe tun. */
+  installExamples(): void;
 }
 
 /** Der Textbaustein-Satz, den der Kit-Editor bekommt — das Kit formuliert nicht. */
@@ -436,10 +439,7 @@ export class SettingsTab extends PluginSettingTab {
       .setDesc(t("settings.crews.installExamples.desc"))
       .addButton((btn) =>
         btn.setButtonText(t("settings.crews.installExamples.button")).onClick(() => {
-          // Installation läuft über den Command „Install example crews" (main.ts, Task
-          // 16b, ruft install-examples.ts aus Task 18 auf) — SettingsHost hält bewusst
-          // keinen eigenen Install-Pfad (schmaler, stabiler Vertrag für diese Klasse).
-          new Notice(t("notice.install.useCommand"));
+          this.host.installExamples();
         }),
       );
   }
