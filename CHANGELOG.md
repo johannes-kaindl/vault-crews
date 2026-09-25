@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-09-25
+
 ### Added
 
 - **Lauf-Transparenz: ein Collector ohne Treffer ist jetzt eine eigene Ursache.** `run.md` nennt je Collector-Task „Gefunden: N Notiz(en) in `<Quelle>`" bzw. „⚠ Collector fand 0 passende Notizen in `<Quelle>` — Ordner/Filter prüfen". Die Notice nach dem Lauf sagt bei 0 Treffern und 0 Schreibvorgängen genau das statt „0 Dateien geschrieben", die Ergebnis-Karte und die Statuszeile der Crew im Panel nennen die Quelle, und die Notice trägt den Link „Protokoll öffnen" zur `run.md` dieses Laufs. Eine verweigerte oder fehlgeschlagene Crew nennt den Grund im Klartext in ihrer Statuszeile.
