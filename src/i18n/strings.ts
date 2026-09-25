@@ -109,6 +109,8 @@ export const EN: Record<string, string> = {
   "notice.install.exists": "Example crews are already installed.",
 
   // --- Notices — one per run end (Spec §6.2) ------------------------------
+  "notice.run.emptyCollector": "{0}: the collector found 0 matching notes in {1} — check the folder/filter.",
+  "notice.run.openLog": "Open log",
   "notice.run.ok": "{0}: run completed — {1} file(s) written.",
   "notice.run.partial": "{0}: run partially completed — {1} file(s) written.",
   "notice.run.failed": "{0}: run failed — {1}",
@@ -174,6 +176,7 @@ export const EN: Record<string, string> = {
   "panel.undo": "Undo",
   "panel.nextAction": "Next action",
   "panel.nextAction.ok": "Review the written files, or undo if something looks wrong.",
+  "panel.nextAction.emptyCollector": "The collector found 0 matching notes in {0} — check the folder/filter; the log names the source.",
   "panel.nextAction.partial": "Some steps were skipped — check the log for details.",
   "panel.idle.run": "Run",
   "panel.idle.never": "Never run",
@@ -306,6 +309,8 @@ export const DE: Record<string, string> = {
   "notice.install.exists": "Beispiel-Crews sind bereits installiert.",
 
   // --- Notices — eine pro Lauf-Ende (Spec §6.2) ---------------------------
+  "notice.run.emptyCollector": "{0}: Collector fand 0 passende Notizen in {1} — Ordner/Filter prüfen.",
+  "notice.run.openLog": "Protokoll öffnen",
   "notice.run.ok": "{0}: Lauf abgeschlossen — {1} Datei(en) geschrieben.",
   "notice.run.partial": "{0}: Lauf teilweise abgeschlossen — {1} Datei(en) geschrieben.",
   "notice.run.failed": "{0}: Lauf fehlgeschlagen — {1}",
@@ -368,6 +373,7 @@ export const DE: Record<string, string> = {
   "panel.undo": "Rückgängig",
   "panel.nextAction": "Nächste Handlung",
   "panel.nextAction.ok": "Geschriebene Dateien prüfen oder rückgängig machen, falls etwas nicht stimmt.",
+  "panel.nextAction.emptyCollector": "Der Collector fand 0 passende Notizen in {0} — Ordner/Filter prüfen; das Protokoll nennt die Quelle.",
   "panel.nextAction.partial": "Einige Schritte wurden übersprungen — Details im Log.",
   "panel.idle.run": "Ausführen",
   "panel.idle.never": "Noch nie gelaufen",

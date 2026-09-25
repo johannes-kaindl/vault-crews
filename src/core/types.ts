@@ -103,6 +103,8 @@ export interface TaskRecord {
 	promptHash: string | null;
 	thinkTokens: number;
 	artifactJson: unknown;
+	/** Nur Collector-Tasks: was gefunden wurde und wo gesucht wurde (Alt-Laeufe ohne Feld bleiben gueltig). */
+	collected?: { count: number; source: string };
 	outcomes: ActionOutcome[];
 	error: { kind: ErrorKind; message: string } | null;
 }
@@ -131,6 +133,8 @@ export interface RunResult {
 	errorTask: string | null;
 	errorKind: ErrorKind | null;
 	alwaysOnThinker: boolean;
+	/** Quelle des ersten Collectors, der 0 Notizen fand — sonst null. */
+	emptyCollector?: string | null;
 }
 
 export interface SlugTableData { toSlug: Record<string, string>; fromSlug: Record<string, string>; }

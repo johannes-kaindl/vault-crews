@@ -48,6 +48,11 @@ function taskSection(rec: TaskRecord): string[] {
   if (rec.model !== null) lines.push(`- Modell: ${rec.model}`);
   if (rec.promptHash !== null) lines.push(`- Prompt-Hash: ${rec.promptHash}`);
   if (rec.thinkTokens > 0) lines.push(`- Think-Tokens: ${rec.thinkTokens}`);
+  if (rec.collected !== undefined) {
+    lines.push(rec.collected.count === 0
+      ? `- ⚠ Collector fand 0 passende Notizen in \`${rec.collected.source}\` — Ordner/Filter prüfen`
+      : `- Gefunden: ${rec.collected.count} Notiz(en) in \`${rec.collected.source}\``);
+  }
   if (rec.error !== null) lines.push(`- Fehler (${rec.error.kind}): ${firstLine(rec.error.message)}`);
   if (rec.artifactJson !== null && rec.artifactJson !== undefined) {
     lines.push('', '```json', JSON.stringify(rec.artifactJson, null, 2), '```');

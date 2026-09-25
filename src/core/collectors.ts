@@ -30,6 +30,16 @@ function capContent(full: string, runningTotal: number): { content: string; tota
 	return { content, total: runningTotal + content.length };
 }
 
+/** Woher ein Collector liest — fuer die Meldung „0 Treffer in <Quelle>“. */
+export function collectorSource(def: CollectorTaskDef): string {
+	if (def.collector === 'vault.read') {
+		const paths = Array.isArray(def.params.paths) ? def.params.paths.filter((p): p is string => typeof p === 'string') : [];
+		return paths.length > 3 ? `${paths.slice(0, 3).join(', ')}, …` : paths.join(', ');
+	}
+	const folder = str(def.params.folder) ?? '';
+	return folder === '' ? '/' : folder;
+}
+
 export async function runCollector(def: CollectorTaskDef, deps: CollectorDeps): Promise<Artifact> {
 	switch (def.collector) {
 		case 'vault.list': return vaultList(def, deps);

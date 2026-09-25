@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { registerI18n } from "../../src/i18n/strings";
 import { setLang } from "../../src/vendor/kit/i18n";
 import {
-  buildPanelViewModel, markAborting, reduceRun, MAX_LIVE_CHARS,
+  buildPanelViewModel, markAborting, reduceRun, runNoticeText, MAX_LIVE_CHARS,
   type RunState, type TeamInfo, type RunSummary, type PanelInputs,
 } from "../../src/obsidian/panel-view-model";
 import type { RunEvent } from "../../src/core/ports";
@@ -298,5 +298,37 @@ describe("stumme Zustaende", () => {
     const vm = buildPanelViewModel({ ...inputsWith({ kind: "idle" }), teams: [team()] });
     if (vm.body.kind !== "crewsIdle") return;
     expect(vm.body.teams[0].problem).toBeNull();
+  });
+});
+
+describe("runNoticeText — Ursache statt „0 Dateien“", () => {
+  it("nennt einen leeren Collector als eigene Ursache, wenn nichts geschrieben wurde", () => {
+    const text = runNoticeText("Notiz-Tagger", okResult({ writes: 0, emptyCollector: "Notizen" }));
+    expect(text).toBe("Notiz-Tagger: the collector found 0 matching notes in Notizen — check the folder/filter.");
+  });
+
+  it("bleibt beim normalen Satz, wenn trotz leerem Collector geschrieben wurde", () => {
+    expect(runNoticeText("T", okResult({ writes: 2, emptyCollector: "x" }))).toBe("T: run completed — 2 file(s) written.");
+  });
+
+  it("verweigert: Klartext der Fehlerklasse, nie der rohe Schlüssel", () => {
+    const text = runNoticeText("T", okResult({ status: "refused", writes: 0, errorKind: "endpoint_unreachable" }));
+    expect(text).toContain("run refused");
+    expect(text).toContain("Start LM Studio");
+    expect(text).not.toContain("notice.errorKind");
+  });
+});
+
+describe("buildPanelViewModel — Ursache im Panel", () => {
+  it("Ergebnis-Karte: leerer Collector steht im Naechster-Schritt-Text", () => {
+    const done: RunState = { kind: "done", result: okResult({ writes: 0, emptyCollector: "Notizen" }), writes: [], abortRequested: false };
+    const vm = buildPanelViewModel(inputsWith(done));
+    expect(vm.body.kind === "crewsDone" && vm.body.summary.nextActionText).toContain("0 matching notes in Notizen");
+  });
+
+  it("Team-Zeile: eine verweigerte Crew nennt den Grund", () => {
+    const team: TeamInfo = { id: "a", name: "A", description: "", problem: null, lastRun: { status: "refused", when: 0, errorKind: "crew_invalid" } };
+    const vm = buildPanelViewModel({ ...inputsWith({ kind: "idle" }), teams: [team] });
+    expect(vm.body.kind === "crewsIdle" && vm.body.teams[0]?.statusText).toContain("has an error");
   });
 });

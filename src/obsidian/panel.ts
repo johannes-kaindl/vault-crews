@@ -9,7 +9,7 @@ import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
 import { t } from "../vendor/kit/i18n";
 import { buildStreamArea, type StreamArea } from "../vendor/kit-obsidian/stream-area";
 import type { RunEvent } from "../core/ports";
-import type { RunStatus } from "../core/types";
+import type { ErrorKind, RunStatus } from "../core/types";
 import {
   buildPanelViewModel, markAborting, reduceRun,
   type BodyVM, type NavState, type PanelViewModel, type RunState,
@@ -24,7 +24,7 @@ export interface PanelTeam {
   id: string;
   name: string;
   description: string;
-  lastRun: { status: RunStatus; when: number } | null;
+  lastRun: { status: RunStatus; when: number; errorKind?: ErrorKind | null } | null;
   /** Erste Parse-Fehlermeldung der Crew-Definition, sonst null. Die Zeile bleibt startbar. */
   problem: string | null;
 }

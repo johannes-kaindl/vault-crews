@@ -345,3 +345,10 @@
 }
 .vault-crews-team-problem svg { width: 14px; height: 14px; }
 .vault-crews-team-problem.is-warning { color: var(--text-warning); }
+
+/* Klick-Weg zum Protokoll in der Lauf-Notice */
+.vault-crews-notice-link {
+  color: var(--text-accent);
+  cursor: pointer;
+  text-decoration: underline;
+}

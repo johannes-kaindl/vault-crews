@@ -230,6 +230,7 @@ model: test-model
 
 - Status: ok
 - Dauer: 0.0 s
+- Gefunden: 3 Notiz(en) in \`10_Aufgaben\`
 
 \`\`\`json
 {

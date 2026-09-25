@@ -283,6 +283,24 @@ describe('executeRun — repair loop', () => {
   });
 });
 
+describe('executeRun — leerer Collector', () => {
+  it('meldet einen Collector ohne Treffer als eigene Ursache, nicht als stilles ok', async () => {
+    const h = await harness({ files: {}, llm: new ScriptLlmClient([{ content: '{"items":[]}' }]) });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.emptyCollector).toBe('10_Aufgaben');
+    const runMd = await h.vault.read(`_crews/runs/${result.runId}/run.md`);
+    expect(runMd).toContain('Collector fand 0 passende Notizen in `10_Aufgaben`');
+  });
+
+  it('meldet bei Treffern keine leere Quelle', async () => {
+    const h = await harness();
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.emptyCollector).toBeNull();
+    const runMd = await h.vault.read(`_crews/runs/${result.runId}/run.md`);
+    expect(runMd).toContain('Gefunden: 1 Notiz(en) in `10_Aufgaben`');
+  });
+});
+
 describe('executeRun — llm call errors', () => {
   it('timeout → failed with errorKind timeout, partial commit', async () => {
     const llm = new ScriptLlmClient([{ error: 'timeout' }]);

@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { fnv1a, runCollector } from '../../src/core/collectors';
+import { collectorSource, fnv1a, runCollector } from '../../src/core/collectors';
 import { buildDenylist } from '../../src/core/paths';
 import type { CollectorTaskDef } from '../../src/core/types';
 import { FixtureMetadataPort, InMemoryVaultPort } from '../helpers/in-memory-vault';
@@ -117,5 +117,21 @@ describe('tasknotes.query', () => {
 		const gross = a.files.find((f) => f.path.endsWith('zzz-gross.md'));
 		expect((gross?.content ?? '').length).toBeLessThan(40_000);
 		expect(gross?.content).toContain('[gekürzt]');
+	});
+});
+
+describe('collectorSource', () => {
+	it('nennt den Ordner von vault.list und tasknotes.query', () => {
+		expect(collectorSource(def('vault.list', { folder: 'Notizen' }))).toBe('Notizen');
+		expect(collectorSource(def('tasknotes.query', { folder: '10_Aufgaben' }))).toBe('10_Aufgaben');
+	});
+
+	it('faellt ohne folder auf die Vault-Wurzel', () => {
+		expect(collectorSource(def('vault.list', {}))).toBe('/');
+	});
+
+	it('nennt bei vault.read die Pfade, gekappt auf drei', () => {
+		expect(collectorSource(def('vault.read', { paths: ['a.md', 'b.md', 'c.md', 'd.md'] }))).toBe('a.md, b.md, c.md, …');
+		expect(collectorSource(def('vault.read', { paths: ['a.md'] }))).toBe('a.md');
 	});
 });

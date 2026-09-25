@@ -42,9 +42,11 @@ import {
   type PanelTeam,
   type RunSummary,
 } from "./obsidian/panel";
+import { runNoticeText } from "./obsidian/panel-view-model";
 import { RecoveryModal, checkOrphanedRun } from "./obsidian/recovery";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { installExampleCrews } from "./obsidian/install-examples";
+import { noticeWithLink, NOTICE_WITH_LINK_MS } from "./obsidian/run-notice";
 import { ObsidianMetadataPort, ObsidianVaultPort } from "./obsidian/vault-port";
 import { RequestUrlJsonTransport, XhrSseTransport } from "./obsidian/transports";
 import { AdapterSnapshotStore } from "./obsidian/snapshot-store";
@@ -75,6 +77,7 @@ interface LastRunInfo {
   writes?: number;
   durationS?: number;
   errorKind?: ErrorKind | null;
+  emptyCollector?: string | null;
 }
 type LastRuns = Record<string, LastRunInfo>;
 
@@ -384,7 +387,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
   }
 
   private onRunFinished(teamId: string, result: RunResult): void {
-    this.showRunNotice(this.teamName(teamId), result);
+    this.showRunNotice(teamId, result);
     if (result.alwaysOnThinker) new Notice(t("notice.run.alwaysOnThinker"));
     this.lastRuns[teamId] = {
       status: result.status,
@@ -394,29 +397,16 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       writes: result.writes,
       durationS: result.durationS,
       errorKind: result.errorKind,
+      emptyCollector: result.emptyCollector ?? null,
     };
     void this.saveSettings();
   }
 
-  private showRunNotice(teamName: string, result: RunResult): void {
-    const reason = result.errorKind !== null ? t(`notice.errorKind.${result.errorKind}`) : t("notice.errorKind.io");
-    switch (result.status) {
-      case "ok":
-        new Notice(t("notice.run.ok", teamName, result.writes));
-        break;
-      case "partial":
-        new Notice(t("notice.run.partial", teamName, result.writes));
-        break;
-      case "aborted":
-        new Notice(t("notice.run.aborted", teamName, result.writes));
-        break;
-      case "failed":
-        new Notice(t("notice.run.failed", teamName, reason));
-        break;
-      case "refused":
-        new Notice(t("notice.run.refused", teamName, reason));
-        break;
-    }
+  /** Notice nach dem Lauf, mit Klick-Weg zum Protokoll (run.md) dieses Laufs — ohne den
+   *  sieht „0 Dateien“ gleich aus, egal ob die Quelle leer war oder das Modell schwieg. */
+  private showRunNotice(teamId: string, result: RunResult): void {
+    const text = runNoticeText(this.teamName(teamId), result);
+    new Notice(noticeWithLink(text, t("notice.run.openLog"), () => { this.openCrewLog(teamId); }), NOTICE_WITH_LINK_MS);
   }
 
   // ── PanelHost ──────────────────────────────────────────────────────────────
@@ -428,7 +418,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
         id: tm.id,
         name: tm.name,
         description: tm.description,
-        lastRun: info ? { status: info.status, when: info.when } : null,
+        lastRun: info ? { status: info.status, when: info.when, errorKind: info.errorKind ?? null } : null,
         problem: tm.problem,
       };
     });
@@ -465,6 +455,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       writes: recent.info.writes ?? 0,
       durationS: recent.info.durationS ?? 0,
       errorKind: recent.info.errorKind ?? null,
+      emptyCollector: recent.info.emptyCollector ?? null,
     };
   }
 

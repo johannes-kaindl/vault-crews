@@ -5,7 +5,7 @@
  *  Pure: ausschließlich über injizierte Ports (ports.ts) — kein obsidian-Import. */
 import { buildDenylist, expandTarget } from './paths';
 import { parseAgentDef, parseTeamDef } from './crew-parser';
-import { runCollector } from './collectors';
+import { collectorSource, runCollector } from './collectors';
 import { buildPrompt } from './prompt-builder';
 import { buildSchema } from './schemas';
 import { buildRepairPrompt, validateOutput } from './output-validator';
@@ -248,6 +248,7 @@ class RunFsm {
 			const artifact = await runCollector(task, { vault: this.deps.vault, meta: this.deps.meta, denylist: this.denylist });
 			this.artifacts.set(task.id, artifact);
 			rec.artifactJson = artifact.json;
+			rec.collected = { count: artifact.files.length, source: collectorSource(task) };
 			return 'ok';
 		} catch (e) {
 			return this.failTask(task.id, rec, 'io', `Collector fehlgeschlagen: ${errMsg(e)}`);
@@ -417,6 +418,7 @@ class RunFsm {
 			errorTask: this.state.errorTask,
 			errorKind: this.state.errorKind,
 			alwaysOnThinker: this.state.alwaysOnThinker,
+			emptyCollector: this.state.tasks.find((r) => r.collected?.count === 0)?.collected?.source ?? null,
 		};
 	}
 

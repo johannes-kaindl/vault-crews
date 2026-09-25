@@ -71,6 +71,8 @@ export interface RunSummary {
   writes: number;
   durationS: number;
   errorKind: ErrorKind | null;
+  /** Quelle eines Collectors ohne Treffer (Alt-Eintraege ohne Feld: undefined). */
+  emptyCollector?: string | null;
 }
 
 // ── Reducer: RunState × RunEvent → RunState (pure, kein Seiteneffekt) ──────────
@@ -195,7 +197,7 @@ export interface TeamInfo {
   id: string;
   name: string;
   description: string;
-  lastRun: { status: RunStatus; when: number } | null;
+  lastRun: { status: RunStatus; when: number; errorKind?: ErrorKind | null } | null;
   /** Siehe TeamRowVM.problem — null, solange die Definition sauber parst. */
   problem: string | null;
 }
@@ -261,7 +263,7 @@ function buildCrewsBody(runState: RunState, teams: TeamInfo[], nowMs: number, st
       description: tm.description,
       statusText: tm.lastRun === null
         ? t("panel.idle.never")
-        : `${t(`panel.status.${tm.lastRun.status}`)} · ${formatRelative(nowMs, tm.lastRun.when)}`,
+        : `${t(`panel.status.${tm.lastRun.status}`)} · ${formatRelative(nowMs, tm.lastRun.when)}${lastRunReason(tm.lastRun)}`,
       runLabel: t("panel.idle.run"),
       problem: tm.problem,
     })),
@@ -309,7 +311,7 @@ function summaryFromResult(result: RunResult, writes: string[], abortRequested: 
     undoable: result.undoable,
     undoLabel: t("panel.undo"),
     nextActionLabel: t("panel.nextAction"),
-    nextActionText: nextActionText(result.status, result.errorKind),
+    nextActionText: nextActionText(result.status, result.errorKind, result.writes === 0 ? result.emptyCollector : null),
   };
 }
 
@@ -325,7 +327,7 @@ function summaryFromLastRun(s: RunSummary): SummaryVM {
     undoable: s.undoable,
     undoLabel: t("panel.undo"),
     nextActionLabel: t("panel.nextAction"),
-    nextActionText: nextActionText(s.status, s.errorKind),
+    nextActionText: nextActionText(s.status, s.errorKind, s.writes === 0 ? s.emptyCollector : null),
   };
 }
 
@@ -337,8 +339,33 @@ function abortNote(status: RunStatus, abortRequested: boolean): string | null {
   return null;
 }
 
-function nextActionText(status: RunStatus, errorKind: ErrorKind | null): string {
+/** Grund im Klartext hinter der Statuszeile — nur bei Lauf, der nicht durchging. */
+function lastRunReason(last: { status: RunStatus; errorKind?: ErrorKind | null }): string {
+  if ((last.status !== "refused" && last.status !== "failed") || last.errorKind == null) return "";
+  return ` — ${t(`notice.errorKind.${last.errorKind}`)}`;
+}
+
+/** Text der Notice nach einem Lauf. Ein Lauf ohne Schreibvorgang, dessen Collector nichts
+ *  fand, nennt diese Ursache statt „0 Dateien geschrieben“ — sonst sieht „Quelle leer“
+ *  aus wie „Modell hat sich enthalten“. */
+export function runNoticeText(teamName: string, result: RunResult): string {
+  const reason = result.errorKind !== null ? t(`notice.errorKind.${result.errorKind}`) : t("notice.errorKind.io");
+  switch (result.status) {
+    case "ok":
+    case "partial":
+      if (result.writes === 0 && result.emptyCollector != null) {
+        return t("notice.run.emptyCollector", teamName, result.emptyCollector);
+      }
+      return t(result.status === "ok" ? "notice.run.ok" : "notice.run.partial", teamName, result.writes);
+    case "aborted": return t("notice.run.aborted", teamName, result.writes);
+    case "failed": return t("notice.run.failed", teamName, reason);
+    case "refused": return t("notice.run.refused", teamName, reason);
+  }
+}
+
+function nextActionText(status: RunStatus, errorKind: ErrorKind | null, emptyCollector?: string | null): string {
   if (errorKind !== null) return t(`notice.errorKind.${errorKind}`);
+  if ((status === "ok" || status === "partial") && emptyCollector != null) return t("panel.nextAction.emptyCollector", emptyCollector);
   return status === "ok" ? t("panel.nextAction.ok") : t("panel.nextAction.partial");
 }
 
