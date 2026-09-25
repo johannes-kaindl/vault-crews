@@ -103,6 +103,39 @@ relayer() { # relayer <vendored-file>
   mv "$f.tmp" "$f"
 }
 
+# Zweite Fallgruppe: ein PURE_MODULE, das selbst aus obsidian-kit/src/pure/ stammt, aber einen
+# Querimport auf code-kit traegt (dessen eigene Vendor-Kopie unter obsidian-kit/src/vendor/code-kit/
+# liegt). Hier landen BEIDE Seiten flach nebeneinander in src/vendor/kit/ — der Zielpfad ist also
+# NICHT ../kit/ (das waere fuer kit-obsidian/, das eine Ebene hoeher liegt), sondern ./ (Geschwisterdatei
+# in derselben Ablage). Anlass: endpoint-source.ts importiert endpoint_config aus
+# ../vendor/code-kit/pure/ (obsidian-kit-Perspektive) — Praezedenz: llm-endpoint-manager/tools/sync-kit.sh.
+relayer_pure() { # relayer_pure <vendored-file>
+  f=$1
+  case "$f" in
+    src/vendor/kit/*) ;;
+    *) echo "sync-kit: $f liegt nicht in src/vendor/kit/ — relayer_pure gilt nur fuer die pure-Schicht" >&2; exit 1 ;;
+  esac
+
+  sed -e 's|\(["'"'"']\)\.\./vendor/code-kit/pure/|\1./|g' \
+      -e 's|\(["'"'"']\)\.\./vendor/code-kit/web/|\1./|g' "$f" > "$f.tmp"
+  if cmp -s "$f" "$f.tmp"; then rm -f "$f.tmp"; return 0; fi   # nichts zu tun, KEINE Notiz
+  mv "$f.tmp" "$f"
+
+  if grep -qE '\.\./vendor/code-kit/' "$f"; then
+    echo "sync-kit: unaufgeloester Kit-Querimport in $f — Muster pruefen" >&2; exit 1
+  fi
+
+  for dep in $(sed -n 's|.*from ["'"'"']\./\([A-Za-z0-9_/-]*\)["'"'"'].*|\1|p' "$f" | sort -u); do
+    [ -f "src/vendor/kit/$dep.ts" ] || {
+      echo "sync-kit: $f importiert ./$dep, aber src/vendor/kit/$dep.ts fehlt — mitvendorieren" >&2; exit 1
+    }
+  done
+
+  note="// ONE mechanical deviation from verbatim: kit-internal import (../vendor/code-kit/{pure,web}/) → ./ (flat vendor layout, sibling module in src/vendor/kit/); reproduce on every re-vendor, nothing else may differ."
+  printf '%s\n' "$note" | cat - "$f" > "$f.tmp"
+  mv "$f.tmp" "$f"
+}
+
 liste() { for m in $1; do printf '%s.ts, ' "$m"; done | sed 's/, $//'; }
 
 mkdir -p src/vendor/kit src/vendor/kit-obsidian
@@ -110,11 +143,11 @@ mkdir -p src/vendor/kit src/vendor/kit-obsidian
 # think-splitter: die Datei heisst hier historisch think.ts (vor diesem Skript entstanden),
 # nicht wie ueberall sonst think-splitter.ts — beim Erstlauf dieses Skripts umbenannt
 # (zwei Importstellen mitgezogen), damit Modulname und Dateiname wieder uebereinstimmen.
-PURE_MODULE="capabilities endpoint endpoint_config endpoint_diagnostics error_body i18n model-context model-choice model-list-cache reasoning settings sse think-splitter timeout"
+PURE_MODULE="capabilities endpoint endpoint_config endpoint_diagnostics error_body i18n model-context model-choice model-list-cache reasoning sampling-profiles endpoint-source settings sse think-splitter timeout"
 # Die gekoppelte Schicht (importiert `obsidian`). stream-area ist der Anlass dieses
 # Skripts (Welle 2, Streaming-Antwortbereich); stable-writer/stream-blocks bewusst nicht
 # vendoriert — vault-crews ist Bauart 2 (append-only), kein Markdown-Push.
-OBSIDIAN_MODULE="confirm endpoint-list model-picker settings_walker folder-suggest stream-area"
+OBSIDIAN_MODULE="confirm endpoint-list model-picker settings_walker folder-suggest stream-area endpoint-source"
 
 for m in $PURE_MODULE; do
   quelle_fuer "$m" >/dev/null || {
@@ -133,6 +166,9 @@ for m in $PURE_MODULE; do
   ver=$(printf '%s' "$fund" | cut -d'|' -f5)
   hole "$repo" "$ref" "$rel" "src/vendor/kit/$m.ts" || {
     echo "FEHLER: $ref:$rel nicht lesbar in $repo" >&2; exit 2; }
+  # endpoint-source.ts (obsidian-kit/src/pure/) traegt einen Querimport auf code-kit, dessen
+  # obsidian-kit-eigene Vendor-Kopie hier nicht existiert — auf die flache Ablage umschreiben.
+  case "$m" in endpoint-source) relayer_pure "src/vendor/kit/$m.ts" ;; esac
   stamp "src/vendor/kit/$m.ts" "$rel" "$quelle" "$ver"
   echo "vendored $quelle@$ver/$rel"
 done
@@ -140,7 +176,7 @@ done
 for m in $OBSIDIAN_MODULE; do
   hole "$KIT" "$VER" "src/obsidian/$m.ts" "src/vendor/kit-obsidian/$m.ts" || {
     echo "FEHLER: $VER:src/obsidian/$m.ts nicht lesbar" >&2; exit 2; }
-  case "$m" in endpoint-list|model-picker) relayer "src/vendor/kit-obsidian/$m.ts" ;; esac
+  case "$m" in endpoint-list|model-picker|endpoint-source) relayer "src/vendor/kit-obsidian/$m.ts" ;; esac
   stamp "src/vendor/kit-obsidian/$m.ts" "src/obsidian/$m.ts"
   echo "vendored obsidian-kit@$VER/obsidian/$m.ts"
 done
@@ -176,7 +212,7 @@ cat > src/vendor/kit-obsidian/VENDOR.json <<JSON
   "version": "$VER",
   "sha": "$SHA",
   "vendored": "$(liste "$OBSIDIAN_MODULE")",
-  "note": "Verbatim snapshot. Never hand-edit. Re-vendor via tools/sync-kit.sh. endpoint-list.ts und model-picker.ts tragen EINE mechanische Abweichung: kit-interne Importe ../vendor/code-kit/{pure,web}/ sind auf ../kit/ umgeschrieben (Vendor-Layout). Bei jedem Re-Vendoring reproduzieren; sonst darf nichts abweichen. stream-area.ts ist verbatim (keine Kit-internen Importe)."
+  "note": "Verbatim snapshot. Never hand-edit. Re-vendor via tools/sync-kit.sh. endpoint-list.ts, model-picker.ts und endpoint-source.ts tragen EINE mechanische Abweichung: kit-interne Importe ../vendor/code-kit/{pure,web}/ sind auf ../kit/ umgeschrieben (Vendor-Layout). Bei jedem Re-Vendoring reproduzieren; sonst darf nichts abweichen. stream-area.ts ist verbatim (keine Kit-internen Importe)."
 }
 JSON
 echo "VENDOR.json → $VER ($SHA)"
