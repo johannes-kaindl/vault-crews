@@ -695,6 +695,7 @@ export function makeFakeApp(): any {
     workspace: {
       getActiveFile: fn().mockReturnValue(null),
       getActiveViewOfType: fn().mockReturnValue(null),
+      rootSplit: { doc: { adoptedStyleSheets: [] as unknown[] } },
       getLeavesOfType: fn().mockReturnValue([]),
       getRightLeaf: fn().mockReturnValue({ setViewState: fn() }),
       getLeftLeaf: fn().mockReturnValue({ setViewState: fn() }),

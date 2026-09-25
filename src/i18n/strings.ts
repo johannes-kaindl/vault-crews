@@ -75,6 +75,8 @@ export const EN: Record<string, string> = {
   "settings.crews.heading": "Crews",
   "settings.crews.crewRoot.name": "Crew root folder",
   "settings.crews.crewRoot.desc": "Vault-relative folder that holds agents, teams and run logs.",
+  "settings.crews.hideFolder.name": "Hide crew folder in the file explorer",
+  "settings.crews.hideFolder.desc": "Purely cosmetic: the crew root folder disappears from the explorer, its notes stay in the vault. Crews and run logs are still reachable from the panel.",
   "settings.crews.installExamples.name": "Install example crews",
   "settings.crews.installExamples.desc":
     "Adds a starter agent and team so there is something to run right away.",
@@ -275,6 +277,8 @@ export const DE: Record<string, string> = {
   "settings.crews.heading": "Crews",
   "settings.crews.crewRoot.name": "Crew-Wurzelordner",
   "settings.crews.crewRoot.desc": "Vault-relativer Ordner mit Agenten, Teams und Lauf-Protokollen.",
+  "settings.crews.hideFolder.name": "Crew-Ordner im Datei-Explorer ausblenden",
+  "settings.crews.hideFolder.desc": "Rein kosmetisch: der Crew-Wurzelordner verschwindet aus dem Explorer, seine Notizen bleiben im Vault. Crews und Lauf-Protokolle sind weiter über das Panel erreichbar.",
   "settings.crews.installExamples.name": "Beispiel-Crews installieren",
   "settings.crews.installExamples.desc":
     "Legt einen Beispiel-Agenten und ein Beispiel-Team an, damit direkt etwas zum Ausführen da ist.",

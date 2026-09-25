@@ -46,6 +46,7 @@ import { runNoticeText } from "./obsidian/panel-view-model";
 import { RecoveryModal, checkOrphanedRun } from "./obsidian/recovery";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { installExampleCrews } from "./obsidian/install-examples";
+import { buildHideCss } from "./obsidian/folder-hide";
 import { noticeWithLink, NOTICE_WITH_LINK_MS } from "./obsidian/run-notice";
 import { ObsidianMetadataPort, ObsidianVaultPort } from "./obsidian/vault-port";
 import { RequestUrlJsonTransport, XhrSseTransport } from "./obsidian/transports";
@@ -121,6 +122,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
 
   // Ein-Lauf-Mutex (Spec §6.2 „genau ein Lauf gleichzeitig"): synchron in runCrew
   // gesetzt, in einem finally wieder freigegeben.
+  private hideSheet: CSSStyleSheet | null = null;
   private runActive = false;
   private abortController: AbortController | null = null;
 
@@ -144,6 +146,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     // Team-Liste (dynamische Commands + Panel-Liste) und Crash-Recovery erst nach
     // onLayoutReady, wenn der metadataCache steht (im Test synchron ausgeführt).
     this.app.workspace.onLayoutReady(() => {
+      this.applyFolderHide();
       void this.initDeferred();
     });
   }
@@ -153,6 +156,32 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     // Leaf-Position beim nächsten Load selbst wieder her. Einen laufenden Lauf sicher
     // abbrechen — Abbrechen ist immer folgenlos (Spec §6.2).
     this.abortController?.abort();
+    if (this.hideSheet !== null) {
+      const doc = this.mainDoc;
+      doc.adoptedStyleSheets = doc.adoptedStyleSheets.filter((sheet) => sheet !== this.hideSheet);
+    }
+  }
+
+  /** Das Fenster mit dem Datei-Explorer — bewusst NICHT `activeDocument`: eine konstruierte
+   *  Stylesheet-Instanz darf nur im Dokument ihres eigenen Realms adoptiert werden, sonst
+   *  wirft es NotAllowedError (slide-deck 0.4.0/0.5.0, Popout-Fenster). */
+  private get mainDoc(): Document {
+    return this.app.workspace.rootSplit.doc;
+  }
+
+  /** Versteckt den Crew-Ordner im Explorer oder gibt ihn frei. Kosmetisch: scheitert es,
+   *  bleibt der Ordner sichtbar — nie ein Grund, das Laden abzubrechen. */
+  applyFolderHide(): void {
+    try {
+      const doc = this.mainDoc;
+      if (this.hideSheet === null) {
+        this.hideSheet = new CSSStyleSheet();
+        doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, this.hideSheet];
+      }
+      this.hideSheet.replaceSync(buildHideCss(this.settings.crewRoot, this.settings.hideCrewFolder));
+    } catch (err) {
+      console.error("vault-crews: applyFolderHide failed — crew folder stays visible (cosmetic)", err);
+    }
   }
 
   // ── Settings-Persistenz (SettingsHost) ─────────────────────────────────────
@@ -182,6 +211,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
 
   async saveSettings(): Promise<void> {
     await this.saveData({ ...this.settings, lastRuns: this.lastRuns });
+    this.applyFolderHide();
   }
 
   /** Ephemerer Client statt `this.llm` (PROF-OBS-XX): `this.llm` ist der GETEILTE,

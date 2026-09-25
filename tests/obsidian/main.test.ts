@@ -35,13 +35,21 @@ function okResult(): RunResult {
   return { runId: "r1", status: "ok", undoable: false, writes: 0, durationS: 0, errorTask: null, errorKind: null, alwaysOnThinker: false };
 }
 
+/** CSSStyleSheet gibt es in der Node-Umgebung nicht — der Stub haelt den zuletzt gesetzten Text. */
+class FakeSheet {
+  css = "";
+  replaceSync(css: string): void { this.css = css; }
+}
+
 beforeEach(() => {
+  vi.stubGlobal("CSSStyleSheet", FakeSheet);
   setLang("en");
   Notice.instances.length = 0;
   vi.mocked(executeRun).mockReset();
 });
 afterEach(() => {
   setLang("en");
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -331,5 +339,25 @@ describe("VaultCrewsPlugin — verirrte Crew-Dateien und Live-Aktualisierung", (
       const events = app.vault.on.mock.calls.map((c: unknown[]) => c[0]);
       expect(events).toEqual(expect.arrayContaining(["create", "delete", "rename", "modify"]));
     });
+  });
+});
+
+describe("VaultCrewsPlugin — Crew-Ordner im Explorer ausblenden", () => {
+  it("haengt beim Laden ein Stylesheet an und versteckt den Ordner erst, wenn der Schalter an ist", async () => {
+    const app = makeFakeApp();
+    const plugin = new VaultCrewsPlugin(app as App, MANIFEST);
+    await plugin.onload();
+
+    const doc = (app as unknown as { workspace: { rootSplit: { doc: { adoptedStyleSheets: FakeSheet[] } } } }).workspace.rootSplit.doc;
+    const sheets = doc.adoptedStyleSheets;
+    expect(sheets).toHaveLength(1);
+    expect(sheets[0]?.css).toBe("");
+
+    plugin.settings.hideCrewFolder = true;
+    await plugin.saveSettings();
+    expect(sheets[0]?.css).toContain('.nav-folder-title[data-path="_crews"]');
+
+    plugin.onunload();
+    expect(doc.adoptedStyleSheets).toHaveLength(0);
   });
 });

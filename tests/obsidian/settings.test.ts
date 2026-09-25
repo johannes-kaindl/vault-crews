@@ -157,6 +157,7 @@ describe("DEFAULT_SETTINGS", () => {
       endpoints: [{ url: "http://localhost:1234/v1" }],
       deniedEndpoints: ["http://localhost:8080", "http://127.0.0.1:8080"],
       crewRoot: "_crews",
+      hideCrewFolder: false,
       maxWrites: 10,
       wallClockMinutes: 10,
       callTimeoutS: 300,
@@ -176,14 +177,14 @@ describe("SettingsTab.display()", () => {
     expect(() => tab.display()).not.toThrow();
 
     // Jede `new Setting(containerEl)` legt über containerEl.createDiv(...) ein Kind an.
-    // Connection: 1 Heading + 1 Endpunkt-Block + 1 Sperrliste = 3 · Crews 3 · Safety 4 ·
+    // Connection: 1 Heading + 1 Endpunkt-Block + 1 Sperrliste = 3 · Crews 4 · Safety 4 ·
     // Advanced 4 = 14. Die Fähigkeiten-Zeile fehlt hier, weil ohne aufgelösten Endpunkt
     // nichts zu sagen ist.
     //
     // Seit dem Umbau auf `getSettingDefinitions()` (2026-08-17) ist der Kit-Endpunkt-Editor
     // EIN Kind statt sechs: er sitzt jetzt in einer eigenen Zeile, die `settingBodyHost`
     // zum leeren Block gemacht hat, statt direkt in den Container zu zeichnen.
-    expect(tab.containerEl.children.length).toBe(14);
+    expect(tab.containerEl.children.length).toBe(15);
   });
 
   it("gibt dem Kit-Endpunkt-Editor eine Zeile, die er auch füllt", () => {
@@ -360,5 +361,18 @@ describe("Beispiel-Crews installieren (Settings-Knopf)", () => {
 
     expect(installExamples).toHaveBeenCalledTimes(1);
     expect(Notice.instances).toHaveLength(0);
+  });
+});
+
+describe("Crew-Ordner im Datei-Explorer ausblenden", () => {
+  it("ist standardmaessig aus und spiegelt die Einstellung", () => {
+    const host = makeFakeHost();
+    const tab = new SettingsTab(makeFakePlugin(), host);
+    expect(DEFAULT_SETTINGS.hideCrewFolder).toBe(false);
+    expect(tab.getControlValue("hideCrewFolder")).toBe(false);
+    tab.setControlValue("hideCrewFolder", true);
+    expect(host.settings.hideCrewFolder).toBe(true);
+    expect(tab.getControlValue("hideCrewFolder")).toBe(true);
+    expect(host.saveSettings).toHaveBeenCalled();
   });
 });

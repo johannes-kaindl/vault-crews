@@ -23,6 +23,8 @@ export interface PluginSettings {
    *  hat weder ein Schlüssel noch ein Modell etwas zu suchen. */
   deniedEndpoints: string[];
   crewRoot: string;
+  /** Crew-Ordner im Datei-Explorer verstecken (rein kosmetisch, Muster aus vault-rag/slide-deck). */
+  hideCrewFolder: boolean;
   maxWrites: number;
   wallClockMinutes: number;
   callTimeoutS: number;
@@ -35,6 +37,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   endpoints: [{ url: "http://localhost:1234/v1" }],
   deniedEndpoints: ["http://localhost:8080", "http://127.0.0.1:8080"],
   crewRoot: "_crews",
+  hideCrewFolder: false,
   maxWrites: 10,
   wallClockMinutes: 10,
   callTimeoutS: 300,
@@ -201,6 +204,11 @@ export class SettingsTab extends PluginSettingTab {
             control: { type: "text", key: "crewRoot" },
           },
           {
+            name: t("settings.crews.hideFolder.name"),
+            desc: t("settings.crews.hideFolder.desc"),
+            control: { type: "toggle", key: "hideCrewFolder" },
+          },
+          {
             name: t("settings.crews.installExamples.name"),
             desc: t("settings.crews.installExamples.desc"),
             render: (setting) => this.renderInstallExamples(setting),
@@ -274,6 +282,8 @@ export class SettingsTab extends PluginSettingTab {
     switch (key) {
       case "crewRoot":
         return s.crewRoot;
+      case "hideCrewFolder":
+        return s.hideCrewFolder;
       case "maxWrites":
         return s.maxWrites;
       case "wallClockMinutes":
@@ -303,6 +313,9 @@ export class SettingsTab extends PluginSettingTab {
     switch (key) {
       case "crewRoot":
         s.crewRoot = String(value);
+        break;
+      case "hideCrewFolder":
+        s.hideCrewFolder = Boolean(value);
         break;
       case "maxWrites":
         s.maxWrites = asInt(s.maxWrites);
