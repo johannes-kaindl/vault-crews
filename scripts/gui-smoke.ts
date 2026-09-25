@@ -45,7 +45,7 @@
  */
 
 import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { attachTo, Cdp, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
+import { attachTo, Cdp, pollUntil, requireVisible, vaultName } from "../../tools/obsidian-cdp/cdp.js";
 
 const PLUGIN_ID = "vault-crews";
 
@@ -653,11 +653,29 @@ async function main(): Promise<void> {
     return;
   }
 
-  const aktiv = await cdp.evaluate<boolean>(
+  let aktiv = await cdp.evaluate<boolean>(
     `return Boolean(app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]);`,
   );
+  // Ein frisch gebauter Staging-Vault startet im Restricted Mode: Community-Plugins sind aus,
+  // die community-plugins.json des Fixtures hebt das nicht auf, und weder `npm run deploy` noch
+  // ein Reload helfen. Der Treiber schaltet deshalb selbst frei — aber NUR im eigenen
+  // Staging-Vault (heisst wie das Repo); in einem fremden Vault waere das ein Eingriff in den
+  // Wirt, dort bleibt es beim Abbruch mit Ansage. (Vorbild obsidian-letterhead/scripts/gui-smoke.ts.)
+  if (!aktiv && (await vaultName(cdp)) === PLUGIN_ID) {
+    aktiv = await cdp.evaluate<boolean>(`
+      try {
+        if (app.plugins.setEnable) await app.plugins.setEnable(true);
+        await app.plugins.enablePluginAndSave(${JSON.stringify(PLUGIN_ID)});
+        await new Promise((r) => setTimeout(r, 1200));
+      } catch (e) { /* Abbruchmeldung unten nennt den Zustand */ }
+      return Boolean(app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]);
+    `);
+  }
   if (!aktiv) {
-    console.error(`Plugin „${PLUGIN_ID}" ist im geoeffneten Vault nicht aktiv.`);
+    console.error(
+      `Plugin „${PLUGIN_ID}" ist im geoeffneten Vault nicht aktiv.\n`
+      + `Frischer Vault im Restricted Mode? Der Treiber schaltet nur im Staging-Vault „${PLUGIN_ID}" selbst frei.`,
+    );
     cdp.close();
     process.exitCode = 1;
     return;
