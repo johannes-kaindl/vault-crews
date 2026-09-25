@@ -324,6 +324,7 @@ describe("buildPanelViewModel — Ursache im Panel", () => {
     const done: RunState = { kind: "done", result: okResult({ writes: 0, emptyCollector: "Notizen" }), writes: [], abortRequested: false };
     const vm = buildPanelViewModel(inputsWith(done));
     expect(vm.body.kind === "crewsDone" && vm.body.summary.nextActionText).toContain("0 matching notes in Notizen");
+    expect(vm.body.kind === "crewsDone" && vm.body.summary.primaryLabel).toBe("Open log");
   });
 
   it("Team-Zeile: ein Lauf mit leerer Quelle nennt sie", () => {

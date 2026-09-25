@@ -44,8 +44,10 @@
  * ```
  */
 
+import { createServer, type Server } from "node:http";
 import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { attachTo, Cdp, pollUntil, requireVisible, vaultName } from "../../tools/obsidian-cdp/cdp.js";
+import { attachTo, Cdp, clearNotices, notices, pollUntil, requireVisible, vaultName } from "../../tools/obsidian-cdp/cdp.js";
+import { capture } from "../../tools/obsidian-cdp/shot.js";
 
 const PLUGIN_ID = "vault-crews";
 
@@ -642,6 +644,242 @@ async function panelMessungen(cdp: Cdp): Promise<void> {
   }
 }
 
+// --- Abschnitt: Welle 8 — Beispiel-Knopf, Lauf-Transparenz, Ordner ausblenden, Manager -----
+
+const PLUGIN = `app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]`;
+const BEISPIEL_PFADE = [
+  "agents/triage-analyst.md", "agents/briefing-autor.md", "teams/task-triage.md", "teams/daily-briefing.md",
+  "runs/runs.base", "agents/notiz-tagger.md", "agents/reifegrad-tagger.md", "teams/notiz-tagger.md", "teams/reifegrad-tagger.md",
+];
+
+/** Text des Einstellungs-Fensters (zwei Sprachen, deshalb Muster statt Literal). */
+async function einstellungenText(cdp: Cdp): Promise<{ ui: Cdp | null; text: string }> {
+  const ui = await einstellungenOeffnen(cdp);
+  if (!ui) return { ui: null, text: "" };
+  return { ui, text: (await tabText(ui)) ?? "" };
+}
+
+async function abschnittWelle8(cdp: Cdp): Promise<void> {
+  try {
+    await w8Beispielknopf(cdp);
+    await w8Ausblenden(cdp);
+    await w8Manager(cdp);
+    await w8LeererCollector(cdp);
+  } catch (e) {
+    record("Welle 8 — Abschnitt lief bis zum Ende", false, `abgebrochen: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+/** Punkt 1: der Knopf in den Einstellungen installiert wirklich. Vorher alle Ziele merken und
+ *  hinterher nur wegraeumen, was der Knopf selbst angelegt hat — vorhandene Crews bleiben. */
+async function w8Beispielknopf(cdp: Cdp): Promise<void> {
+  const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
+  const vorher = await cdp.evaluate<string[]>(
+    `return ${JSON.stringify(BEISPIEL_PFADE)}.filter((p) => app.vault.getAbstractFileByPath(${JSON.stringify(root + "/")} + p));`,
+  );
+  const neu = BEISPIEL_PFADE.filter((p) => !vorher.includes(p));
+  try {
+    await clearNotices(cdp);
+    const { ui } = await einstellungenText(cdp);
+    if (!ui) { skipped("Welle 8 — Beispiel-Knopf in den Einstellungen", "Tab nicht greifbar"); return; }
+    const geklickt = await ui.evaluate<boolean>(`
+      const wurzel = document.querySelector(".modal.mod-settings .vertical-tab-content") || document.querySelector(".vertical-tab-content");
+      const knopf = [...(wurzel?.querySelectorAll("button") ?? [])].find((b) => /beispiel-crews installieren|install example crews/i.test(b.textContent ?? ""));
+      if (!knopf) return false;
+      knopf.click();
+      return true;
+    `);
+    record("Welle 8 — Knopf „Beispiel-Crews installieren“ ist da", geklickt, geklickt ? "gefunden und geklickt" : "kein Knopf im Tab");
+    if (!geklickt) return;
+    const alleDa = await wartetAuf(cdp, `${JSON.stringify(BEISPIEL_PFADE)}.every((p) => app.vault.getAbstractFileByPath(${JSON.stringify(root + "/")} + p))`, 8000);
+    record("Welle 8 — der Settings-Knopf installiert die Beispiel-Crews", alleDa,
+      alleDa ? `alle ${BEISPIEL_PFADE.length} Ziele vorhanden (${neu.length} neu angelegt)` : "nach 8 s fehlen Ziele");
+    const hinweis = await notices(cdp);
+    const verweistAufPalette = /befehlspalette|command palette/i.test(hinweis);
+    record("Welle 8 — kein Verweis mehr auf die Befehlspalette", !verweistAufPalette, hinweis ? `Notice: ${hinweis.slice(0, 80)}` : "keine Notice-Restzeichen");
+  } finally {
+    await cdp.evaluate(`
+      for (const p of ${JSON.stringify(neu)}) {
+        const f = app.vault.getAbstractFileByPath(${JSON.stringify(root + "/")} + p);
+        if (f) await app.vault.delete(f);
+      }
+      return true;
+    `).catch(() => undefined);
+    await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
+  }
+}
+
+/** Punkt 3: Crew-Ordner im Explorer ausblenden — Stylesheet steht, greift im DOM, und die
+ *  Gegenprobe (Schalter aus) raeumt es wieder weg. */
+async function w8Ausblenden(cdp: Cdp): Promise<void> {
+  const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
+  const vorher = await cdp.evaluate<boolean>(`return ${PLUGIN}.settings.hideCrewFolder === true;`);
+  const regel = `.nav-folder-title[data-path=${JSON.stringify(root)}]`;
+  const blatt = async (): Promise<number> => cdp.evaluate<number>(`
+    return app.workspace.rootSplit.doc.adoptedStyleSheets
+      .filter((s) => [...s.cssRules].some((r) => r.cssText.includes(${JSON.stringify(`data-path="${root}"`)}))).length;
+  `);
+  try {
+    await cdp.evaluate(`${PLUGIN}.settings.hideCrewFolder = false; await ${PLUGIN}.saveSettings(); return true;`);
+    record("Welle 8 — Ausblenden aus: kein Regelsatz für den Crew-Ordner", (await blatt()) === 0, `Stylesheets mit Regel: ${await blatt()}`);
+    await cdp.evaluate(`${PLUGIN}.settings.hideCrewFolder = true; await ${PLUGIN}.saveSettings(); return true;`);
+    const an = await blatt();
+    record("Welle 8 — Ausblenden an: Regelsatz für den Crew-Ordner steht", an === 1, `Stylesheets mit Regel: ${an}`);
+    const dom = await cdp.evaluate<string>(`
+      const el = document.querySelector(${JSON.stringify(regel)});
+      return el ? getComputedStyle(el).display : "kein-Explorer-Knoten";
+    `);
+    if (dom === "kein-Explorer-Knoten") skipped("Welle 8 — Crew-Ordner im Explorer tatsächlich unsichtbar", "Datei-Explorer nicht offen/Ordner nicht gerendert");
+    else record("Welle 8 — Crew-Ordner im Explorer tatsächlich unsichtbar", dom === "none", `display: ${dom}`);
+    await cdp.evaluate(`${PLUGIN}.settings.hideCrewFolder = false; await ${PLUGIN}.saveSettings(); return true;`);
+    record("Welle 8 — Ausblenden wieder aus: Regelsatz weg (Gegenprobe)", (await blatt()) === 0, `Stylesheets mit Regel: ${await blatt()}`);
+  } finally {
+    await cdp.evaluate(`${PLUGIN}.settings.hideCrewFolder = ${vorher}; await ${PLUGIN}.saveSettings(); return true;`).catch(() => undefined);
+  }
+}
+
+/** Punkt 5: mit einem (Fake-)Manager zeigen die Einstellungen den Manager-Baustein, und der Lauf
+ *  bekommt dessen Endpunkt samt Modell; ohne ihn kehrt die lokale Liste zurueck. */
+async function w8Manager(cdp: Cdp): Promise<void> {
+  const echt = await cdp.evaluate<boolean>(`return Boolean(app.plugins.plugins["llm-endpoint-manager"]);`);
+  if (echt) {
+    skipped("Welle 8 — Manager-Baustein (Fake-Manager)", "ein echter llm-endpoint-manager ist geladen — nicht überschrieben");
+    return;
+  }
+  try {
+    await cdp.evaluate(`
+      const ep = { id: "fake", label: "Fake-Gateway", config: { url: "http://127.0.0.1:59999/v1", apiKey: "sk-smoke" }, defaultModel: "fake-modell" };
+      app.plugins.plugins["llm-endpoint-manager"] = { api: {
+        version: 1,
+        list: () => [{ id: "fake", label: "Fake-Gateway", url: ep.config.url, provider: "openai", capabilities: ["chat"], enabled: true, hasSecret: true, defaultModel: "fake-modell" }],
+        get: () => null, resolve: async () => ep, materialize: async () => ep, models: async () => ["fake-modell"],
+        importEndpoints: async () => ({ added: [], merged: [], skipped: [] }), on: () => () => {},
+      } };
+      return true;
+    `);
+    const aufgeloest = await cdp.evaluate<string>(`return JSON.stringify(await ${PLUGIN}.effectiveEndpoints());`);
+    const erwartet = JSON.stringify([{ url: "http://127.0.0.1:59999/v1", apiKey: "sk-smoke", model: "fake-modell" }]);
+    record("Welle 8 — Lauf bekommt den Manager-Endpunkt samt Schlüssel und Modell", aufgeloest === erwartet, aufgeloest.replace(/sk-smoke/, "sk-…"));
+
+    const mit = await einstellungenText(cdp);
+    const zeigtBaustein = /kommen vom LLM Endpoint Manager|come from the LLM Endpoint Manager/i.test(mit.text);
+    record("Welle 8 — Einstellungen zeigen bei Manager den Manager-Baustein", zeigtBaustein, zeigtBaustein ? "Hinweis „Endpunkte kommen vom …“ sichtbar" : "Hinweis fehlt");
+    await cdp.evaluate(`app.setting.close(); return true;`);
+
+    await cdp.evaluate(`delete app.plugins.plugins["llm-endpoint-manager"]; return true;`);
+    const lokal = await cdp.evaluate<string>(`return JSON.stringify(await ${PLUGIN}.effectiveEndpoints()) === JSON.stringify(${PLUGIN}.settings.endpoints) ? "gleich" : "abweichend";`);
+    record("Welle 8 — ohne Manager gilt wieder die lokale Liste (Gegenprobe)", lokal === "gleich", lokal);
+    const ohne = await einstellungenText(cdp);
+    const baustein = /kommen vom LLM Endpoint Manager|come from the LLM Endpoint Manager/i.test(ohne.text);
+    record("Welle 8 — ohne Manager kein Manager-Baustein in den Einstellungen", !baustein, baustein ? "Hinweis steht noch" : "Hinweis weg, lokale Liste da");
+  } finally {
+    await cdp.evaluate(`delete app.plugins.plugins["llm-endpoint-manager"]; app.setting.close(); return true;`).catch(() => undefined);
+  }
+}
+
+/** Punkte 2 + 2d: ein Lauf, dessen Collector nichts findet, sagt das — in Notice, Protokoll und
+ *  Panel — und ruft das Modell nicht auf. Der Fake-Server zaehlt jeden Chat-Aufruf. */
+async function w8LeererCollector(cdp: Cdp): Promise<void> {
+  const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
+  const id = "zz-smoke-leer";
+  const ordner = "zz-smoke-leerer-ordner";
+  let chatCalls = 0;
+  const posts: string[] = [];
+  const server: Server = createServer((req, res) => {
+    if (req.method === "POST") {
+      posts.push(req.url ?? "");
+      if (/chat\/completions/.test(req.url ?? "")) chatCalls++;
+    }
+    res.setHeader("access-control-allow-origin", "*");
+    if (req.url?.startsWith("/v1/models")) {
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ object: "list", data: [{ id: "fake-modell", object: "model" }] }));
+    } else { res.statusCode = 404; res.end("{}"); }
+  });
+  await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
+  const port = (server.address() as { port: number }).port;
+  const team = ["---", "crew-kind: team", "name: ZZ Smoke leer", "version: 1", "description: Smoke", "trigger: manual",
+    "limits:", "  max_writes: 1", "write_scope:", `  - "${ordner}/**/*.md"`, "tasks:",
+    "  - id: collect", "    kind: collector", "    collector: vault.list", "    params:", `      folder: ${ordner}`,
+    "  - id: analyse", "    kind: llm", "    agent: zz-smoke-agent", "    inputs: [collect]", "    instruction: Tue nichts.",
+    "    output_schema: triage-v1", "    on_error: abort",
+    "  - id: apply", "    kind: actions", "    inputs: [analyse]", "    allowed_actions: [frontmatter.patch]", "    allowed_keys: [priority]",
+    "---", "Smoke", ""].join("\n");
+  const agent = ["---", "crew-kind: agent", "name: ZZ Smoke", "---", "Du bist ein Test.", ""].join("\n");
+  const teamPfad = `${root}/teams/${id}.md`;
+  const agentPfad = `${root}/agents/zz-smoke-agent.md`;
+  let runDir = "";
+  try {
+    await cdp.evaluate(`
+      for (const d of [${JSON.stringify(root)}, ${JSON.stringify(root + "/teams")}, ${JSON.stringify(root + "/agents")}]) {
+        if (!app.vault.getAbstractFileByPath(d)) await app.vault.createFolder(d);
+      }
+      await app.vault.create(${JSON.stringify(teamPfad)}, ${JSON.stringify(team)});
+      await app.vault.create(${JSON.stringify(agentPfad)}, ${JSON.stringify(agent)});
+      ${PLUGIN}.settings.endpoints = [{ url: "http://127.0.0.1:${port}/v1", model: "fake-modell" }];
+      await ${PLUGIN}.refreshTeams?.();
+      return true;
+    `);
+    await clearNotices(cdp);
+    await cdp.evaluate(`${PLUGIN}.runCrew(${JSON.stringify(id)}); return true;`);
+    const fertig = await wartetAuf(cdp, `${PLUGIN}.lastRuns[${JSON.stringify(id)}]`, 15000);
+    record("Welle 8 — Lauf mit leerem Collector endet", fertig, fertig ? "lastRuns gesetzt" : "nach 15 s kein Ergebnis");
+    if (!fertig) return;
+    const info = await cdp.evaluate<{ runId: string; status: string; emptyCollector: string | null; writes: number }>(
+      `return ${PLUGIN}.lastRuns[${JSON.stringify(id)}];`);
+    runDir = `${root}/runs/${info.runId}`;
+    record("Welle 8 — der leere Collector ist als Ursache im Ergebnis", info.emptyCollector === ordner && info.writes === 0,
+      `emptyCollector=${info.emptyCollector}, writes=${info.writes}, status=${info.status}`);
+    record("Welle 8 — kein Modellaufruf auf leerem Kontext", chatCalls === 0, `Chat-Aufrufe am Fake-Server: ${chatCalls} (POSTs insgesamt: ${posts.join(", ") || "keine"})`);
+
+    const hinweis = await notices(cdp);
+    const nennt = new RegExp(`${ordner}`).test(hinweis) && /0 passende Notizen|0 matching notes/.test(hinweis);
+    record("Welle 8 — Notice nennt „0 Notizen“ und die Quelle statt „0 Dateien“", nennt, hinweis.slice(0, 140));
+    const link = await cdp.evaluate<boolean>(`return Boolean(document.querySelector(".notice a.vault-crews-notice-link"));`);
+    record("Welle 8 — Notice trägt den Link zum Protokoll", link, link ? "a.vault-crews-notice-link vorhanden" : "kein Link");
+    const dir = process.env.SMOKE_SHOT_DIR;
+    // Die Notice gleitet ein — eine Aufnahme im ersten Moment zeigt sie halb ausserhalb des Fensters.
+    await new Promise((r) => setTimeout(r, 900));
+    if (dir && link) writeFileSync(`${dir}/lauf-notice.png`, await capture(cdp));
+
+    const geoeffnet = await cdp.evaluate<string>(`
+      document.querySelector(".notice a.vault-crews-notice-link")?.click();
+      await new Promise((r) => setTimeout(r, 900));
+      return app.workspace.getActiveFile()?.path ?? "";
+    `);
+    record("Welle 8 — Klick auf den Link öffnet run.md dieses Laufs", geoeffnet === `${runDir}/run.md`, geoeffnet || "keine aktive Datei");
+    const runMd = await cdp.evaluate<string>(`return await app.vault.adapter.read(${JSON.stringify(`${runDir}/run.md`)});`);
+    record("Welle 8 — run.md nennt Quelle und übersprungenen Task", /Collector fand 0 passende Notizen in `zz-smoke-leerer-ordner`/.test(runMd) && /Übersprungen: Collector fand 0/.test(runMd),
+      runMd.split("\n").filter((z) => /Collector fand|Übersprungen/.test(z)).join(" / ").slice(0, 160));
+
+    await cdp.evaluate(`await ${PLUGIN}.activatePanel(); await new Promise((r) => setTimeout(r, 900)); return true;`);
+    const panelText = await cdp.evaluate<string>(`return (${PANEL})?.innerText ?? "";`);
+    const panelNennt = /0 passende Notizen in zz-smoke-leerer-ordner|0 matching notes in zz-smoke-leerer-ordner/.test(panelText);
+    record("Welle 8 — Ergebnis-Karte nennt die leere Quelle", panelNennt, panelNennt ? "Nächste Handlung nennt die Quelle" : panelText.slice(0, 120).replace(/\n/g, " "));
+    if (dir && panelNennt) writeFileSync(`${dir}/lauf-panel.png`, await capture(cdp));
+    const zeile = await cdp.evaluate<string>(`
+      const zurueck = [...((${PANEL})?.querySelectorAll("button") ?? [])].find((b) => /zurück zur übersicht|back to overview/i.test(b.textContent ?? ""));
+      zurueck?.click();
+      await new Promise((r) => setTimeout(r, 700));
+      return (${PANEL})?.innerText ?? "";
+    `);
+    const zeileNennt = /0 passende Notizen in zz-smoke-leerer-ordner|0 matching notes in zz-smoke-leerer-ordner/.test(zeile);
+    record("Welle 8 — Crew-Zeile im Panel nennt die leere Quelle", zeileNennt, zeileNennt ? "Statuszeile enthält die Quelle" : zeile.slice(0, 160).replace(/\n/g, " "));
+    if (dir && zeileNennt) writeFileSync(`${dir}/lauf-zeile.png`, await capture(cdp));
+  } finally {
+    server.close();
+    await cdp.evaluate(`
+      for (const p of [${JSON.stringify(teamPfad)}, ${JSON.stringify(agentPfad)}, ${JSON.stringify(runDir)}]) {
+        if (!p) continue;
+        const f = app.vault.getAbstractFileByPath(p);
+        if (f) await app.vault.delete(f, true);
+      }
+      delete ${PLUGIN}.lastRuns[${JSON.stringify(id)}];
+      return true;
+    `).catch(() => undefined);
+  }
+}
+
 async function main(): Promise<void> {
   const cdp = await attachTo("workspace", PORT, VAULT);
   if (!cdp) {
@@ -778,6 +1016,7 @@ async function main(): Promise<void> {
     await abschnittDeklarativ(cdp);
     await abschnittDrittanbieter(cdp);
     await abschnittPanel(cdp);
+    await abschnittWelle8(cdp);
   } finally {
     // Zurueckschreiben und das Ergebnis MESSEN statt darauf vertrauen.
     if (vorwert) {
