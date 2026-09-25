@@ -100,6 +100,7 @@ LM Studio: `finish_reason` steht im letzten Chunk, dessen `delta` leer ist.
   nimmt den ganzen Eintrag (`setEndpoint(cfg)`), nie URL und Schlüssel getrennt: der
   Resolver liefert die **normalisierte** URL, der gespeicherte Eintrag bleibt roh, ein
   Vergleich über die URL greift also bei jedem `/v1`-Suffix daneben.
+  Das gilt für die lokale Liste; ist das Plugin `llm-endpoint-manager` installiert, kommen Endpunkt, Schlüssel und Modell von dort (`VaultCrewsPlugin.effectiveEndpoints()` über Kit `endpoint-source`, Wahl im Feld `choice`), und ein Manager-Fehler ergibt eine leere Liste, keinen Rückfall auf lokal.
 - **Schlüssel dürfen nie in den Vault:** `redactRunState` läuft an genau einer Stelle
   (`finish*` im Orchestrator, bevor run.md/state.json geschrieben werden und bevor der
   RunResult zurückgeht). Wer eine neue Ausgabe hinzufügt, die Text aus dem Netzweg trägt,
