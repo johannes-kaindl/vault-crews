@@ -151,12 +151,15 @@ Writing your own teams and agents is plain Markdown in the vault — see
 | **Denied endpoints** | `localhost:8080`, `127.0.0.1:8080` | Never contacted — the default keeps the plugin off a port other local model servers commonly claim. A setting, not hardcoded |
 | **Default model** | *(empty)* | Model name sent with each call; **Load models** fills a dropdown from the reachable endpoint |
 | **Crew root folder** | `_crews` | Vault-relative folder holding agents, teams and run logs |
+| **Hide crew folder in the file explorer** | off | Purely cosmetic: the crew root disappears from the explorer, its notes stay in the vault |
 | **Max writes per run** | 10 | Plugin-wide cap; a team's own `max_writes` can only be lower |
 | **Wall-clock limit** | 10 minutes | Aborts a runaway run, leaving its partial writes snapshotted and undoable |
 | **Undo history depth** | 15 | How many run snapshots are kept before the oldest are pruned |
 | **Call timeout** | 300 s | Hard limit per model call — generous, because just-in-time model loading takes a while |
 | **Stall timeout** | 60 s | Aborts if no new token arrives; only checked after the first token, so loading is never mistaken for a stall |
 | **Verbose logging** | off | Reserved — the setting persists but nothing reads it yet (see V1 limitations) |
+
+If the **LLM Endpoint Manager** plugin is installed, the endpoint (and its API key and model) comes from there and the settings show the manager's picker instead of the list above; without it, the list above is used as before.
 
 Endpoint and timeout settings are read once at plugin load; changing them takes effect
 after disabling and re-enabling the plugin.
