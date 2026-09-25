@@ -3,8 +3,10 @@ import { t } from "../vendor/kit/i18n";
 import { ENDPOINT_PRESETS, type EndpointStatus } from "../vendor/kit/endpoint_diagnostics";
 import { parseEndpointList } from "../vendor/kit/endpoint";
 import type { EndpointConfig } from "../vendor/kit/endpoint_config";
+import type { EndpointChoice } from "../vendor/kit/endpoint-source";
 import { createModelListCache, type ModelListCache } from "../vendor/kit/model-list-cache";
 import { guessFromName, type Capabilities } from "../vendor/kit/capabilities";
+import { buildEndpointSourceSection } from "../vendor/kit-obsidian/endpoint-source";
 import { buildEndpointList, type EndpointListStrings } from "../vendor/kit-obsidian/endpoint-list";
 import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "../vendor/kit-obsidian/settings_walker";
 import { statusKindKey, warnRuleKey } from "./endpoint-labels";
@@ -22,6 +24,9 @@ export interface PluginSettings {
   /** Sperrliste. Bewusst weiterhin rohe URLs: eine Sperre ist keine Verbindung — dort
    *  hat weder ein Schlüssel noch ein Modell etwas zu suchen. */
   deniedEndpoints: string[];
+  /** Wahl gegenueber dem LLM Endpoint Manager (optionales Nachbar-Plugin); leer = automatisch.
+   *  Die lokale Liste oben bleibt Rueckfall, solange der Manager fehlt. */
+  choice: EndpointChoice;
   crewRoot: string;
   /** Crew-Ordner im Datei-Explorer verstecken (rein kosmetisch, Muster aus vault-rag/slide-deck). */
   hideCrewFolder: boolean;
@@ -33,9 +38,20 @@ export interface PluginSettings {
   verboseLogging: boolean;
 }
 
+/** `choice` kommt aus einer handeditierbaren data.json: nur zwei Textfelder duerfen durch. */
+export function sanitizeChoice(raw: unknown): EndpointChoice {
+  if (raw === null || typeof raw !== "object") return {};
+  const { endpointId, model } = raw as Record<string, unknown>;
+  return {
+    ...(typeof endpointId === "string" && endpointId !== "" ? { endpointId } : {}),
+    ...(typeof model === "string" && model !== "" ? { model } : {}),
+  };
+}
+
 export const DEFAULT_SETTINGS: PluginSettings = {
   endpoints: [{ url: "http://localhost:1234/v1" }],
   deniedEndpoints: ["http://localhost:8080", "http://127.0.0.1:8080"],
+  choice: {},
   crewRoot: "_crews",
   hideCrewFolder: false,
   maxWrites: 10,
@@ -376,9 +392,43 @@ export class SettingsTab extends PluginSettingTab {
     });
   }
 
+  /** Manager da → Kit-Baustein (Wahl + Modell + Import), sonst der lokale Listen-Editor. */
   private renderEndpoints(setting: Setting): void {
+    const host = settingBodyHost(setting);
+    buildEndpointSourceSection({
+      app: this.app,
+      containerEl: host,
+      capability: "chat",
+      caller: "vault-crews",
+      choice: () => this.host.settings.choice,
+      setChoice: async (c) => {
+        this.host.settings.choice = c;
+        await this.host.saveSettings();
+      },
+      local: () => this.host.settings.endpoints,
+      strings: {
+        managed: t("settings.connection.source.managed"),
+        managedDesc: t("settings.connection.source.managedDesc"),
+        openManager: t("settings.connection.source.openManager"),
+        pickEndpoint: t("settings.connection.source.pickEndpoint"),
+        automatic: t("settings.connection.source.automatic"),
+        model: t("settings.connection.source.model"),
+        importLocal: t("settings.connection.source.importLocal"),
+        imported: (r) => t("settings.connection.source.imported", String(r.added.length), String(r.merged.length)),
+        importFailed: t("settings.connection.source.importFailed"),
+        modelHint: (key) => endpointStrings().modelHint(key),
+        savedSuffix: t("settings.connection.model.saved"),
+        refreshModels: t("settings.connection.model.refresh"),
+        saveFailed: t("settings.connection.saveFailed"),
+      },
+      renderLocalList: () => { this.renderLocalEndpointList(host); },
+      rerender: () => this.refreshUi(),
+    });
+  }
+
+  private renderLocalEndpointList(host: HTMLElement): void {
     buildEndpointList({
-      containerEl: settingBodyHost(setting),
+      containerEl: host,
       label: t("settings.connection.endpoints.name"),
       desc: t("settings.connection.endpoints.desc"),
       placeholder: t("settings.connection.endpoints.add"),

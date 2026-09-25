@@ -32,6 +32,7 @@ import { registerI18n } from "./i18n/strings";
 import {
   DEFAULT_SETTINGS,
   SettingsTab,
+  sanitizeChoice,
   type PluginSettings,
   type SettingsHost,
 } from "./obsidian/settings";
@@ -46,6 +47,8 @@ import { runNoticeText } from "./obsidian/panel-view-model";
 import { RecoveryModal, checkOrphanedRun } from "./obsidian/recovery";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { installExampleCrews } from "./obsidian/install-examples";
+import { findEndpointManager } from "./vendor/kit-obsidian/endpoint-source";
+import { resolveEndpointSource } from "./vendor/kit/endpoint-source";
 import { buildHideCss } from "./obsidian/folder-hide";
 import { noticeWithLink, NOTICE_WITH_LINK_MS } from "./obsidian/run-notice";
 import { ObsidianMetadataPort, ObsidianVaultPort } from "./obsidian/vault-port";
@@ -203,6 +206,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     // 409 grüne Tests sahen es nicht (sie prüften die Migrationsfunktion, nicht den
     // Ladepfad). Gleiches Muster wie `lastRuns` weiter unten.
     delete (this.settings as unknown as Record<string, unknown>).defaultModel;
+    this.settings.choice = sanitizeChoice(this.settings.choice);
     this.lastRuns = raw && isRecord(raw.lastRuns) ? filterValidLastRuns(raw.lastRuns) : {};
     // lastRuns ist ein eigenes data.json-Feld, nicht Teil von PluginSettings —
     // aus dem Merge-Ergebnis wieder entfernen, damit `settings` sauber bleibt.
@@ -264,8 +268,23 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
    *  Editor („aktiv" vs. „Bereitschaft — Platz 2"). */
   async resolveActive(): Promise<string | null> {
     const client = this.buildLlmClient();
-    const active = await resolveActiveEndpointConfig(this.settings.endpoints, (cfg) => client.ping(cfg));
+    const active = await resolveActiveEndpointConfig(await this.effectiveEndpoints(), (cfg) => client.ping(cfg));
     return active ? normalizeEndpoint(active.url) : null;
+  }
+
+  /** Die Endpunkte, auf denen ein Lauf rechnet. Ist der LLM Endpoint Manager installiert, entscheidet
+   *  er (Wahl + Standardmodell, Schluessel aus dem Schluesselbund); ein Fehler dort ergibt eine
+   *  LEERE Liste und damit die Verweigerung „kein Endpunkt“ — die eine Wahrheit soll auch die eine
+   *  Meldung sein. Ohne Manager bleibt die lokale Liste samt Failover im Orchestrator. */
+  async effectiveEndpoints(): Promise<EndpointConfig[]> {
+    const manager = findEndpointManager(this.app);
+    if (manager === null) return this.settings.endpoints;
+    const r = await resolveEndpointSource(
+      { manager, local: this.settings.endpoints, capability: "chat", choice: this.settings.choice, caller: "vault-crews" },
+      () => Promise.resolve(true),
+    );
+    if (r.config === null) return [];
+    return [r.model !== "" ? { ...r.config, model: r.model } : r.config];
   }
 
   // ── Port-Verdrahtung (genau einmal) ───────────────────────────────────────
@@ -380,7 +399,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       settings: {
         crewRoot: this.settings.crewRoot,
         configDir: this.app.vault.configDir,
-        endpoints: this.settings.endpoints,
+        endpoints: await this.effectiveEndpoints(),
         deniedEndpoints: this.settings.deniedEndpoints,
         limits: this.buildLimits(),
         undoHistoryDepth: this.settings.undoHistoryDepth,

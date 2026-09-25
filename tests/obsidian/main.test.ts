@@ -361,3 +361,48 @@ describe("VaultCrewsPlugin — Crew-Ordner im Explorer ausblenden", () => {
     expect(doc.adoptedStyleSheets).toHaveLength(0);
   });
 });
+
+describe("VaultCrewsPlugin — Endpunkte vom LLM Endpoint Manager", () => {
+  const LOCAL = [{ url: "http://localhost:1234/v1" }];
+
+  /** Fake-App mit einem Manager-Plugin, dessen `api` der Vertrag v1 erfuellt. */
+  function appWithManager(resolveResult: unknown): { app: App; resolve: ReturnType<typeof vi.fn> } {
+    const app = makeFakeApp() as App;
+    const resolve = vi.fn().mockResolvedValue(resolveResult);
+    const api = {
+      version: 1, list: vi.fn().mockReturnValue([]), get: vi.fn().mockReturnValue(null), resolve,
+      materialize: vi.fn().mockResolvedValue({ error: "not-found" }), models: vi.fn().mockResolvedValue([]),
+      importEndpoints: vi.fn(), on: vi.fn().mockReturnValue(() => {}),
+    };
+    (app as unknown as { plugins: unknown }).plugins = { plugins: { "llm-endpoint-manager": { api } } };
+    return { app, resolve };
+  }
+
+  async function endpointsPassedToRun(app: App): Promise<unknown> {
+    vi.mocked(executeRun).mockResolvedValue(okResult());
+    const plugin = new VaultCrewsPlugin(app, MANIFEST);
+    await plugin.onload();
+    plugin.runCrew("task-triage");
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    const deps = vi.mocked(executeRun).mock.calls[0]?.[1];
+    return deps?.settings.endpoints;
+  }
+
+  it("nimmt bei installiertem Manager dessen Endpunkt samt Schluessel und Modell", async () => {
+    const { app, resolve } = appWithManager({
+      id: "e1", label: "Manager", config: { url: "http://gw/v1", apiKey: "sk-x" }, defaultModel: "m-default",
+    });
+    const endpoints = await endpointsPassedToRun(app);
+    expect(resolve).toHaveBeenCalledWith("chat", { caller: "vault-crews" });
+    expect(endpoints).toEqual([{ url: "http://gw/v1", apiKey: "sk-x", model: "m-default" }]);
+  });
+
+  it("uebergibt bei Manager-Fehler eine leere Liste — kein stiller Rueckfall auf lokal", async () => {
+    const { app } = appWithManager({ error: "no-endpoint" });
+    expect(await endpointsPassedToRun(app)).toEqual([]);
+  });
+
+  it("nimmt ohne Manager die lokale Liste unveraendert", async () => {
+    expect(await endpointsPassedToRun(makeFakeApp() as App)).toEqual(LOCAL);
+  });
+});

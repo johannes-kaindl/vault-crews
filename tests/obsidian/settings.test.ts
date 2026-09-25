@@ -26,6 +26,7 @@ import { setLang } from "../../src/vendor/kit/i18n";
 import {
   DEFAULT_SETTINGS,
   SettingsTab,
+  sanitizeChoice,
   type PluginSettings,
   type SettingsHost,
 } from "../../src/obsidian/settings";
@@ -156,6 +157,7 @@ describe("DEFAULT_SETTINGS", () => {
     expect(DEFAULT_SETTINGS).toEqual({
       endpoints: [{ url: "http://localhost:1234/v1" }],
       deniedEndpoints: ["http://localhost:8080", "http://127.0.0.1:8080"],
+      choice: {},
       crewRoot: "_crews",
       hideCrewFolder: false,
       maxWrites: 10,
@@ -374,5 +376,40 @@ describe("Crew-Ordner im Datei-Explorer ausblenden", () => {
     expect(host.settings.hideCrewFolder).toBe(true);
     expect(tab.getControlValue("hideCrewFolder")).toBe(true);
     expect(host.saveSettings).toHaveBeenCalled();
+  });
+});
+
+describe("Endpunkte vom LLM Endpoint Manager (Settings)", () => {
+  it("speichert die Wahl gegenueber dem Manager im Feld choice und hat sie standardmaessig leer", () => {
+    expect(DEFAULT_SETTINGS.choice).toEqual({});
+  });
+
+  it("zeigt bei installiertem Manager den Manager-Baustein statt der lokalen Liste", () => {
+    const plugin = makeFakePlugin();
+    const app = plugin.app as unknown as { plugins?: unknown };
+    app.plugins = { plugins: { "llm-endpoint-manager": { api: {
+      version: 1, list: () => [], get: () => null, resolve: async () => ({ error: "no-endpoint" }),
+      materialize: async () => ({ error: "not-found" }), models: async () => [], importEndpoints: async () => ({ error: "no-endpoint" }),
+      on: () => () => {},
+    } } } };
+    const names: string[] = [];
+    vi.spyOn(Setting.prototype, "setName").mockImplementation(function (this: InstanceType<typeof Setting>, n: string) {
+      names.push(String(n));
+      return this;
+    });
+    new SettingsTab(plugin, makeFakeHost()).display();
+    expect(names).toContain("Endpoints come from the LLM Endpoint Manager");
+  });
+});
+
+describe("sanitizeChoice", () => {
+  it("laesst nur nichtleere Textfelder durch", () => {
+    expect(sanitizeChoice({ endpointId: "e1", model: "m", extra: 1 })).toEqual({ endpointId: "e1", model: "m" });
+    expect(sanitizeChoice({ endpointId: 5, model: "" })).toEqual({});
+  });
+  it("macht aus Nicht-Objekten eine leere Wahl", () => {
+    expect(sanitizeChoice(null)).toEqual({});
+    expect(sanitizeChoice("x")).toEqual({});
+    expect(sanitizeChoice(undefined)).toEqual({});
   });
 });
