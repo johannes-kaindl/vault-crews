@@ -285,11 +285,15 @@ describe('executeRun — repair loop', () => {
 
 describe('executeRun — leerer Collector', () => {
   it('meldet einen Collector ohne Treffer als eigene Ursache, nicht als stilles ok', async () => {
-    const h = await harness({ files: {}, llm: new ScriptLlmClient([{ content: '{"items":[]}' }]) });
+    const llm = new ScriptLlmClient([{ content: '{"items":[]}' }]);
+    const h = await harness({ files: {}, llm });
     const result = await executeRun(h.teamPath, h.deps);
     expect(result.emptyCollector).toBe('10_Aufgaben');
+    expect(result.status).toBe('partial');
+    expect(llm.calls).toHaveLength(0);   // kein Modellaufruf auf leerem Kontext
     const runMd = await h.vault.read(`_crews/runs/${result.runId}/run.md`);
     expect(runMd).toContain('Collector fand 0 passende Notizen in `10_Aufgaben`');
+    expect(runMd).toContain('Übersprungen: Collector fand 0 passende Notizen in 10_Aufgaben — Task nicht gestartet');
   });
 
   it('meldet bei Treffern keine leere Quelle', async () => {

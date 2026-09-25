@@ -448,7 +448,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
         id: tm.id,
         name: tm.name,
         description: tm.description,
-        lastRun: info ? { status: info.status, when: info.when, errorKind: info.errorKind ?? null } : null,
+        lastRun: info ? { status: info.status, when: info.when, errorKind: info.errorKind ?? null, emptyCollector: info.writes === 0 ? info.emptyCollector ?? null : null } : null,
         problem: tm.problem,
       };
     });

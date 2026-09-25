@@ -197,7 +197,7 @@ export interface TeamInfo {
   id: string;
   name: string;
   description: string;
-  lastRun: { status: RunStatus; when: number; errorKind?: ErrorKind | null } | null;
+  lastRun: { status: RunStatus; when: number; errorKind?: ErrorKind | null; emptyCollector?: string | null } | null;
   /** Siehe TeamRowVM.problem — null, solange die Definition sauber parst. */
   problem: string | null;
 }
@@ -340,7 +340,10 @@ function abortNote(status: RunStatus, abortRequested: boolean): string | null {
 }
 
 /** Grund im Klartext hinter der Statuszeile — nur bei Lauf, der nicht durchging. */
-function lastRunReason(last: { status: RunStatus; errorKind?: ErrorKind | null }): string {
+function lastRunReason(last: { status: RunStatus; errorKind?: ErrorKind | null; emptyCollector?: string | null }): string {
+  if ((last.status === "ok" || last.status === "partial") && last.emptyCollector != null) {
+    return ` — ${t("panel.status.emptyCollector", last.emptyCollector)}`;
+  }
   if ((last.status !== "refused" && last.status !== "failed") || last.errorKind == null) return "";
   return ` — ${t(`notice.errorKind.${last.errorKind}`)}`;
 }

@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { collectorSource, fnv1a, runCollector } from '../../src/core/collectors';
+import { collectorSource, emptyInputSource, fnv1a, runCollector } from '../../src/core/collectors';
 import { buildDenylist } from '../../src/core/paths';
 import type { CollectorTaskDef } from '../../src/core/types';
 import { FixtureMetadataPort, InMemoryVaultPort } from '../helpers/in-memory-vault';
@@ -133,5 +133,22 @@ describe('collectorSource', () => {
 	it('nennt bei vault.read die Pfade, gekappt auf drei', () => {
 		expect(collectorSource(def('vault.read', { paths: ['a.md', 'b.md', 'c.md', 'd.md'] }))).toBe('a.md, b.md, c.md, …');
 		expect(collectorSource(def('vault.read', { paths: ['a.md'] }))).toBe('a.md');
+	});
+});
+
+describe('emptyInputSource', () => {
+	const empty = new Map([['c1', 'Notizen'], ['c2', '20_Zettel']]);
+
+	it('liefert die Quelle, wenn ALLE Eingaben leere Collectors sind', () => {
+		expect(emptyInputSource(['c1'], empty)).toBe('Notizen');
+		expect(emptyInputSource(['c1', 'c2'], empty)).toBe('Notizen, 20_Zettel');
+	});
+
+	it('liefert null, sobald eine Eingabe nicht leer ist', () => {
+		expect(emptyInputSource(['c1', 'voll'], empty)).toBeNull();
+	});
+
+	it('liefert null ohne Eingaben', () => {
+		expect(emptyInputSource([], empty)).toBeNull();
 	});
 });

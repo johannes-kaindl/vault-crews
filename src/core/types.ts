@@ -105,6 +105,8 @@ export interface TaskRecord {
 	artifactJson: unknown;
 	/** Nur Collector-Tasks: was gefunden wurde und wo gesucht wurde (Alt-Laeufe ohne Feld bleiben gueltig). */
 	collected?: { count: number; source: string };
+	/** Grund, wenn der Task bewusst nicht gestartet wurde (Klartext, steht in run.md). */
+	skipReason?: string;
 	outcomes: ActionOutcome[];
 	error: { kind: ErrorKind; message: string } | null;
 }

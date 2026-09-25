@@ -326,6 +326,12 @@ describe("buildPanelViewModel — Ursache im Panel", () => {
     expect(vm.body.kind === "crewsDone" && vm.body.summary.nextActionText).toContain("0 matching notes in Notizen");
   });
 
+  it("Team-Zeile: ein Lauf mit leerer Quelle nennt sie", () => {
+    const team: TeamInfo = { id: "a", name: "A", description: "", problem: null, lastRun: { status: "partial", when: 0, emptyCollector: "Notizen" } };
+    const vm = buildPanelViewModel({ ...inputsWith({ kind: "idle" }), teams: [team] });
+    expect(vm.body.kind === "crewsIdle" && vm.body.teams[0]?.statusText).toContain("0 matching notes in Notizen");
+  });
+
   it("Team-Zeile: eine verweigerte Crew nennt den Grund", () => {
     const team: TeamInfo = { id: "a", name: "A", description: "", problem: null, lastRun: { status: "refused", when: 0, errorKind: "crew_invalid" } };
     const vm = buildPanelViewModel({ ...inputsWith({ kind: "idle" }), teams: [team] });

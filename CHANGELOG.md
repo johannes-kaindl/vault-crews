@@ -6,12 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Lauf-Transparenz: ein Collector ohne Treffer ist jetzt eine eigene Ursache.** `run.md` nennt je Collector-Task „Gefunden: N Notiz(en) in `<Quelle>`" bzw. „⚠ Collector fand 0 passende Notizen in `<Quelle>` — Ordner/Filter prüfen". Die Notice nach dem Lauf sagt bei 0 Treffern und 0 Schreibvorgängen genau das statt „0 Dateien geschrieben", die Ergebnis-Karte und die Statuszeile der Crew im Panel nennen die Quelle, und die Notice trägt den Link „Protokoll öffnen" zur `run.md` dieses Laufs. Eine verweigerte oder fehlgeschlagene Crew nennt den Grund im Klartext in ihrer Statuszeile.
+- **Einstellung „Crew-Ordner im Datei-Explorer ausblenden"** (Standard: aus). Rein kosmetisch, der Ordner bleibt im Vault; `folder-hide.ts` ist aus slide-deck übernommen.
+
 ### Fixed
 
+- **Der Knopf „Beispiel-Crews installieren" in den Einstellungen installiert jetzt selbst.** Er zeigte bisher nur den Hinweis, den Befehl aus der Befehlspalette zu nehmen, obwohl der gleich beschriftete Knopf im Panel wirklich installierte. Beide Knöpfe rufen jetzt denselben Pfad.
 - **`thinking:off` unterdrückt Thinking nicht mehr bei gpt-oss/harmony-Modellen** (`local-llm-client.ts`). Diese Modelle lehnen `reasoning_effort`/`chat_template_kwargs`/`reasoning_budget` mit HTTP 400 ab, statt sie als No-op zu ignorieren — der Request schlug also bisher fehl, sobald die Thinking-Abschaltung aktiv war. Guard `isAlwaysOnThinker(params.model)` (bereits vendort) vor `suppressParams`.
 
 ### Changed
 
+- **Verhaltenswechsel: kein Modellaufruf mehr auf leerem Kontext.** Ein LLM-Task, dessen sämtliche Eingaben Collectors ohne Treffer sind, wird nicht gestartet (`skipped`, mit Grund in `run.md`); der Lauf endet dadurch `partial` statt `ok`. Tasks mit mindestens einer nicht-leeren Eingabe laufen wie bisher.
 - **Kit-Pin `obsidian-kit` 0.27.0 → 0.35.0 (+ code-kit 0.6.0).** Alle vendorten pure-Module ziehen seit obsidian-kit 2ab1bb5 aus code-kit; `tools/sync-kit.sh` (neu, aus `lingotuner` übernommen) macht das Re-Vendoring wiederholbar. `think.ts` heißt jetzt `think-splitter.ts` (Modulname = Dateiname, wie in allen anderen Kit-Consumern).
 - **Streaming-Antwortbereich auf `buildStreamArea` aus dem Kit umgestellt** (UI-STANDARD §8, der verbindliche Baustein; vorher Eigenbau). Drei Verhaltensänderungen (CORE-META-21):
   1. Der Gedankenblock bleibt während des Streams offen, wenn der Nutzer ihn geöffnet hat — vorher schloss ihn jeder volle Re-Render implizit wieder zu, bis `thinkOpen` ihn erneut öffnete.

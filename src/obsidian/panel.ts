@@ -24,7 +24,7 @@ export interface PanelTeam {
   id: string;
   name: string;
   description: string;
-  lastRun: { status: RunStatus; when: number; errorKind?: ErrorKind | null } | null;
+  lastRun: { status: RunStatus; when: number; errorKind?: ErrorKind | null; emptyCollector?: string | null } | null;
   /** Erste Parse-Fehlermeldung der Crew-Definition, sonst null. Die Zeile bleibt startbar. */
   problem: string | null;
 }

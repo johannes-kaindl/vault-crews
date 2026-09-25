@@ -53,6 +53,7 @@ function taskSection(rec: TaskRecord): string[] {
       ? `- ⚠ Collector fand 0 passende Notizen in \`${rec.collected.source}\` — Ordner/Filter prüfen`
       : `- Gefunden: ${rec.collected.count} Notiz(en) in \`${rec.collected.source}\``);
   }
+  if (rec.skipReason !== undefined) lines.push(`- Übersprungen: ${rec.skipReason}`);
   if (rec.error !== null) lines.push(`- Fehler (${rec.error.kind}): ${firstLine(rec.error.message)}`);
   if (rec.artifactJson !== null && rec.artifactJson !== undefined) {
     lines.push('', '```json', JSON.stringify(rec.artifactJson, null, 2), '```');

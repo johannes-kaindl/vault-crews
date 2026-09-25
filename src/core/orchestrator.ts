@@ -5,7 +5,7 @@
  *  Pure: ausschließlich über injizierte Ports (ports.ts) — kein obsidian-Import. */
 import { buildDenylist, expandTarget } from './paths';
 import { parseAgentDef, parseTeamDef } from './crew-parser';
-import { collectorSource, runCollector } from './collectors';
+import { collectorSource, emptyInputSource, runCollector } from './collectors';
 import { buildPrompt } from './prompt-builder';
 import { buildSchema } from './schemas';
 import { buildRepairPrompt, validateOutput } from './output-validator';
@@ -62,6 +62,8 @@ class RunFsm {
 	private readonly denylist: string[];
 	private limits: RunLimits;
 	private readonly artifacts = new Map<string, Artifact>();
+	/** Collector-Task-Id → Quelle, fuer Collectors, die 0 Notizen fanden. */
+	private readonly emptyCollectors = new Map<string, string>();
 	private readonly agents = new Map<string, AgentDef>();
 	private readonly modelCtx = new Map<string, number | null>();
 	/** Der aufgelöste Endpunkt — trägt URL, Schlüssel und Modell zusammen. Vor der
@@ -249,6 +251,7 @@ class RunFsm {
 			this.artifacts.set(task.id, artifact);
 			rec.artifactJson = artifact.json;
 			rec.collected = { count: artifact.files.length, source: collectorSource(task) };
+			if (artifact.files.length === 0) this.emptyCollectors.set(task.id, rec.collected.source);
 			return 'ok';
 		} catch (e) {
 			return this.failTask(task.id, rec, 'io', `Collector fehlgeschlagen: ${errMsg(e)}`);
@@ -258,6 +261,13 @@ class RunFsm {
 	private async runLlmTask(task: LlmTaskDef, rec: TaskRecord): Promise<TaskStatus> {
 		const inputs = this.inputArtifacts(task);
 		if (inputs === null) return 'skipped';   // Upstream übersprungen/fehlgeschlagen → Kaskade
+		// Kein Modellaufruf auf leerem Kontext: das Modell antwortet dort mit nichts, und der
+		// Nutzer kann „Quelle leer" nicht von „Modell hat sich enthalten" unterscheiden.
+		const emptySource = emptyInputSource(task.inputs, this.emptyCollectors);
+		if (emptySource !== null) {
+			rec.skipReason = `Collector fand 0 passende Notizen in ${emptySource} — Task nicht gestartet`;
+			return 'skipped';
+		}
 
 		const agent = this.agents.get(task.agent);
 		if (agent === undefined) return this.failLlm(task, rec, 'crew_invalid', `Agent nicht geladen: ${task.agent}`);

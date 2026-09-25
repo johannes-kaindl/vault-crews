@@ -40,6 +40,20 @@ export function collectorSource(def: CollectorTaskDef): string {
 	return folder === '' ? '/' : folder;
 }
 
+/** Ein Task, dessen SAEMTLICHE Eingaben Collectors ohne Treffer sind, hat nichts zu tun.
+ *  Liefert die Quelle(n) fuer die Meldung, sonst null — schon eine nicht-leere Eingabe
+ *  laesst den Task laufen wie bisher. */
+export function emptyInputSource(inputIds: string[], emptyBySource: ReadonlyMap<string, string>): string | null {
+	if (inputIds.length === 0) return null;
+	const sources: string[] = [];
+	for (const id of inputIds) {
+		const source = emptyBySource.get(id);
+		if (source === undefined) return null;
+		sources.push(source);
+	}
+	return sources.join(', ');
+}
+
 export async function runCollector(def: CollectorTaskDef, deps: CollectorDeps): Promise<Artifact> {
 	switch (def.collector) {
 		case 'vault.list': return vaultList(def, deps);
