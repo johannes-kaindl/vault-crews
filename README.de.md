@@ -10,14 +10,16 @@ Orchestrator entscheidet über *Ablauf, Pfade und Schreibvorgänge*; das Modell 
 ausschließlich über *Inhalt*, innerhalb enger, schema-validierter Verträge. Jede Ausgabe
 wird eingeschränkt und dann geprüft, bevor sie deinen Vault berührt.
 
-[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/gitea/v/release/jkaindl/vault-crews?gitea_url=https%3A%2F%2Fgit.jkaindl.de&label=release)](https://git.jkaindl.de/jkaindl/vault-crews/releases)
+[![Lizenz: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](https://github.com/johannes-kaindl/vault-crews/blob/main/LICENSE)
+[![Doku: CC BY-SA 4.0](https://img.shields.io/badge/docs-CC%20BY--SA%204.0-lightgrey.svg)](https://github.com/johannes-kaindl/vault-crews/blob/main/LICENSE-DOCS)
+[![Release](https://img.shields.io/github/v/release/johannes-kaindl/vault-crews?label=release)](https://github.com/johannes-kaindl/vault-crews/releases)
 [![Obsidian](https://img.shields.io/badge/obsidian-1.8.7%2B%20·%20nur%20Desktop-purple)](https://obsidian.md)
 
-> **Hinweis:** Diese Übersetzung folgt der englischen [`README.md`](README.md).
-> Bei Abweichungen gilt die englische Fassung.
+> [🇬🇧 English](https://github.com/johannes-kaindl/vault-crews/blob/main/README.md) · 🇩🇪 Deutsch
+>
+> Diese Übersetzung folgt der englischen `README.md`. Bei Abweichungen gilt die englische Fassung.
 
-<p align="center"><img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/hero.png" width="600" alt="Das Run-Panel während eines Laufs: der collect-Task fertig, der summarise-Task läuft, und der Denk-Strom des Modells im geöffneten Thinking-Bereich"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/hero.png" width="600" alt="Das Run-Panel während eines Laufs: der collect-Task fertig, der summarise-Task läuft, und der Denk-Strom des Modells im geöffneten Thinking-Bereich"></p>
 
 ## Funktionen
 
@@ -36,10 +38,12 @@ wird eingeschränkt und dann geprüft, bevor sie deinen Vault berührt.
   die Vault-/Adapter-API von Obsidian). „Letzten Lauf rückgängig machen" stellt geänderte
   Notizen aus dem Snapshot wieder her und verschiebt im Lauf angelegte Notizen in den
   Papierkorb — kein Git-Repository nötig, funktioniert in jedem Vault.
-- **Zwei mitgelieferte Beispiel-Crews**, per Befehl installierbar: **Task-Triage**
+- **Vier mitgelieferte Beispiel-Crews**, per Befehl installierbar: **Task-Triage**
   (sichtet Backlog-TaskNotes und schlägt Metadaten-Korrekturen nur auf weichen Feldern
-  vor) und **Daily-Briefing** (fasst offene Aufgaben in der heutigen Tagesnotiz
-  zusammen).
+  vor), **Daily-Briefing** (fasst offene Aufgaben in der heutigen Tagesnotiz
+  zusammen), **Notiz-Tagger** (schlägt Tags für Notizen ohne Tags vor) und
+  **Reifegrad-Tagger** (schätzt den Reifegrad einer Notiz aus ihrem Inhalt und schreibt
+  ihn ins Frontmatter).
 - **Volle Nachvollziehbarkeit, im Vault.** Jeder Lauf schreibt eine menschenlesbare
   `run.md` (Frontmatter + Detail je Aufgabe, Bases-kompatibel) und eine
   maschinenlesbare `state.json`, dazu ein mitgeliefertes `runs.base`-Dashboard.
@@ -81,49 +85,40 @@ wird eingeschränkt und dann geprüft, bevor sie deinen Vault berührt.
 
 ## Installation
 
-Repository: [git.jkaindl.de/jkaindl/vault-crews](https://git.jkaindl.de/jkaindl/vault-crews)
+Kanonisches Repository: [git.jkaindl.de/jkaindl/vault-crews](https://git.jkaindl.de/jkaindl/vault-crews), gespiegelt auf [GitHub](https://github.com/johannes-kaindl/vault-crews), wo die Releases erscheinen.
 
-> **Hinweis (2026-09-03):** Vault Crews ist derzeit **nicht im Community-Plugin-Browser
-> gelistet**. Das GitHub-Konto, auf dem der Mirror liegt, ist nicht verfügbar, und damit
-> entfiel auch der Store-Eintrag. Das Plugin selbst ist davon unberührt und wird weiter
-> gepflegt — die Releases erscheinen auf Forgejo, und beide Wege unten funktionieren heute.
+### Katalog (empfohlen)
 
-### Mit dem AnySource Sideloader (empfohlen)
+**Über den [AnySource Sideloader](https://github.com/johannes-kaindl/anysource-sideloader)**, der Plugins von jeder Git-Forge installiert und aktualisiert. Den Katalog „Order from Traces“ einmal unter **Einstellungen → AnySource Sideloader → Kataloge → Hinzufügen** eintragen:
 
-Der [AnySource Sideloader](https://git.jkaindl.de/jkaindl/anysource-sideloader) installiert und
-aktualisiert Plugins von jeder git-Forge, unabhängig vom Community Store.
+```
+https://git.jkaindl.de/jkaindl/obsidian-catalog/raw/branch/main/catalog.json
+```
 
-1. AnySource Sideloader installieren und aktivieren. (Seine eigene Erstinstallation ist
-   manuell — vom Store unabhängig zu sein ist ja der Zweck —, aber sie fällt nur einmal an;
-   danach hält er sich und alles andere selbst aktuell.)
-2. Dieses Repository als Quelle hinzufügen:
-   `https://git.jkaindl.de/jkaindl/vault-crews`
-3. **Vault Crews** installieren und aktivieren.
+Vault Crews erscheint dann in der Plugin-Liste des Sideloaders und aktualisiert sich wie jedes andere Plugin; jeder Download wird per Prüfsumme verifiziert. Wer nur dieses eine Plugin ohne Katalog will, trägt stattdessen die Repository-URL als Quelle ein: `https://github.com/johannes-kaindl/vault-crews`.
 
-Updates kommen danach genauso wie bei jedem anderen Plugin.
+### Manuell
 
-### Manuelle Installation
-
-`main.js`, `manifest.json` und `styles.css` aus dem
-[neuesten Forgejo-Release](https://git.jkaindl.de/jkaindl/vault-crews/releases/latest)
-herunterladen und ins Vault kopieren. Jedes Release liefert zusätzlich `checksums.sha256`, du
-kannst das Heruntergeladene also mit `shasum -a 256 -c checksums.sha256` prüfen.
+`main.js`, `manifest.json` und `styles.css` aus dem [letzten Release](https://github.com/johannes-kaindl/vault-crews/releases/latest) nach `<vault>/.obsidian/plugins/vault-crews/` legen und das Plugin unter **Einstellungen → Community-Plugins** aktivieren. Jedes Release liefert zusätzlich `checksums.sha256`, du kannst das Heruntergeladene also mit `shasum -a 256 -c checksums.sha256` prüfen.
 
 ```bash
 cp main.js manifest.json styles.css "<dein-vault>/.obsidian/plugins/vault-crews/"
 ```
 
-Danach: Obsidian → **Einstellungen → Community-Plugins → neu laden** → **Vault Crews**
-aktivieren.
+### Aus dem Quellcode
 
-### Aus dem Community-Plugin-Browser
+```bash
+git clone https://git.jkaindl.de/jkaindl/vault-crews
+cd vault-crews
+npm install
+npm run build   # erzeugt main.js
+```
 
-Wieder verfügbar, sobald der Store-Eintrag zurück ist: **Einstellungen → Community-Plugins →
-Durchsuchen** öffnen, nach **Vault Crews** suchen, installieren und aktivieren.
+`main.js`, `manifest.json` und `styles.css` nach `<vault>/.obsidian/plugins/vault-crews/` kopieren.
 
 **Nach dem Aktivieren** (egal auf welchem Weg) den Befehl **„Install example crews"** ausführen, um `_crews/`
-(Standard-Wurzel, in den Einstellungen änderbar) mit den Beispiel-Teams Task-Triage und
-Daily-Briefing, ihren Agenten und dem `runs.base`-Dashboard zu befüllen. Installierte
+(Standard-Wurzel, in den Einstellungen änderbar) mit den vier Beispiel-Teams (Task-Triage,
+Daily-Briefing, Notiz-Tagger, Reifegrad-Tagger), ihren Agenten und dem `runs.base`-Dashboard zu befüllen. Installierte
 Dateien werden von einem zweiten Lauf nie überschrieben — bearbeite sie danach frei.
 
 ## Verwendung
@@ -132,7 +127,7 @@ Dateien werden von einem zweiten Lauf nie überschrieben — bearbeite sie danac
    und ein Modell laden. Das Plugin löst bei jedem Preflight den ersten erreichbaren
    Endpunkt auf.
 2. **Einmal „Install example crews" ausführen** — das befüllt die Crew-Wurzel
-   (standardmäßig `_crews`) mit den Teams Task-Triage und Daily-Briefing, ihren Agenten
+   (standardmäßig `_crews`) mit den vier Beispiel-Teams, ihren Agenten
    und dem `runs.base`-Dashboard.
 3. **Das Crews-Panel öffnen** (Ribbon-Icon oder **Open crews panel**). Es listet die
    gefundenen Teams und zeigt während eines Laufs die aktuelle Aufgabe samt laufender
@@ -159,9 +154,8 @@ Eigene Teams und Agenten zu schreiben ist schlichtes Markdown im Vault — siehe
 
 | Einstellung | Standard | Bedeutung |
 |---|---|---|
-| **Endpunkte** | `http://localhost:1234/v1` | Einer pro Zeile; genutzt wird der erste erreichbare je Lauf. **Check connections** prüft jede Zeile und meldet abgelehnt / unbekannter Host / Zeitüberschreitung / keine LLM-API getrennt |
+| **Endpunkte** | `http://localhost:1234/v1` | Eine Zeile je Endpunkt, jede mit eigener URL, optionalem API-Schlüssel und eigenem Modell; genutzt wird der erste erreichbare je Lauf. **Check connections** prüft jede Zeile und meldet abgelehnt / unbekannter Host / Zeitüberschreitung / keine LLM-API / Zugriff verweigert getrennt |
 | **Gesperrte Endpunkte** | `localhost:8080`, `127.0.0.1:8080` | Werden nie kontaktiert — der Standard hält das Plugin von einem Port fern, den andere lokale Modell-Server üblicherweise belegen. Eine Einstellung, nicht fest verdrahtet |
-| **Standard-Modell** | *(leer)* | Modellname, der bei jedem Aufruf mitgeht; **Load models** füllt ein Auswahlfeld vom erreichbaren Endpunkt |
 | **Crew-Wurzelordner** | `_crews` | Vault-relativer Ordner mit Agenten, Teams und Lauf-Protokollen |
 | **Max. Schreibvorgänge pro Lauf** | 10 | Plugin-weite Obergrenze; der `max_writes`-Wert eines Teams kann nur darunter liegen |
 | **Wanduhr-Limit** | 10 Minuten | Bricht einen davonlaufenden Lauf ab; seine Teiländerungen bleiben gesichert und rückgängig zu machen |
@@ -170,13 +164,12 @@ Eigene Teams und Agenten zu schreiben ist schlichtes Markdown im Vault — siehe
 | **Stillstands-Limit** | 60 s | Bricht ab, wenn kein neues Token mehr kommt; wird erst nach dem ersten Token geprüft, damit Laden nie als Stillstand missverstanden wird |
 | **Ausführliches Logging** | aus | Reserviert — die Einstellung wird gespeichert, aber noch von nichts gelesen (siehe V1-Grenzen) |
 
-Endpunkt- und Zeitlimit-Einstellungen werden einmal beim Laden des Plugins gelesen;
-Änderungen wirken erst nach Deaktivieren und erneutem Aktivieren.
+Änderungen an Endpunkten und Zeitlimits wirken mit dem nächsten Lauf; ein Neuladen des Plugins ist nicht nötig.
 
-<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/run-log.png" width="600" alt="Ein Lauf-Protokoll: Frontmatter mit status ok, undoable true, einem Write, einem LLM-Call, Dauer und Modell, darunter die Task-Abschnitte">
+<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/run-log.png" width="600" alt="Ein Lauf-Protokoll: Frontmatter mit status ok, undoable true, einem Write, einem LLM-Call, Dauer und Modell, darunter die Task-Abschnitte">
 
 
-<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/settings-endpoints.png" width="600" alt="Die Verbindungs-Einstellungen: eine Endpunkt-Zeile mit URL, Schlüsselfeld und Modell-Auswahl, als aktiv markiert">
+<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/settings-endpoints.png" width="600" alt="Die Verbindungs-Einstellungen: eine Endpunkt-Zeile mit URL, Schlüsselfeld und Modell-Auswahl, als aktiv markiert">
 
 ## Funktionsweise
 
@@ -210,7 +203,7 @@ wandert über die Vault-/Adapter-API von Obsidian in einen versteckten Speicher 
 bevor sie angefasst wird. Deshalb bleibt selbst ein abgestürzter oder abgebrochener Lauf
 vollständig rückgängig zu machen, und deshalb braucht es kein Git-Repository.
 
-<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/history-undo.png" width="300" alt="Der Verlauf-Tab des Panels: ein abgeschlossener Lauf mit einer geschriebenen Datei, Knöpfe zum Log-Öffnen und Rückgängigmachen">
+<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/history-undo.png" width="300" alt="Der Verlauf-Tab des Panels: ein abgeschlossener Lauf mit einer geschriebenen Datei, Knöpfe zum Log-Öffnen und Rückgängigmachen">
 
 ## Sicherheitsmodell
 
@@ -293,11 +286,6 @@ Dokumentiert, statt stillschweigend zu fehlen:
   „View failure" öffnet die Protokolldatei des Laufs über
   `workspace.getLeaf().openFile()` ohne flüchtigen Scroll-Zustand — du landest oben in
   der Notiz und scrollst selbst zum passenden `##`-Abschnitt.
-- **Ports werden einmal beim Laden des Plugins gebaut.** Der LM-Studio-Endpunkt sowie die
-  Einstellungen für Aufruf- und Stillstands-Zeitlimit werden einmal in `onload()`
-  gelesen, um den `LlmClient` zu bauen; ein geänderter Endpunkt oder Zeitwert wirkt sich
-  auf eine bereits laufende Plugin-Instanz nicht aus. Nach solchen Änderungen das Plugin
-  deaktivieren und wieder aktivieren (oder Obsidian neu starten).
 - **Ein Lauf lässt sich nur kooperativ abbrechen — und das Panel sagt das ehrlich.**
   „Cancel" / „Abort current run" setzt das Abbruch-Flag, das zwischen Aufgaben und
   innerhalb des LLM-Streams beachtet wird; greift es, bekommst du `status: aborted` mit
@@ -309,7 +297,7 @@ Dokumentiert, statt stillschweigend zu fehlen:
   Abbruch fertig — es wurde nichts abgebrochen", statt in einem Spinner zu erstarren.
   Einen Mechanismus, bereits fertige Arbeit wegzuwerfen, gibt es bewusst nicht.
 
-<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/crew-file.png" width="600" alt="Eine Crew-Team-Datei im Editor: Frontmatter mit crew-kind team, write_scope und den Tasks collector, llm und actions">
+<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/crew-file.png" width="600" alt="Eine Crew-Team-Datei im Editor: Frontmatter mit crew-kind team, write_scope und den Tasks collector, llm und actions">
 
 ## Eigene Crews schreiben
 
@@ -363,6 +351,12 @@ so eng wie möglich — und lass `collector`-`folder` und `write_scope` auf dens
 Ordner zeigen, sonst werden Vorschläge außerhalb der Schreibfreigabe verworfen. Das
 Plugin-Limit „Max. Schreibvorgänge pro Lauf" deckelt zusätzlich jeden `max_writes`-Wert.
 
+## Dokumentation
+
+- [Dokumentations-Index](https://github.com/johannes-kaindl/vault-crews/blob/main/docs/README.md) — alle Anleitungen an einem Ort (englisch).
+- [Getting started](https://github.com/johannes-kaindl/vault-crews/blob/main/docs/getting-started.md) — von der Installation bis zum ersten Crew-Lauf und seinem Undo (englisch).
+- [Troubleshooting](https://github.com/johannes-kaindl/vault-crews/blob/main/docs/troubleshooting.md) — die genaue Meldung, ihre Ursache und die Abhilfe (englisch).
+
 ## Lizenz
 
-AGPL-3.0-or-later — der vollständige Text steht in [`LICENSE`](LICENSE).
+Code: AGPL-3.0-or-later ([`LICENSE`](https://github.com/johannes-kaindl/vault-crews/blob/main/LICENSE)), Dokumentation: CC BY-SA 4.0 ([`LICENSE-DOCS`](https://github.com/johannes-kaindl/vault-crews/blob/main/LICENSE-DOCS)). Eine kommerzielle Lizenz gibt es auf Anfrage — siehe [`LICENSING.md`](https://github.com/johannes-kaindl/vault-crews/blob/main/LICENSING.md).

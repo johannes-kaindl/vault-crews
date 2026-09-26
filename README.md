@@ -9,13 +9,14 @@ Local models are treated as weak, unreliable executors. The orchestrator decides
 schema-validated contracts. Every output is constrained, then verified, before it
 ever touches your vault.
 
-[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/gitea/v/release/jkaindl/vault-crews?gitea_url=https%3A%2F%2Fgit.jkaindl.de&label=release)](https://git.jkaindl.de/jkaindl/vault-crews/releases)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](https://github.com/johannes-kaindl/vault-crews/blob/main/LICENSE)
+[![Docs: CC BY-SA 4.0](https://img.shields.io/badge/docs-CC%20BY--SA%204.0-lightgrey.svg)](https://github.com/johannes-kaindl/vault-crews/blob/main/LICENSE-DOCS)
+[![Release](https://img.shields.io/github/v/release/johannes-kaindl/vault-crews?label=release)](https://github.com/johannes-kaindl/vault-crews/releases)
 [![Obsidian](https://img.shields.io/badge/obsidian-1.8.7%2B%20·%20desktop%20only-purple)](https://obsidian.md)
 
-*Auch auf Deutsch verfügbar: [`README.de.md`](README.de.md).*
+> 🇬🇧 English · [🇩🇪 Deutsch](https://github.com/johannes-kaindl/vault-crews/blob/main/README.de.md)
 
-<p align="center"><img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/hero.png" width="600" alt="The run panel during a run: the collect task done, the summarise task running, and the model's reasoning streaming into the open Thinking section"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/hero.png" width="600" alt="The run panel during a run: the collect task done, the summarise task running, and the model's reasoning streaming into the open Thinking section"></p>
 
 ## Features
 
@@ -32,9 +33,11 @@ ever touches your vault.
   is snapshotted (copy-on-write) into a hidden store via the Obsidian vault/adapter API.
   "Undo last run" restores changed notes from the snapshot and moves run-created notes to
   the trash — no git repository required, works in any vault.
-- **Two shipped example crews**, installable via a command: **Task-Triage** (reviews
-  backlog TaskNotes, proposes metadata corrections on soft fields only) and
-  **Daily-Briefing** (summarizes open tasks into today's daily note).
+- **Four shipped example crews**, installable via a command: **Task-Triage** (reviews
+  backlog TaskNotes, proposes metadata corrections on soft fields only),
+  **Daily-Briefing** (summarizes open tasks into today's daily note),
+  **Notiz-Tagger** (proposes tags for notes that have none) and **Reifegrad-Tagger**
+  (estimates a note's maturity from its content and writes it to the frontmatter).
 - **Full observability, in the vault.** Every run writes a human-readable `run.md`
   (frontmatter + per-task detail, Bases-compatible) and a machine-readable
   `state.json`, plus a shipped `runs.base` dashboard.
@@ -73,48 +76,40 @@ ever touches your vault.
 
 ## Install
 
-Repository: [git.jkaindl.de/jkaindl/vault-crews](https://git.jkaindl.de/jkaindl/vault-crews)
+Canonical repository: [git.jkaindl.de/jkaindl/vault-crews](https://git.jkaindl.de/jkaindl/vault-crews), mirrored on [GitHub](https://github.com/johannes-kaindl/vault-crews) where the releases are published.
 
-> **Note (2026-09-03):** Vault Crews is currently **not listed in the Community plugins
-> browser**. The GitHub account hosting the mirror is unavailable, which also removed the
-> store listing. The plugin itself is unaffected and fully maintained — releases are
-> published on Forgejo, and the two routes below both work today.
+### Catalog (recommended)
 
-### With AnySource Sideloader (recommended)
+**Via [AnySource Sideloader](https://github.com/johannes-kaindl/anysource-sideloader)**, which installs and updates plugins from any git forge. Subscribe to the Order from Traces catalog once under **Settings → AnySource Sideloader → Catalogs → Add**:
 
-[AnySource Sideloader](https://git.jkaindl.de/jkaindl/anysource-sideloader) installs and
-updates plugins from any git forge, independent of the Community Store.
+```
+https://git.jkaindl.de/jkaindl/obsidian-catalog/raw/branch/main/catalog.json
+```
 
-1. Install and enable AnySource Sideloader. (Its own first install is manual — being
-   independent of the store is the point — but it only has to be done once, and it then
-   keeps itself and everything else updated.)
-2. Add this repository as a source:
-   `https://git.jkaindl.de/jkaindl/vault-crews`
-3. Install **Vault Crews** and enable it.
+Vault Crews then appears in the sideloader's plugin list and updates like any other plugin; every download is checksum-verified. To install just this one plugin without the catalog, add its repository URL as a source instead: `https://github.com/johannes-kaindl/vault-crews`.
 
-Updates then arrive the same way any other plugin update does.
+### Manual
 
-### Manual install
-
-Download `main.js`, `manifest.json` and `styles.css` from the
-[latest Forgejo release](https://git.jkaindl.de/jkaindl/vault-crews/releases/latest) and copy
-them into your vault. Each release also ships `checksums.sha256`, so you can verify what you
-downloaded with `shasum -a 256 -c checksums.sha256`.
+Download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/johannes-kaindl/vault-crews/releases/latest) into `<vault>/.obsidian/plugins/vault-crews/`, then enable the plugin under **Settings → Community plugins**. Each release also ships `checksums.sha256`, so you can verify what you downloaded with `shasum -a 256 -c checksums.sha256`.
 
 ```bash
 cp main.js manifest.json styles.css "<your-vault>/.obsidian/plugins/vault-crews/"
 ```
 
-Then: Obsidian → **Settings → Community plugins → reload** → enable **Vault Crews**.
+### From source
 
-### From Obsidian's Community plugins browser
+```bash
+git clone https://git.jkaindl.de/jkaindl/vault-crews
+cd vault-crews
+npm install
+npm run build   # produces main.js
+```
 
-Available again once the store listing returns: open **Settings → Community plugins →
-Browse**, search for **Vault Crews**, install and enable it.
+Copy `main.js`, `manifest.json` and `styles.css` into `<vault>/.obsidian/plugins/vault-crews/`.
 
 **After enabling** (whichever route), run the command **"Install example crews"** to seed `_crews/`
-(default root, configurable in settings) with the Task-Triage and Daily-Briefing
-example teams, their agents, and the `runs.base` dashboard. Installed files are never
+(default root, configurable in settings) with the four example teams (Task-Triage,
+Daily-Briefing, Notiz-Tagger, Reifegrad-Tagger), their agents, and the `runs.base` dashboard. Installed files are never
 overwritten by a second run — edit them freely afterwards.
 
 ## Usage
@@ -122,8 +117,7 @@ overwritten by a second run — edit them freely afterwards.
 1. **Start your local LLM server** (LM Studio or Ollama) with CORS enabled, and load a
    model. The plugin resolves the first reachable endpoint at each preflight.
 2. **Run "Install example crews"** once — it seeds the crew root (`_crews` by default)
-   with the Task-Triage and Daily-Briefing teams, their agents, and the `runs.base`
-   dashboard.
+   with the four example teams, their agents, and the `runs.base` dashboard.
 3. **Open the crews panel** (ribbon icon or **Open crews panel**). It lists the teams it
    found and, during a run, the current task with live token counts.
 4. **Start a run** with **Run crew…** and pick a team, or use the per-team command
@@ -147,9 +141,8 @@ Writing your own teams and agents is plain Markdown in the vault — see
 
 | Setting | Default | Meaning |
 |---|---|---|
-| **Endpoints** | `http://localhost:1234/v1` | One per line; the first reachable one is used per run. **Check connections** probes each line and reports refused / unknown host / timeout / not-an-LLM-API separately |
+| **Endpoints** | `http://localhost:1234/v1` | One row per endpoint, each with its own URL, optional API key and model; the first reachable one is used per run. **Check connections** probes each row and reports refused / unknown host / timeout / not-an-LLM-API / access denied separately |
 | **Denied endpoints** | `localhost:8080`, `127.0.0.1:8080` | Never contacted — the default keeps the plugin off a port other local model servers commonly claim. A setting, not hardcoded |
-| **Default model** | *(empty)* | Model name sent with each call; **Load models** fills a dropdown from the reachable endpoint |
 | **Crew root folder** | `_crews` | Vault-relative folder holding agents, teams and run logs |
 | **Hide crew folder in the file explorer** | off | Purely cosmetic: the crew root disappears from the explorer, its notes stay in the vault |
 | **Max writes per run** | 10 | Plugin-wide cap; a team's own `max_writes` can only be lower |
@@ -161,13 +154,12 @@ Writing your own teams and agents is plain Markdown in the vault — see
 
 If the **LLM Endpoint Manager** plugin is installed, the endpoint (and its API key and model) comes from there and the settings show the manager's picker instead of the list above; without it, the list above is used as before.
 
-Endpoint and timeout settings are read once at plugin load; changing them takes effect
-after disabling and re-enabling the plugin.
+Endpoint and timeout changes take effect with the next run; no plugin reload is needed.
 
-<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/run-log.png" width="600" alt="A run log note: frontmatter with status ok, undoable true, one write, one LLM call, duration and model, followed by the per-task sections">
+<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/run-log.png" width="600" alt="A run log note: frontmatter with status ok, undoable true, one write, one LLM call, duration and model, followed by the per-task sections">
 
 
-<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/settings-endpoints.png" width="600" alt="The Connection settings: one endpoint row with URL, API key field and model dropdown, marked Active">
+<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/settings-endpoints.png" width="600" alt="The Connection settings: one endpoint row with URL, API key field and model dropdown, marked Active">
 
 ## How it works
 
@@ -198,7 +190,7 @@ Writes are snapshotted **write-ahead**: a note's pre-run content is copied into 
 per-run store through the Obsidian vault/adapter API before it is touched. That is why
 even a crashed or aborted run stays fully undoable, and why no git repository is needed.
 
-<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/history-undo.png" width="300" alt="The panel's History tab: a finished run with one file written, an Open log and an Undo button">
+<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/history-undo.png" width="300" alt="The panel's History tab: a finished run with one file written, an Open log and an Undo button">
 
 ## Safety model
 
@@ -284,11 +276,6 @@ Documented rather than silently missing:
   "View failure" opens the run's log file via `workspace.getLeaf().openFile()` with
   no ephemeral scroll state — you land at the top of the note and scroll to the
   relevant `##` section yourself.
-- **Ports are built once, at plugin load.** The LM Studio endpoint and the call/stall
-  timeout settings are read once in `onload()` to construct the `LlmClient`; changing
-  the endpoint or timeout values in Settings does not affect an already-running
-  plugin instance. Disable and re-enable the plugin (or restart Obsidian) after
-  changing these settings for them to take effect.
 - **Aborting a run is cooperative — and the panel is honest about it.** "Cancel" /
   "Abort current run" sets the abort flag, which is observed between tasks and inside
   the LLM stream; when it bites you get `status: aborted` with partial writes (undoable). With a
@@ -299,7 +286,7 @@ Documented rather than silently missing:
   the abort took effect — nothing was aborted" rather than freezing on a spinner. There
   is deliberately no mechanism to throw away already-completed work.
 
-<img src="https://git.jkaindl.de/jkaindl/vault-crews/raw/branch/main/docs/images/crew-file.png" width="600" alt="A crew team file in the editor: frontmatter with crew-kind team, write scope and the collector, llm and actions tasks">
+<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/crew-file.png" width="600" alt="A crew team file in the editor: frontmatter with crew-kind team, write scope and the collector, llm and actions tasks">
 
 ## Writing your own crews
 
@@ -353,6 +340,12 @@ narrowly as possible — and point the collector's `folder` and `write_scope` at
 folder, otherwise proposals outside the write scope are discarded. The plugin-wide limit
 "Max writes per run" caps every team's `max_writes` on top of that.
 
+## Documentation
+
+- [Documentation index](https://github.com/johannes-kaindl/vault-crews/blob/main/docs/README.md) — all guides in one place.
+- [Getting started](https://github.com/johannes-kaindl/vault-crews/blob/main/docs/getting-started.md) — from the install to your first crew run and its undo.
+- [Troubleshooting](https://github.com/johannes-kaindl/vault-crews/blob/main/docs/troubleshooting.md) — the exact message, its cause and the fix.
+
 ## License
 
-AGPL-3.0-or-later — see [`LICENSE`](LICENSE) for the full text.
+Code: AGPL-3.0-or-later — see [`LICENSE`](https://github.com/johannes-kaindl/vault-crews/blob/main/LICENSE) for the full text. Documentation: CC BY-SA 4.0 ([`LICENSE-DOCS`](https://github.com/johannes-kaindl/vault-crews/blob/main/LICENSE-DOCS)). A commercial license is available on request — see [`LICENSING.md`](https://github.com/johannes-kaindl/vault-crews/blob/main/LICENSING.md).
