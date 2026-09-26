@@ -20,9 +20,14 @@ CODE_KIT="${CODE_KIT_DIR:-../../libs/code-kit}"
 # CORE-META-22: gelesen wird aus einer FESTEN REF, nicht aus dem Arbeitsstand des
 # Nachbar-Repos. Ein `cp` aus dessen Worktree koppelt dieses Repo an einen fremden HEAD.
 # Default ist die package.json-Version der Quelle; ein Upgrade ist eine BEWUSSTE Handlung.
-VER="${KIT_REF:-$(node -p "require('$KIT/package.json').version")}"
-CODE_VER="${CODE_KIT_REF:-$(node -p "require('$CODE_KIT/package.json').version")}"
-for paar in "$KIT|$VER" "$CODE_KIT|$CODE_VER"; do
+# Feste Default-Pins (Absicht, wie epub-exporter): ein Lauf ohne Variablen reproduziert den Stand,
+# statt still auf den Kit-Arbeitsstand zu heben. Heben = KIT_REF/CODE_KIT_REF setzen, danach npm run gate.
+VER="${KIT_REF:-0.41.1}"
+# Zweiter Pin, ebenfalls Absicht: help-setting.ts (Hilfe-Zeile, UI-STANDARD §8) kam mit Kit 0.43.0 und
+# haengt an keinem anderen Modul — die uebrigen Module behalten ihren Pin (Vorlage: epub-exporter 877eb2c).
+KIT_HELP_REF="${KIT_HELP_REF:-0.43.0}"
+CODE_VER="${CODE_KIT_REF:-0.7.0}"
+for paar in "$KIT|$VER" "$KIT|$KIT_HELP_REF" "$CODE_KIT|$CODE_VER"; do
   repo=${paar%%|*}; ref=${paar##*|}
   git -C "$repo" rev-parse --verify --quiet "$ref^{commit}" >/dev/null || {
     echo "FEHLER: Ref '$ref' existiert nicht in $repo." >&2
@@ -31,6 +36,7 @@ for paar in "$KIT|$VER" "$CODE_KIT|$CODE_VER"; do
   }
 done
 SHA=$(git -C "$KIT" rev-parse --short "$VER^{commit}")
+HELP_SHA=$(git -C "$KIT" rev-parse --short "$KIT_HELP_REF^{commit}")
 
 # Ein pures Modul kann in zwei Schichten liegen. Statt fester Zuordnung wird gesucht — die
 # naechste Umschichtung soll dieses Skript nicht wieder toeten, sondern nur einen anderen
@@ -147,14 +153,9 @@ PURE_MODULE="capabilities endpoint endpoint_config endpoint_diagnostics error_bo
 # Die gekoppelte Schicht (importiert `obsidian`). stream-area ist der Anlass dieses
 # Skripts (Welle 2, Streaming-Antwortbereich); stable-writer/stream-blocks bewusst nicht
 # vendoriert — vault-crews ist Bauart 2 (append-only), kein Markdown-Push.
-OBSIDIAN_MODULE="confirm endpoint-list model-picker settings_walker folder-suggest stream-area endpoint-source help-setting"
+OBSIDIAN_MODULE="confirm endpoint-list model-picker settings_walker folder-suggest stream-area endpoint-source"
 
-# KIT_ONLY=<modul> (z. B. help-setting): nur dieses eine gekoppelte Modul aus KIT_REF nachziehen,
-# alle uebrigen Vendor-Dateien, clock.ts und beide VENDOR.json bleiben unangetastet (Nachzug
-# eines einzelnen neuen Kit-Moduls ohne Gesamt-Upgrade; VENDOR.json dann von Hand ergaenzen).
-KIT_ONLY="${KIT_ONLY:-}"
-
-[ -n "$KIT_ONLY" ] || for m in $PURE_MODULE; do
+for m in $PURE_MODULE; do
   quelle_fuer "$m" >/dev/null || {
     echo "FEHLER: $m.ts liegt weder in $KIT/src/pure/ noch in $CODE_KIT/src/ts/{pure,web}/." >&2
     echo "  Seit obsidian-kit 2ab1bb5 ist code-kit die Quelle der domaenenfreien Module." >&2
@@ -162,7 +163,7 @@ KIT_ONLY="${KIT_ONLY:-}"
   }
 done
 
-[ -n "$KIT_ONLY" ] || for m in $PURE_MODULE; do
+for m in $PURE_MODULE; do
   fund=$(quelle_fuer "$m")
   repo=$(printf '%s' "$fund" | cut -d'|' -f1)
   ref=$(printf '%s' "$fund" | cut -d'|' -f2)
@@ -179,7 +180,6 @@ done
 done
 
 for m in $OBSIDIAN_MODULE; do
-  [ -z "$KIT_ONLY" ] || [ "$m" = "$KIT_ONLY" ] || continue
   hole "$KIT" "$VER" "src/obsidian/$m.ts" "src/vendor/kit-obsidian/$m.ts" || {
     echo "FEHLER: $VER:src/obsidian/$m.ts nicht lesbar" >&2; exit 2; }
   case "$m" in endpoint-list|model-picker|endpoint-source) relayer "src/vendor/kit-obsidian/$m.ts" ;; esac
@@ -187,7 +187,13 @@ for m in $OBSIDIAN_MODULE; do
   echo "vendored obsidian-kit@$VER/obsidian/$m.ts"
 done
 
-[ -z "$KIT_ONLY" ] || { echo "KIT_ONLY=$KIT_ONLY: fertig, VENDOR.json nicht angefasst"; exit 0; }
+# help-setting.ts: eigener Pin (KIT_HELP_REF), Existenz in genau dieser Ref, nicht im Arbeitsstand.
+git -C "$KIT" cat-file -e "$KIT_HELP_REF:src/obsidian/help-setting.ts" 2>/dev/null || {
+  echo "FEHLER: help-setting.ts fehlt in $KIT@$KIT_HELP_REF (kam mit Kit 0.43.0)." >&2; exit 2; }
+hole "$KIT" "$KIT_HELP_REF" "src/obsidian/help-setting.ts" "src/vendor/kit-obsidian/help-setting.ts" || {
+  echo "FEHLER: $KIT_HELP_REF:src/obsidian/help-setting.ts nicht lesbar" >&2; exit 2; }
+stamp "src/vendor/kit-obsidian/help-setting.ts" "src/obsidian/help-setting.ts" obsidian-kit "$KIT_HELP_REF"
+echo "vendored obsidian-kit@$KIT_HELP_REF/obsidian/help-setting.ts"
 
 # clock.ts: repo-eigene Sonderkopie, keine "pure"-Datei im Kit. Liegt unter src/vendor/kit/
 # statt kit-obsidian/, weil sie kein Obsidian-Symbol importiert (UI-STANDARD §9 zieht die
@@ -219,7 +225,7 @@ cat > src/vendor/kit-obsidian/VENDOR.json <<JSON
   "source": "obsidian-kit",
   "version": "$VER",
   "sha": "$SHA",
-  "vendored": "$(liste "$OBSIDIAN_MODULE")",
+  "vendored": "$(liste "$OBSIDIAN_MODULE"), help-setting.ts (Kit $KIT_HELP_REF, $HELP_SHA)",
   "note": "Verbatim snapshot. Never hand-edit. Re-vendor via tools/sync-kit.sh. endpoint-list.ts, model-picker.ts und endpoint-source.ts tragen EINE mechanische Abweichung: kit-interne Importe ../vendor/code-kit/{pure,web}/ sind auf ../kit/ umgeschrieben (Vendor-Layout). Bei jedem Re-Vendoring reproduzieren; sonst darf nichts abweichen. stream-area.ts ist verbatim (keine Kit-internen Importe)."
 }
 JSON

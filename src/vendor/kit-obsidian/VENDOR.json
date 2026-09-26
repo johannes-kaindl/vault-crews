@@ -2,12 +2,6 @@
   "source": "obsidian-kit",
   "version": "0.41.1",
   "sha": "f9439c8",
-  "vendored": "confirm.ts, endpoint-list.ts, model-picker.ts, settings_walker.ts, folder-suggest.ts, stream-area.ts, endpoint-source.ts, help-setting.ts",
-  "note": "Verbatim snapshot. Never hand-edit. Re-vendor via tools/sync-kit.sh. endpoint-list.ts, model-picker.ts und endpoint-source.ts tragen EINE mechanische Abweichung: kit-interne Importe ../vendor/code-kit/{pure,web}/ sind auf ../kit/ umgeschrieben (Vendor-Layout). Bei jedem Re-Vendoring reproduzieren; sonst darf nichts abweichen. stream-area.ts ist verbatim (keine Kit-internen Importe). help-setting.ts ist verbatim und einzeln auf 0.43.0 gepinnt (KIT_ONLY=help-setting KIT_REF=0.43.0 sh tools/sync-kit.sh); die uebrigen Module stehen auf version/sha oben.",
-  "pins": {
-    "help-setting.ts": {
-      "version": "0.43.0",
-      "sha": "bcd1805"
-    }
-  }
+  "vendored": "confirm.ts, endpoint-list.ts, model-picker.ts, settings_walker.ts, folder-suggest.ts, stream-area.ts, endpoint-source.ts, help-setting.ts (Kit 0.43.0, bcd1805)",
+  "note": "Verbatim snapshot. Never hand-edit. Re-vendor via tools/sync-kit.sh. endpoint-list.ts, model-picker.ts und endpoint-source.ts tragen EINE mechanische Abweichung: kit-interne Importe ../vendor/code-kit/{pure,web}/ sind auf ../kit/ umgeschrieben (Vendor-Layout). Bei jedem Re-Vendoring reproduzieren; sonst darf nichts abweichen. stream-area.ts ist verbatim (keine Kit-internen Importe)."
 }
