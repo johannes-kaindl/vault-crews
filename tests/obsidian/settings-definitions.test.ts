@@ -8,7 +8,7 @@
 // Die drei Faelle unten sind keine erfundenen Randfaelle, sondern die in REGISTRY.md
 // dokumentierten Funde aus den 15 vorangegangenen Migrationen im Oekosystem.
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeFakeApp } from "../__mocks__/obsidian";
+import { makeFakeApp, Setting } from "../__mocks__/obsidian";
 import type { Plugin } from "obsidian";
 import { registerI18n } from "../../src/i18n/strings";
 import { setLang } from "../../src/vendor/kit/i18n";
@@ -118,5 +118,48 @@ describe("SettingsTab.getSettingDefinitions()", () => {
 
     expect(host.settings.crewRoot).toBe("_teams");
     expect(host.saveSettings).toHaveBeenCalled();
+  });
+});
+
+// UI-STANDARD §8 „Hilfe-Zeile (Settings)": erstes Element, „Open documentation" auf den Doku-Index
+// und ein bug-Knopf auf die Issues. Unter Obsidian >= 1.13 zaehlt nur diese Liste — display()
+// wird nie gerufen —, deshalb ist die Reihenfolge hier zu pruefen, nicht im Fallback.
+describe("SettingsTab.getSettingDefinitions() — Hilfe-Zeile", () => {
+  const DOCS = "https://github.com/johannes-kaindl/vault-crews/blob/main/docs/README.md";
+  const ISSUES = "https://github.com/johannes-kaindl/vault-crews/issues";
+
+  function renderHelp(): { setting: Setting; opened: string[] } {
+    const opened: string[] = [];
+    vi.stubGlobal("window", { open: (url: string) => { opened.push(url); } });
+    const first = makeTab().getSettingDefinitions()[0] as unknown as AnyItem;
+    const setting = new Setting({ createDiv: () => ({ createDiv: () => ({ appendChild: () => {} }) }) });
+    (first.render as (s: Setting) => void)(setting);
+    return { setting, opened };
+  }
+
+  it("steht als ERSTES Element, vor jeder Gruppe", () => {
+    const first = makeTab().getSettingDefinitions()[0] as unknown as AnyItem;
+    expect(first.heading).toBeUndefined();
+    expect(first.items).toBeUndefined();
+    expect(first.name).toBe("Help");
+    expect(typeof first.render).toBe("function");
+  });
+
+  it("oeffnet mit dem Text-Knopf den Doku-Index und mit dem bug-Knopf die Issues", () => {
+    const { setting, opened } = renderHelp();
+    const [docs, bug] = setting.components;
+    expect(docs.textValue).toBe("Open documentation");
+    expect(bug.iconName).toBe("bug");
+    expect(bug.tooltip).toBe("Report an issue");
+    docs.clickCB();
+    bug.clickCB();
+    expect(opened).toEqual([DOCS, ISSUES]);
+  });
+
+  it("traegt die deutschen Texte, wenn die Sprache Deutsch ist", () => {
+    setLang("de");
+    const first = makeTab().getSettingDefinitions()[0] as unknown as AnyItem;
+    expect(first.name).toBe("Hilfe");
+    expect(first.desc).toBe("Erste Schritte, Anleitungen und Fehlersuche");
   });
 });

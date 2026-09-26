@@ -20,6 +20,12 @@ export const EN: Record<string, string> = {
   "cmd.openLastRunLog": "Open last run log",
   "cmd.installExamples": "Install example crews",
 
+  // --- Settings — Help row (UI-STANDARD §8, Hilfe-Zeile; Vorgabe-Texte aus obsidian-kit 0.43.0) ---
+  "settings.help.name": "Help",
+  "settings.help.desc": "Getting started, how-tos and troubleshooting",
+  "settings.help.openDocs": "Open documentation",
+  "settings.help.reportIssue": "Report an issue",
+
   // --- Settings — Connection --------------------------------------------------
   "settings.connection.heading": "Connection",
   "settings.connection.endpoints.name": "Endpoints",
@@ -231,6 +237,12 @@ export const DE: Record<string, string> = {
   "cmd.openPanel": "Crews-Panel öffnen",
   "cmd.openLastRunLog": "Letztes Lauf-Protokoll öffnen",
   "cmd.installExamples": "Beispiel-Crews installieren",
+
+  // --- Settings — Hilfe-Zeile ---
+  "settings.help.name": "Hilfe",
+  "settings.help.desc": "Erste Schritte, Anleitungen und Fehlersuche",
+  "settings.help.openDocs": "Dokumentation öffnen",
+  "settings.help.reportIssue": "Problem melden",
 
   // --- Settings — Connection --------------------------------------------------
   "settings.connection.heading": "Verbindung",

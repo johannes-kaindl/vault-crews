@@ -186,7 +186,8 @@ describe("SettingsTab.display()", () => {
     // Seit dem Umbau auf `getSettingDefinitions()` (2026-08-17) ist der Kit-Endpunkt-Editor
     // EIN Kind statt sechs: er sitzt jetzt in einer eigenen Zeile, die `settingBodyHost`
     // zum leeren Block gemacht hat, statt direkt in den Container zu zeichnen.
-    expect(tab.containerEl.children.length).toBe(15);
+    // +1 seit 0.11.0: die Hilfe-Zeile steht als erstes Element vor den Gruppen.
+    expect(tab.containerEl.children.length).toBe(16);
   });
 
   it("gibt dem Kit-Endpunkt-Editor eine Zeile, die er auch füllt", () => {

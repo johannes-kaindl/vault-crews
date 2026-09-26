@@ -147,9 +147,14 @@ PURE_MODULE="capabilities endpoint endpoint_config endpoint_diagnostics error_bo
 # Die gekoppelte Schicht (importiert `obsidian`). stream-area ist der Anlass dieses
 # Skripts (Welle 2, Streaming-Antwortbereich); stable-writer/stream-blocks bewusst nicht
 # vendoriert — vault-crews ist Bauart 2 (append-only), kein Markdown-Push.
-OBSIDIAN_MODULE="confirm endpoint-list model-picker settings_walker folder-suggest stream-area endpoint-source"
+OBSIDIAN_MODULE="confirm endpoint-list model-picker settings_walker folder-suggest stream-area endpoint-source help-setting"
 
-for m in $PURE_MODULE; do
+# KIT_ONLY=<modul> (z. B. help-setting): nur dieses eine gekoppelte Modul aus KIT_REF nachziehen,
+# alle uebrigen Vendor-Dateien, clock.ts und beide VENDOR.json bleiben unangetastet (Nachzug
+# eines einzelnen neuen Kit-Moduls ohne Gesamt-Upgrade; VENDOR.json dann von Hand ergaenzen).
+KIT_ONLY="${KIT_ONLY:-}"
+
+[ -n "$KIT_ONLY" ] || for m in $PURE_MODULE; do
   quelle_fuer "$m" >/dev/null || {
     echo "FEHLER: $m.ts liegt weder in $KIT/src/pure/ noch in $CODE_KIT/src/ts/{pure,web}/." >&2
     echo "  Seit obsidian-kit 2ab1bb5 ist code-kit die Quelle der domaenenfreien Module." >&2
@@ -157,7 +162,7 @@ for m in $PURE_MODULE; do
   }
 done
 
-for m in $PURE_MODULE; do
+[ -n "$KIT_ONLY" ] || for m in $PURE_MODULE; do
   fund=$(quelle_fuer "$m")
   repo=$(printf '%s' "$fund" | cut -d'|' -f1)
   ref=$(printf '%s' "$fund" | cut -d'|' -f2)
@@ -174,12 +179,15 @@ for m in $PURE_MODULE; do
 done
 
 for m in $OBSIDIAN_MODULE; do
+  [ -z "$KIT_ONLY" ] || [ "$m" = "$KIT_ONLY" ] || continue
   hole "$KIT" "$VER" "src/obsidian/$m.ts" "src/vendor/kit-obsidian/$m.ts" || {
     echo "FEHLER: $VER:src/obsidian/$m.ts nicht lesbar" >&2; exit 2; }
   case "$m" in endpoint-list|model-picker|endpoint-source) relayer "src/vendor/kit-obsidian/$m.ts" ;; esac
   stamp "src/vendor/kit-obsidian/$m.ts" "src/obsidian/$m.ts"
   echo "vendored obsidian-kit@$VER/obsidian/$m.ts"
 done
+
+[ -z "$KIT_ONLY" ] || { echo "KIT_ONLY=$KIT_ONLY: fertig, VENDOR.json nicht angefasst"; exit 0; }
 
 # clock.ts: repo-eigene Sonderkopie, keine "pure"-Datei im Kit. Liegt unter src/vendor/kit/
 # statt kit-obsidian/, weil sie kein Obsidian-Symbol importiert (UI-STANDARD §9 zieht die

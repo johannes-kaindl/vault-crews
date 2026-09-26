@@ -8,6 +8,7 @@ import { createModelListCache, type ModelListCache } from "../vendor/kit/model-l
 import { guessFromName, type Capabilities } from "../vendor/kit/capabilities";
 import { buildEndpointSourceSection } from "../vendor/kit-obsidian/endpoint-source";
 import { buildEndpointList, type EndpointListStrings } from "../vendor/kit-obsidian/endpoint-list";
+import { githubHelpUrls, helpSettingDefinition } from "../vendor/kit-obsidian/help-setting";
 import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "../vendor/kit-obsidian/settings_walker";
 import { statusKindKey, warnRuleKey } from "./endpoint-labels";
 
@@ -188,7 +189,19 @@ export class SettingsTab extends PluginSettingTab {
     // und Fähigkeiten-Anzeige bliebe für immer leer.
     this.ensureActiveResolved();
 
-    const defs: GroupDef[] = [
+    // Hilfe-Zeile (UI-STANDARD §8): ERSTES Element — unter 1.13 ruft der Host display() nie,
+    // der Walker-Fallback zeichnet sie darunter von selbst.
+    const help = helpSettingDefinition({
+      ...githubHelpUrls("vault-crews"),
+      texts: {
+        name: t("settings.help.name"),
+        desc: t("settings.help.desc"),
+        openDocs: t("settings.help.openDocs"),
+        reportIssue: t("settings.help.reportIssue"),
+      },
+    });
+    const defs: (GroupDef | typeof help)[] = [
+      help,
       {
         type: "group",
         heading: t("settings.connection.heading"),

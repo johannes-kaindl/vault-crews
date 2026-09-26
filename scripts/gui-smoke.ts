@@ -373,6 +373,8 @@ async function abschnittDeklarativ(cdp: Cdp): Promise<void> {
     gruppen: number;
     leereGruppen: number;
     uebernommen: number | null;
+    elemente: number;
+    hilfeErstes: boolean;
     mitVisible: number;
     stumm: number;
     suchbegriff: string | null;
@@ -385,12 +387,15 @@ async function abschnittDeklarativ(cdp: Cdp): Promise<void> {
     const alle = flach(d);
     return {
       hatUpdate: typeof tab.update === "function",
-      gruppen: d.length,
-      leereGruppen: d.filter((g) => !(g.items || []).length).length,
+      // Die Hilfe-Zeile ist das ERSTE Element und keine Gruppe: Gruppen sind die Elemente mit items.
+      gruppen: d.filter((g) => g.items).length,
+      leereGruppen: d.filter((g) => g.items && !g.items.length).length,
+      elemente: d.length,
+      hilfeErstes: Boolean(d[0] && !d[0].items && !d[0].heading && typeof d[0].render === "function"),
       uebernommen: Array.isArray(tab.settingItems) ? tab.settingItems.length : null,
       mitVisible: alle.filter((i) => i.visible !== undefined).length,
       stumm: alle.filter((i) => !i.heading && !i.items && !i.control && !i.render).length,
-      suchbegriff: (d[1] && d[1].items && d[1].items[0] && d[1].items[0].name) || null,
+      suchbegriff: (d[2] && d[2].items && d[2].items[0] && d[2].items[0].name) || null,
       pluginName: app.plugins.manifests[${JSON.stringify(PLUGIN_ID)}].name,
     };
   `);
@@ -408,8 +413,8 @@ async function abschnittDeklarativ(cdp: Cdp): Promise<void> {
 
   record(
     "Tab liefert Definitionen und der Host uebernimmt sie",
-    defs.gruppen > 0 && defs.leereGruppen === 0 && defs.uebernommen === defs.gruppen,
-    `${defs.gruppen} Gruppen, ${defs.leereGruppen} leer, vom Host uebernommen: ${String(defs.uebernommen)}`,
+    defs.gruppen > 0 && defs.leereGruppen === 0 && defs.uebernommen === defs.elemente,
+    `${defs.gruppen} Gruppen (+ Hilfe-Zeile = ${defs.elemente} Elemente), ${defs.leereGruppen} leer, vom Host uebernommen: ${String(defs.uebernommen)}`,
   );
 
   // Die beiden Fallstricke aus REGISTRY.md, gemessen statt geglaubt: bedingte Zeilen
@@ -420,6 +425,24 @@ async function abschnittDeklarativ(cdp: Cdp): Promise<void> {
     defs.mitVisible === 0 && defs.stumm === 0,
     `${defs.mitVisible} Zeilen mit visible, ${defs.stumm} ohne Regler/Renderer`,
   );
+
+  // Hilfe-Zeile (UI-STANDARD §8): erstes Element der Definitionen UND erste gezeichnete Zeile,
+  // mit Text-Knopf und bug-Icon. Geklickt wird nicht — ein Klick oeffnet den System-Browser;
+  // die URLs prueft der Unit-Test. Der Screenshot (SMOKE_SHOT_DIR) ist zum Ansehen.
+  const hilfe = await ui.evaluate<{ name: string; knopf: boolean; bug: boolean } | null>(`
+    const c = document.querySelector(".vertical-tab-content");
+    const z = c && c.querySelector(".setting-item");
+    if (!z) return null;
+    const n = z.querySelector(".setting-item-name");
+    return { name: n ? n.textContent : "", knopf: Boolean(z.querySelector("button")), bug: Boolean(z.querySelector(".clickable-icon")) };
+  `);
+  record(
+    "Hilfe-Zeile ist das erste Element und die erste Zeile im Tab",
+    defs.hilfeErstes && hilfe !== null && /^(Help|Hilfe)$/.test(hilfe.name) && hilfe.knopf && hilfe.bug,
+    `Definition zuerst: ${String(defs.hilfeErstes)} · erste Zeile: ${JSON.stringify(hilfe)}`,
+  );
+  const shotDir = process.env.SMOKE_SHOT_DIR;
+  if (shotDir) writeFileSync(`${shotDir}/hilfe-zeile.png`, await capture(ui));
 
   // Der eigentliche Gewinn. Der Suchbegriff kommt aus der eigenen Definition, nicht aus
   // einer festen Zeichenkette — sonst misst der Treiber die UI-Sprache.

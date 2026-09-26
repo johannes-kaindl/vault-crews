@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Hilfe-Zeile ganz oben in den Einstellungen** (UI-STANDARD §8): Text-Knopf „Open documentation“ auf den Doku-Index und Bug-Icon auf den Issue-Tracker auf GitHub (Help row at the top of the settings with links to the documentation and the issue tracker). Kit-Modul `help-setting.ts` aus obsidian-kit 0.43.0 (einzeln gepinnt, die übrigen vendorten Module bleiben unverändert).
+
 ## [0.10.0] — 2026-09-25
 
 ### Added
