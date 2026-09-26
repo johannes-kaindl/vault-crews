@@ -156,8 +156,8 @@ Der Klon muss **kein git-Repo** mehr sein (Snapshot-Undo, 0.2.0).
    eine Nicht-GitHub-Forge bedient, ist ungeprüft. Wer den Installationsweg statt des
    Builds smoken will, nimmt den `anysource-sideloader` (er kann Gitea/Forgejo nachweislich).*
 3. Command **„Install example crews"** ausführen.
-4. **BEIDE** Beispiel-Crews laufen lassen (Task-Triage **und** Daily-Briefing —
-   nicht nur eine).
+4. **Mehrere** Beispiel-Crews laufen lassen (es gibt vier: Task-Triage, Daily-Briefing,
+   Notiz-Tagger, Reifegrad-Tagger — nicht nur eine).
 5. **Undo** testen (Panel → Verlauf → Rückgängig): geänderte Notes wieder im
    Vorzustand, vom Lauf erzeugte Notes im Papierkorb. Der Snapshot-Ordner
    `.obsidian/plugins/vault-crews/undo/<runId>/` existiert nach dem Lauf und
@@ -181,9 +181,7 @@ Kurzfassung von README.md „V1 limitations" — bei Rückfragen dort das Detail
   verdrahtet — nichts liest den Wert.
 - „Fehlerstelle ansehen" öffnet `run.md` am Dateianfang (kein Ephemeral-Scroll
   zum fehlgeschlagenen Task).
-- Ports (LLM-Endpoint, Timeouts) werden einmalig in `onload()` gebaut —
-  Endpoint-/Timeout-Änderungen in den Settings brauchen Plugin-Reload
-  (deaktivieren/aktivieren oder Obsidian-Neustart).
+- Endpunkt- und Timeout-Änderungen wirken mit dem nächsten Lauf: `executeRunFor()` baut den `LlmClient` am Start jedes Laufs frisch aus den aktuellen Settings (`buildLlmClient`, `src/main.ts`); ein Plugin-Reload ist nicht nötig (gemessen am Code 2026-09-26, vorher stand hier das Gegenteil).
 - Abbruch ist kooperativ (greift an Task-Grenzen + im LLM-Stream). Schnelle Läufe
   (1–2 s, MoE) können durch sein, bevor der Klick einen Checkpoint trifft → Lauf endet
   `ok` — das ist *korrekt* (Arbeit war fertig), kein verlorener Klick. Das Panel ist
