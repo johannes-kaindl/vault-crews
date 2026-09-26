@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-09-26
+
 ### Fixed
 - **Ein Timeout oder Stall wird jetzt als `timeout` bzw. `stalled` protokolliert.** Bisher wurde daraus in Produktion `error_kind: io`: der Abbruch durch den eigenen Timer kam als AbortError des XHR-Transports an, bevor der Client die Ursache auswerten konnte. Gemessen am laufenden Obsidian gegen einen lokalen Fake-Server (harter Timer und Stall lieferten beide keine Fehlerart); die Unit-Tests sahen es nicht, ihre Attrappe löste bei Abbruch auf.
 
