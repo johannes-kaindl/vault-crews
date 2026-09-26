@@ -122,8 +122,9 @@ LM Studio: `finish_reason` steht im letzten Chunk, dessen `delta` leer ist.
   Thinking-Suppression provider-übergreifend via `suppressParams`
   (`reasoning_effort: "none"` + `enable_thinking: false` + `reasoning_budget: 0`);
   bei Ollama ggf. `OLLAMA_ORIGINS` für Streaming, sonst greift der Non-Stream-Fallback;
-  Stall-Timeout erst NACH erstem Token (JIT-TTFB). NIE Port 8080 als Backend
+  Stall-Timeout erst NACH dem ersten Chunk (JIT-TTFB). NIE Port 8080 als Backend
   (OpenClaw-Mono-Consumer-Lock).
+- **Der Chat-Client ist seit Welle 11 der Kit-Client (`createChatClient`, `src/vendor/kit/chat-client.ts`), `LocalLlmClient` bleibt die Fassade.** Der Kit-Client liegt in `src/vendor/kit/`, weil er kein `obsidian` importiert; die Transporte (`xhrSseTransport`, `requestUrlTransport`, `src/vendor/kit-obsidian/chat-transport.ts`) werden in `main.ts` injiziert. Das Kit kennt keinen harten Gesamt-Timer: `LocalLlmClient.stream` baut ihn über ein eigenes Signal nach (`budgetFired`), der Kit-Client trägt nur die Stille-Frist (`stallTimeoutS`) und bis zum ersten Chunk die Gesamtfrist. Kit-`timeout` wird vor dem ersten Chunk zu `LlmCallError('timeout')`, danach zu `'stalled'`. Der Fallback ohne Stream gilt je Kit-Client-Instanz, `setEndpoint` baut sie neu. ⚠️ Bis Welle 11 kamen `timeout`/`stalled` in Produktion nie an: der XHR-Transport lehnt bei Abbruch ab, der alte Client warf den AbortError vor dem `abortKind`-Zweig, `error_kind` wurde `io`; die Unit-Tests sahen es nicht, weil ihre Attrappe bei Abbruch auflöste statt abzulehnen — `FakeSse` lehnt jetzt wie der echte Transport ab, und der GUI-Smoke misst beide Fälle gegen einen Fake-Server (`w11ChatClient`).
 - **Kein `json_schema`-API-Modus** (bricht an LM Studio bei Reasoning-Modellen):
   prompt-basiertes JSON + `output-validator`.
 

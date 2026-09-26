@@ -54,15 +54,6 @@ export class LlmCallError extends Error {
 	}
 }
 
-export interface SseTransport {
-	postStream(
-		url: string,
-		body: unknown,
-		onChunk: (raw: string) => void,
-		signal: AbortSignal,
-		headers?: Record<string, string>,
-	): Promise<number>;
-}
 export interface JsonTransport {
 	getJson(url: string, headers?: Record<string, string>): Promise<unknown>;
 	postJson(url: string, body: unknown, headers?: Record<string, string>): Promise<unknown>;

@@ -81,7 +81,7 @@ Local servers almost always need a port, for example `http://localhost:1234/v1`.
 > The call took too long and was stopped.
 > The model stopped producing tokens.
 
-**Cause:** the call ran into the **Call timeout** (300 s), or no new token arrived for the **Stall timeout** (60 s; only checked after the first token, so model loading is never mistaken for a stall).
+**Cause:** the call ran into the **Call timeout** (300 s), or no new token arrived for the **Stall timeout** (60 s; only checked after the first data chunk, so model loading is never mistaken for a stall).
 
 **Fix:** raise the timeouts under **Settings → Vault Crews → Advanced**, or use a faster model. Timeout changes apply from the next run.
 

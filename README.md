@@ -149,7 +149,7 @@ Writing your own teams and agents is plain Markdown in the vault — see
 | **Wall-clock limit** | 10 minutes | Aborts a runaway run, leaving its partial writes snapshotted and undoable |
 | **Undo history depth** | 15 | How many run snapshots are kept before the oldest are pruned |
 | **Call timeout** | 300 s | Hard limit per model call — generous, because just-in-time model loading takes a while |
-| **Stall timeout** | 60 s | Aborts if no new token arrives; only checked after the first token, so loading is never mistaken for a stall |
+| **Stall timeout** | 60 s | Aborts if no new token arrives; only checked after the first data chunk, so loading is never mistaken for a stall |
 | **Verbose logging** | off | Reserved — the setting persists but nothing reads it yet (see V1 limitations) |
 
 If the **LLM Endpoint Manager** plugin is installed, the endpoint (and its API key and model) comes from there and the settings show the manager's picker instead of the list above; without it, the list above is used as before.

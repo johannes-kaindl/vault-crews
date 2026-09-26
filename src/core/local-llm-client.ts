@@ -5,38 +5,52 @@
  *  Thinking-Suppression nach vault-rag-Muster (reasoning_effort + chat_template_kwargs) —
  *  greift nur, wenn das Modell abschaltbar ist (`isAlwaysOnThinker`): gpt-oss/harmony lehnt
  *  die Suppress-Felder mit HTTP 400 ab, statt sie als No-op zu ignorieren. */
-import { parseSSE } from '../vendor/kit/sse';
-import { ThinkSplitter } from '../vendor/kit/think-splitter';
+import { createChatClient, type ChatClient, type ChatResult, type SseTransport } from '../vendor/kit/chat-client';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { authHeaders, type EndpointConfig } from '../vendor/kit/endpoint_config';
 import { isAlwaysOnThinker, parseLmStudioContext, parseOllamaContext, suppressParams } from './model-info';
-import { isContextOverflow, extractChatContent } from './chat-response';
-import { errorMessageFromBody, errorMessageFromText } from '../vendor/kit/error_body';
 import { reasoningHappened } from '../vendor/kit/reasoning';
 import type { ClockPort } from '../vendor/kit/clock';
 import { LlmCallError } from './ports';
 import type {
-	JsonTransport, LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, SseTransport,
+	JsonTransport, LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo,
 } from './ports';
 
-const ERROR_BODY_CAP = 4096;
-
 interface Timeouts { callTimeoutMs: number; stallTimeoutMs: number; }
+
+/** Die Transporte des Kit-Chat-Clients: `transport` streamt (XHR), `fallbackTransport` wiederholt einmal
+ *  ohne Stream, wenn ein Server den XHR abweist (Origin-/CORS-Prüfung; requestUrl sendet keinen Origin). */
+export interface ChatTransports { transport: SseTransport; fallbackTransport?: SseTransport; }
 
 export class LocalLlmClient implements LlmClient {
 	private cfg: EndpointConfig;
 	private base: string;
-	private streamRefused = false;
+	private chat: ChatClient;
 
 	constructor(
 		endpoint: EndpointConfig,
-		private readonly sse: SseTransport,
+		private readonly transports: ChatTransports,
 		private readonly json: JsonTransport,
 		private readonly clock: ClockPort,
 		private readonly timeouts: Timeouts,
 	) {
 		this.cfg = endpoint;
 		this.base = normalizeEndpoint(endpoint.url);
+		this.chat = this.buildChat();
+	}
+
+	/** Ein Kit-Client je Endpunkt: dass ein Server den Stream verweigert, hängt an der Instanz — nach
+	 *  einem Endpunktwechsel (`setEndpoint`) darf der neue Endpunkt die Weigerung des alten nicht erben.
+	 *  Fristen: bis zum ersten Chunk gilt der Gesamt-Timer (JIT-Modell-Laden braucht > 60 s), danach
+	 *  der Stall-Detektor; den harten Gesamt-Timer selbst kennt das Kit nicht, `stream` baut ihn nach. */
+	private buildChat(): ChatClient {
+		return createChatClient({
+			...this.transports,
+			clock: this.clock,
+			idleTimeoutMs: this.timeouts.stallTimeoutMs,
+			firstChunkTimeoutMs: this.timeouts.callTimeoutMs,
+			nonStreamTimeoutMs: this.timeouts.callTimeoutMs,
+		});
 	}
 
 	/** Retargetiert listModels/modelInfo/stream auf den (per ping() bestätigten)
@@ -46,6 +60,7 @@ export class LocalLlmClient implements LlmClient {
 	setEndpoint(cfg: EndpointConfig): void {
 		this.cfg = cfg;
 		this.base = normalizeEndpoint(cfg.url);
+		this.chat = this.buildChat();
 	}
 
 	/** Die Kopfzeilen des AKTIVEN Endpunkts. Ohne Schlüssel ein leeres Objekt — ein
@@ -97,172 +112,71 @@ export class LocalLlmClient implements LlmClient {
 		onToken: (t: string, isThink: boolean) => void,
 		signal: AbortSignal,
 	): Promise<LlmStreamResult> {
-		if (this.streamRefused) return this.streamNonStreaming(messages, params, signal);
-
-		const body: Record<string, unknown> = {
-			model: params.model,
-			messages,
-			temperature: params.temperature,
-			max_tokens: params.maxTokens,
-			stream: true,
-			...suppressParams(params.thinking === 'off' && !isAlwaysOnThinker(params.model)),
-		};
-
+		// Harter Gesamt-Timer: den kennt das Kit nicht (dort misst die Frist Stille, nicht Dauer). Er bricht
+		// über ein eigenes Signal ab; das Ergebnis heißt dann `aborted` — und `budgetFired` unterscheidet es
+		// vom Abbruch durch den Aufrufer.
 		const ctrl = new AbortController();
+		let budgetFired = false;
 		const onCallerAbort = (): void => ctrl.abort();
-		signal.addEventListener('abort', onCallerAbort);
+		if (signal.aborted) ctrl.abort(); else signal.addEventListener('abort', onCallerAbort, { once: true });
+		const budget = this.clock.setTimeout(() => { budgetFired = true; ctrl.abort(); }, this.timeouts.callTimeoutMs);
 
-		const splitter = new ThinkSplitter();
-		let content = '';
-		let reasoningText = '';
-		let rest = '';
-		let rawBody = '';
-		let abortKind: 'timeout' | 'stalled' | null = null;
-		let sawToken = false;
-		let serverFinish: string | undefined;
-
-		const hardTimer = this.clock.setTimeout(() => {
-			abortKind = 'timeout';
-			ctrl.abort();
-		}, this.timeouts.callTimeoutMs);
-		let stallTimer: number | null = null;
-		const armStall = (): void => {
-			if (stallTimer !== null) this.clock.clearTimeout(stallTimer);
-			stallTimer = this.clock.setTimeout(() => {
-				abortKind = 'stalled';
-				ctrl.abort();
-			}, this.timeouts.stallTimeoutMs);
-		};
-
-		const emit = (piece: string): void => {
-			const parts = splitter.push(piece);
-			if (parts.content !== '') {
-				content += parts.content;
-				onToken(parts.content, false);
-			}
-			if (parts.reasoning !== '') {
-				reasoningText += parts.reasoning;
-				onToken(parts.reasoning, true);
-			}
-		};
-
-		let status: number;
-		let streamError: unknown = null;
+		let res: ChatResult;
 		try {
-			status = await this.sse.postStream(
-				`${this.base}/v1/chat/completions`,
-				body,
-				(raw) => {
-					if (rawBody.length < ERROR_BODY_CAP) rawBody += raw;
-					const parsed = parseSSE(rest + raw);
-					rest = parsed.rest;
-					if (serverFinish === undefined) serverFinish = parsed.finishReason;
-					for (const delta of parsed.content) emit(delta);
-					for (const r of parsed.reasoning) { reasoningText += r; onToken(r, true); }
-					if (parsed.content.length > 0 || parsed.reasoning.length > 0) {
-						sawToken = true;
-						armStall(); // Stall erst nach erstem Token scharf (JIT-TTFB)
-					}
+			res = await this.chat.complete({
+				endpoint: this.cfg,
+				model: params.model,
+				messages,
+				// Sampling gehört dem Plugin, nicht dem Kit-Client (Kit-Vertrag `params`).
+				params: {
+					temperature: params.temperature,
+					max_tokens: params.maxTokens,
+					...suppressParams(params.thinking === 'off' && !isAlwaysOnThinker(params.model)),
 				},
-				ctrl.signal,
-				this.headers(),
-			);
-		} catch (e) {
-			streamError = e;
-			status = 0;
+				signal: ctrl.signal,
+				onToken: (t) => onToken(t, false),
+				onReasoning: (t) => onToken(t, true),
+			});
 		} finally {
-			this.clock.clearTimeout(hardTimer);
-			if (stallTimer !== null) this.clock.clearTimeout(stallTimer);
+			this.clock.clearTimeout(budget);
 			signal.removeEventListener('abort', onCallerAbort);
 		}
 
-		if (streamError !== null) {
-			const err = streamError instanceof Error ? streamError : new Error('Unbekannter Stream-Fehler');
-			if (err.name === 'AbortError') throw err;
-			if (err.name === 'StreamNetworkError') {
-				this.streamRefused = true;
-				return this.streamNonStreaming(messages, params, signal);
-			}
-			throw err; // unerwarteter Fehler — nicht schlucken
-		}
-
-		const tail = splitter.flush();
-		if (tail.content !== '') {
-			content += tail.content;
-			onToken(tail.content, false);
-		}
-		if (tail.reasoning !== '') {
-			reasoningText += tail.reasoning;
-			onToken(tail.reasoning, true);
-		}
-
-		if (signal.aborted) {
-			return { content, thinkTokens: thinkTokens(reasoningText), reasoned: reasoningHappened(content, reasoningText), finishReason: 'aborted' };
-		}
-		if (abortKind !== null) {
-			throw new LlmCallError(
-				abortKind === 'timeout'
-					? `Kein Abschluss innerhalb ${this.timeouts.callTimeoutMs} ms (sawToken=${String(sawToken)})`
-					: `Kein neues Token innerhalb ${this.timeouts.stallTimeoutMs} ms`,
-				abortKind,
-			);
-		}
-		if (status !== 200) {
-			if (isContextOverflow(rawBody)) {
-				throw new LlmCallError(`HTTP ${status}: Kontextfenster überschritten`, 'overflow');
-			}
-			const detail = errorMessageFromText(rawBody) ?? rawBody.slice(0, 300);
-			throw new LlmCallError(`HTTP ${status}: ${oneLine(detail)}`, 'http');
-		}
-		return { content, thinkTokens: thinkTokens(reasoningText), reasoned: reasoningHappened(content, reasoningText), finishReason: serverFinish === 'length' ? 'length' : 'stop' };
-	}
-
-	/** Non-Streaming-Fallback (CORS-frei via JsonTransport.postJson). Content wird zuerst
-	 *  extrahiert; nur wenn kein content vorhanden ist (echter Fehlerbody) wird auf Overflow
-	 *  gesnifft — sonst würde eine erfolgreiche Antwort, die z.B. "context window" im Text
-	 *  erwähnt, fälschlich als Overflow klassifiziert. Der HTTP-Status ist über postJson
-	 *  nicht sichtbar, wird hier aber (wie im Streaming-Pfad) auch nicht gebraucht. */
-	private async streamNonStreaming(
-		messages: LlmMessage[],
-		params: LlmParams,
-		signal: AbortSignal,
-	): Promise<LlmStreamResult> {
-		if (signal.aborted) return { content: '', thinkTokens: 0, reasoned: false, finishReason: 'aborted' };
-		const body: Record<string, unknown> = {
-			model: params.model,
-			messages,
-			temperature: params.temperature,
-			max_tokens: params.maxTokens,
-			stream: false,
-			...suppressParams(params.thinking === 'off' && !isAlwaysOnThinker(params.model)),
-		};
-		const res = await this.json.postJson(`${this.base}/v1/chat/completions`, body, this.headers());
-		if (signal.aborted) return { content: '', thinkTokens: 0, reasoned: false, finishReason: 'aborted' };
-		const extracted = extractChatContent(res);
-		if (extracted !== null) {
+		if (res.ok) {
 			return {
-				content: extracted.content,
-				thinkTokens: thinkTokens(extracted.reasoning),
-				reasoned: reasoningHappened(extracted.content, extracted.reasoning),
-				finishReason: extracted.finishReason === 'length' ? 'length' : 'stop',
+				content: res.content,
+				thinkTokens: thinkTokens(res.reasoning),
+				reasoned: reasoningHappened(res.content, res.reasoning),
+				finishReason: res.finishReason === 'length' ? 'length' : 'stop',
 			};
 		}
-		// Kein content extrahierbar → das ist ein echter Fehlerbody, hier erst auf Overflow sniffen.
-		const rawBody = JSON.stringify(res ?? {});
-		if (isContextOverflow(rawBody)) {
-			throw new LlmCallError('Kontextfenster überschritten (Non-Streaming)', 'overflow');
+		const partial = (finishReason: LlmStreamResult['finishReason']): LlmStreamResult => ({
+			content: res.partial, thinkTokens: thinkTokens(res.reasoning), reasoned: reasoningHappened(res.partial, res.reasoning), finishReason,
+		});
+		switch (res.kind) {
+			case 'aborted':
+				if (budgetFired) throw new LlmCallError(`Kein Abschluss innerhalb ${this.timeouts.callTimeoutMs} ms`, 'timeout');
+				return partial('aborted');
+			case 'timeout':
+				// Vor dem ersten Chunk gilt die Gesamtfrist (JIT-Laden), danach die Stille.
+				throw res.timing.firstChunkAt === undefined
+					? new LlmCallError(`Kein Abschluss innerhalb ${this.timeouts.callTimeoutMs} ms`, 'timeout')
+					: new LlmCallError(`Kein neues Token innerhalb ${this.timeouts.stallTimeoutMs} ms`, 'stalled');
+			case 'truncated':
+				// Am Token-Limit abgeschnitten, ohne Text: der Orchestrator entscheidet über `length` (output_truncated).
+				return partial('length');
+			case 'overflow':
+				throw new LlmCallError(`HTTP ${String(res.status ?? 0)}: Kontextfenster überschritten`, 'overflow');
+			case 'http':
+				throw new LlmCallError(`HTTP ${String(res.status ?? 0)}: ${res.detail}`, 'http');
+			case 'network':
+				throw new Error(res.detail);
 		}
-		const detail = errorMessageFromBody(res) ?? oneLine(rawBody.slice(0, 300));
-		throw new LlmCallError(`Non-Streaming-Antwort ohne content: ${oneLine(detail)}`, 'http');
 	}
 }
 
 function thinkTokens(reasoningText: string): number {
 	return Math.ceil(reasoningText.length / 3.5);
-}
-
-function oneLine(s: string): string {
-	return s.replace(/\s+/g, ' ').trim();
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {

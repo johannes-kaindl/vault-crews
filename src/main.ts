@@ -52,7 +52,8 @@ import { resolveEndpointSource } from "./vendor/kit/endpoint-source";
 import { buildHideCss } from "./obsidian/folder-hide";
 import { noticeWithLink, NOTICE_WITH_LINK_MS } from "./obsidian/run-notice";
 import { ObsidianMetadataPort, ObsidianVaultPort } from "./obsidian/vault-port";
-import { RequestUrlJsonTransport, XhrSseTransport } from "./obsidian/transports";
+import { RequestUrlJsonTransport } from "./obsidian/transports";
+import { requestUrlTransport, xhrSseTransport } from "./vendor/kit-obsidian/chat-transport";
 import { AdapterSnapshotStore } from "./obsidian/snapshot-store";
 import { LocalLlmClient } from "./core/local-llm-client";
 import { executeRun, type RunDeps } from "./core/orchestrator";
@@ -307,7 +308,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     const first = this.settings.endpoints[0] ?? { url: "http://localhost:1234" };
     return new LocalLlmClient(
       first,
-      new XhrSseTransport(),
+      { transport: xhrSseTransport, fallbackTransport: requestUrlTransport },
       new RequestUrlJsonTransport(),
       this.clock,
       { callTimeoutMs: this.settings.callTimeoutS * 1000, stallTimeoutMs: this.settings.stallTimeoutS * 1000 },

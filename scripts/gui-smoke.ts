@@ -688,6 +688,7 @@ async function abschnittWelle8(cdp: Cdp): Promise<void> {
     await w8Ausblenden(cdp);
     await w8Manager(cdp);
     await w8LeererCollector(cdp);
+    await w11ChatClient(cdp);
   } catch (e) {
     record("Welle 8 — Abschnitt lief bis zum Ende", false, `abgebrochen: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -899,6 +900,113 @@ async function w8LeererCollector(cdp: Cdp): Promise<void> {
       }
       delete ${PLUGIN}.lastRuns[${JSON.stringify(id)}];
       return true;
+    `).catch(() => undefined);
+  }
+}
+
+/** Welle 11 — der Chat-Client (Kit `createChatClient`) im echten Obsidian, nicht gegen Mocks.
+ *  Vier Punkte: (1) ein echtes Modell streamt, (2) ein Server, der den XHR wegen fehlender CORS-Kopfzeilen
+ *  abweist, wird über den Fallback ohne Stream bedient, (3) der harte Gesamt-Timer meldet `timeout`,
+ *  (4) der Stall-Detektor nach dem ersten Chunk meldet `stalled`. Punkt 1 braucht ein erreichbares Modell
+ *  (LM Studio); fehlt es, ist der Punkt „nichts gemessen“, nie grün. Die Punkte 2–4 laufen gegen einen
+ *  lokalen Fake-Server und brauchen kein Modell. Vorher UND nachher gefahren: der Umbau darf keinen
+ *  der vier verändern (Baseline-Regel). */
+async function w11ChatClient(cdp: Cdp): Promise<void> {
+  const P_STREAM = "Welle 11 — echtes Modell: die Antwort kommt gestreamt und vollständig";
+  const P_FALLBACK = "Welle 11 — Server ohne CORS: der Lauf bekommt seine Antwort über den Fallback ohne Stream";
+  const P_TIMEOUT = "Welle 11 — Server schweigt von Anfang an: harter Gesamt-Timer meldet timeout";
+  const P_STALL = "Welle 11 — Server bricht nach dem ersten Chunk ab: Stall-Detektor meldet stalled";
+  const saved = await cdp.evaluate<{ endpoints: unknown; call: number; stall: number }>(
+    `return { endpoints: JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints)), call: ${PLUGIN}.settings.callTimeoutS, stall: ${PLUGIN}.settings.stallTimeoutS };`);
+  try {
+    // (1) echtes Modell — nicht awaiten (Cdp.send bricht nach 30 s ab, ein JIT-Laden dauert länger)
+    await cdp.evaluate(`
+      window.__vcW11 = { done: false };
+      (async () => {
+        try {
+          ${PLUGIN}.settings.endpoints = [{ url: "http://localhost:1234" }];   // echtes LM Studio, nicht der Fake der Vorpunkte
+          const c = ${PLUGIN}.buildLlmClient();
+          const ids = await c.listModels();
+          const model = ids.find((m) => /gemma-4-e2b|qwen2\.5-coder-7b/.test(m)) ?? ids.find((m) => !/embed/i.test(m));
+          if (!model) { window.__vcW11 = { done: true, skip: "kein Modell am Endpunkt (" + ids.length + " Modelle)" }; return; }
+          let calls = 0, text = "";
+          const r = await c.stream([{ role: "user", content: "Zähle auf Deutsch von eins bis zehn, durch Kommas getrennt." }],
+            { model, temperature: 0, maxTokens: 200, thinking: "off" },
+            (t, isThink) => { if (!isThink) { calls++; text += t; } }, new AbortController().signal);
+          window.__vcW11 = { done: true, model, calls, text, content: r.content, finish: r.finishReason };
+        } catch (e) { window.__vcW11 = { done: true, skip: "Endpunkt nicht erreichbar: " + String(e?.message ?? e).slice(0, 120) }; }
+      })();
+      return true;
+    `);
+    const got = await pollUntil<{ done: boolean; skip?: string; model?: string; calls?: number; text?: string; content?: string; finish?: string }>(
+      cdp, `return window.__vcW11?.done ? window.__vcW11 : null;`, 240_000, 1_000).catch(() => null);
+    if (!got || got.skip) {
+      skipped(P_STREAM, `${got?.skip ?? "keine Antwort in 240 s"} — nichts gemessen`);
+    } else {
+      record(P_STREAM,
+        (got.calls ?? 0) > 1 && (got.content ?? "").length > 0 && got.content === got.text && got.finish !== "aborted",
+        `Modell ${String(got.model)} · ${String(got.calls)} Token-Aufrufe · finish=${String(got.finish)} · „${(got.content ?? "").slice(0, 50)}"`);
+    }
+
+    // (2)–(4) Fake-Server ohne bzw. mit CORS
+    const seen: { url: string; stream?: unknown }[] = [];
+    let modus: "fallback" | "schweigen" | "stall" = "fallback";
+    const server: Server = createServer((req, res) => {
+      let raw = "";
+      req.on("data", (c) => { raw += String(c); });
+      req.on("end", () => {
+        if (modus === "fallback") {
+          // bewusst KEINE CORS-Kopfzeilen: der XHR des Renderers (Origin app://obsidian.md) scheitert, requestUrl nicht
+          if (req.method === "POST" && /chat\/completions/.test(req.url ?? "")) {
+            let stream: unknown; try { stream = (JSON.parse(raw) as { stream?: unknown }).stream; } catch { /* egal */ }
+            seen.push({ url: req.url ?? "", stream });
+            res.setHeader("content-type", "application/json");
+            res.end(JSON.stringify({ model: "fake-modell", choices: [{ message: { content: "Fallback-Antwort" }, finish_reason: "stop" }] }));
+          } else { res.statusCode = 404; res.end("{}"); }
+          return;
+        }
+        res.setHeader("access-control-allow-origin", "*");
+        res.setHeader("access-control-allow-headers", "*");
+        if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        if (modus === "stall") res.write('data: {"choices":[{"delta":{"content":"Anfang"}}]}\n\n');
+        // sonst: Kopf raus, danach Stille — der Server hält die Verbindung offen, bis der Client geht
+        res.flushHeaders();
+      });
+    });
+    await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
+    const port = (server.address() as { port: number }).port;
+    const versuch = (): Promise<{ ok: boolean; kind?: string; content?: string; finish?: string; ms: number; firstMs?: number; err?: string }> => cdp.evaluate(`
+      ${PLUGIN}.settings.endpoints = [{ url: "http://127.0.0.1:${port}/v1", model: "fake-modell" }];
+      ${PLUGIN}.settings.callTimeoutS = 3; ${PLUGIN}.settings.stallTimeoutS = 2;
+      const c = ${PLUGIN}.buildLlmClient();
+      const t0 = Date.now();
+      let firstMs;
+      try {
+        const r = await c.stream([{ role: "user", content: "hi" }], { model: "fake-modell", temperature: 0, maxTokens: 20, thinking: "off" }, () => { firstMs ??= Date.now() - t0; }, new AbortController().signal);
+        return { ok: true, content: r.content, finish: r.finishReason, ms: Date.now() - t0, firstMs };
+      } catch (e) { return { ok: false, kind: e?.kind, err: String(e?.message ?? e).slice(0, 120), ms: Date.now() - t0, firstMs }; }
+    `);
+    try {
+      modus = "fallback";
+      const f = await versuch();
+      record(P_FALLBACK, f.ok && f.content === "Fallback-Antwort" && seen.length >= 1 && seen[0]!.stream === false,
+        f.ok ? `Antwort „${String(f.content)}" · Fake-Server sah stream=${String(seen[0]?.stream)}` : `Fehler: ${String(f.err)}`);
+      modus = "schweigen";
+      const t = await versuch();
+      record(P_TIMEOUT, !t.ok && t.kind === "timeout" && t.ms >= 2500 && t.ms < 8000, `kind=${String(t.kind)} nach ${t.ms} ms (Soll 3000)`);
+      modus = "stall";
+      const st = await versuch();
+      record(P_STALL, !st.ok && st.kind === "stalled" && st.ms >= 1500 && st.ms < 8000, `kind=${String(st.kind)} nach ${st.ms} ms, erster Chunk nach ${String(st.firstMs)} ms (Soll: Stall 2000 ms nach dem Chunk)`);
+    } finally {
+      server.closeAllConnections?.();
+      server.close();
+    }
+  } finally {
+    await cdp.evaluate(`
+      ${PLUGIN}.settings.endpoints = ${JSON.stringify(saved.endpoints)};
+      ${PLUGIN}.settings.callTimeoutS = ${saved.call}; ${PLUGIN}.settings.stallTimeoutS = ${saved.stall};
+      delete window.__vcW11; return true;
     `).catch(() => undefined);
   }
 }

@@ -2,31 +2,46 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { LocalLlmClient } from '../../src/core/local-llm-client';
+import type { SseTransport } from '../../src/vendor/kit/chat-client';
 import { LlmCallError } from '../../src/core/ports';
-import type { JsonTransport, LlmParams, SseTransport } from '../../src/core/ports';
+import type { JsonTransport, LlmParams } from '../../src/core/ports';
 import { FakeClock } from '../helpers/fake-clock';
 
 const fixture = (name: string): string => readFileSync(join(__dirname, '../fixtures/streams', name), 'utf8');
 const PARAMS: LlmParams = { model: 'qwen/qwen3.6-35b-a3b', temperature: 0.1, maxTokens: 512, thinking: 'auto' };
 const TIMEOUTS = { callTimeoutMs: 300_000, stallTimeoutMs: 60_000 };
 
+/** Kit-Transportvertrag (obsidian-kit `SseTransport`). Verhalten wie der echte XHR-Transport: ein Abbruch
+ *  über das Signal LEHNT ab (`AbortError`), er löst nicht auf. Bis Welle 11 löste diese Attrappe auf — und
+ *  verdeckte damit, dass der alte Client bei einem Timer-Abbruch den AbortError statt `timeout`/`stalled`
+ *  warf (gemessen am echten Obsidian). */
 class FakeSse implements SseTransport {
 	lastUrl = '';
 	lastBody: Record<string, unknown> = {};
+	lastHeaders: Record<string, string> = {};
+	calls = 0;
 	private onChunk: ((raw: string) => void) | null = null;
 	private resolve: ((status: number) => void) | null = null;
 	private reject: ((e: Error) => void) | null = null;
-	private status = 200;
 
-	postStream(url: string, body: unknown, onChunk: (raw: string) => void, signal: AbortSignal): Promise<number> {
+	postStream(url: string, body: unknown, headers: Record<string, string>, onChunk: (raw: string) => void, signal: AbortSignal): Promise<number> {
+		this.calls++;
 		this.lastUrl = url;
 		this.lastBody = body as Record<string, unknown>;
+		this.lastHeaders = headers;
 		this.onChunk = onChunk;
-		signal.addEventListener('abort', () => this.resolve?.(this.status));
-		return new Promise((res, rej) => { this.resolve = res; this.reject = rej; });
+		return new Promise((res, rej) => {
+			this.resolve = res;
+			this.reject = rej;
+			signal.addEventListener('abort', () => {
+				const e = new Error('aborted');
+				e.name = 'AbortError';
+				rej(e);
+			}, { once: true });
+		});
 	}
 	emit(raw: string): void { this.onChunk?.(raw); }
-	end(status = 200): void { this.status = status; this.resolve?.(status); }
+	end(status = 200): void { this.resolve?.(status); }
 	fail(name = 'StreamNetworkError'): void {
 		const e = new Error('refused');
 		e.name = name;
@@ -56,11 +71,12 @@ class FakeJson implements JsonTransport {
 	}
 }
 
-function make(): { client: LocalLlmClient; sse: FakeSse; json: FakeJson; clock: FakeClock } {
+function make(): { client: LocalLlmClient; sse: FakeSse; fallback: FakeSse; json: FakeJson; clock: FakeClock } {
 	const sse = new FakeSse();
+	const fallback = new FakeSse();
 	const json = new FakeJson();
 	const clock = new FakeClock(1_000_000);
-	return { client: new LocalLlmClient({ url: 'http://localhost:1234' }, sse, json, clock, TIMEOUTS), sse, json, clock };
+	return { client: new LocalLlmClient({ url: 'http://localhost:1234' }, { transport: sse, fallbackTransport: fallback }, json, clock, TIMEOUTS), sse, fallback, json, clock };
 }
 
 const tickAsync = async (clock: FakeClock, ms: number): Promise<void> => {
@@ -253,6 +269,14 @@ describe('LocalLlmClient thinking-Suppression', () => {
 		await assertion;
 	});
 
+	it('Timer-Abbruch kommt als LlmCallError an, obwohl der Transport ablehnt (AbortError) — nicht als AbortError', async () => {
+		const { client, clock } = make();
+		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
+		const assertion = expect(p).rejects.toBeInstanceOf(LlmCallError);
+		await tickAsync(clock, 301_000);
+		await assertion;
+	});
+
 	it('Caller-Abort mid-stream → finishReason aborted, kein Fehler', async () => {
 		const { client, sse, clock } = make();
 		const ctrl = new AbortController();
@@ -278,65 +302,111 @@ describe('LocalLlmClient thinking-Suppression', () => {
 });
 
 describe('LocalLlmClient CORS-Fallback', () => {
-	it('fällt bei StreamNetworkError auf Non-Streaming (postJson) zurück', async () => {
-		const { client, sse, json } = make();
-		json.responses.set('http://localhost:1234/v1/chat/completions', {
-			choices: [{ message: { content: 'Hallo aus Fallback' }, finish_reason: 'stop' }],
-		});
+	const url = 'http://localhost:1234/v1/chat/completions';
+	const completion = (content: string, finish = 'stop'): string =>
+		JSON.stringify({ choices: [{ message: { content }, finish_reason: finish }] });
+	const start = async (client: LocalLlmClient, clock: FakeClock): Promise<{ p: Promise<import('../../src/core/ports').LlmStreamResult> }> => {
 		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
-		await Promise.resolve();
+		await tickAsync(clock, 1);
+		return { p };
+	};
+
+	it('fällt bei StreamNetworkError auf eine Anfrage ohne Stream über den Fallback-Transport zurück', async () => {
+		const { client, sse, fallback, clock } = make();
+		const { p } = await start(client, clock);
 		sse.fail('StreamNetworkError');
+		await tickAsync(clock, 1);
+		fallback.emit(completion('Hallo aus Fallback'));
+		fallback.end(200);
 		const r = await p;
 		expect(r.content).toBe('Hallo aus Fallback');
 		expect(r.finishReason).toBe('stop');
-		expect(json.lastPostUrl).toBe('http://localhost:1234/v1/chat/completions');
-		expect((json.lastPostBody as { stream?: boolean }).stream).toBe(false);
+		expect(fallback.lastUrl).toBe(url);
+		expect(fallback.lastBody.stream).toBe(false);
 	});
 
-	it('meldet finishReason length auch im Non-Streaming-Fallback', async () => {
-		const { client, sse, json } = make();
-		json.responses.set('http://localhost:1234/v1/chat/completions', {
-			choices: [{ message: { content: '{"items": [{"title": "ang' }, finish_reason: 'length' }],
-		});
-		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
-		await Promise.resolve();
+	it('meldet finishReason length auch im Fallback', async () => {
+		const { client, sse, fallback, clock } = make();
+		const { p } = await start(client, clock);
 		sse.fail('StreamNetworkError');
-		const r = await p;
-		expect(r.finishReason).toBe('length');
+		await tickAsync(clock, 1);
+		fallback.emit(completion('{"items": [{"title": "ang', 'length'));
+		fallback.end(200);
+		expect((await p).finishReason).toBe('length');
 	});
 
-	it('propagiert AbortError statt zurückzufallen', async () => {
-		const { client, sse } = make();
-		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
-		await Promise.resolve();
+	it('der Fallback bleibt für weitere Aufrufe derselben Instanz (der Server verweigert den Stream)', async () => {
+		const { client, sse, fallback, clock } = make();
+		const { p } = await start(client, clock);
+		sse.fail('StreamNetworkError');
+		await tickAsync(clock, 1);
+		fallback.emit(completion('eins'));
+		fallback.end(200);
+		await p;
+		const p2 = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
+		await tickAsync(clock, 1);
+		fallback.emit(completion('zwei'));
+		fallback.end(200);
+		expect((await p2).content).toBe('zwei');
+		expect(sse.calls).toBe(1);
+		expect(fallback.calls).toBe(2);
+	});
+
+	it('nach setEndpoint erbt der neue Endpunkt die Weigerung des alten nicht (frischer Kit-Client)', async () => {
+		const { client, sse, fallback, clock } = make();
+		const { p } = await start(client, clock);
+		sse.fail('StreamNetworkError');
+		await tickAsync(clock, 1);
+		fallback.emit(completion('eins'));
+		fallback.end(200);
+		await p;
+		client.setEndpoint({ url: 'http://zweit:1234' });
+		const p2 = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
+		await tickAsync(clock, 1);
+		expect(sse.calls).toBe(2);   // wieder der Stream-Transport
+		sse.play(fixture('basic.sse'));
+		expect((await p2).content).toBe('Hallo Welt');
+	});
+
+	it('ein AbortError des Transports ist kein Netzfehler: kein Fallback, Ergebnis aborted', async () => {
+		const { client, sse, fallback, clock } = make();
+		const { p } = await start(client, clock);
 		sse.fail('AbortError');
-		await expect(p).rejects.toMatchObject({ name: 'AbortError' });
+		expect((await p).finishReason).toBe('aborted');
+		expect(fallback.calls).toBe(0);
 	});
 
 	it('erkennt Context-Overflow im Fallback-Body', async () => {
-		const { client, sse, json } = make();
-		json.responses.set('http://localhost:1234/v1/chat/completions', {
-			error: { message: 'context length exceeded' },
-		});
-		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
-		await Promise.resolve();
+		const { client, sse, fallback, clock } = make();
+		const { p } = await start(client, clock);
+		const assertion = expect(p).rejects.toMatchObject({ kind: 'overflow' });
 		sse.fail('StreamNetworkError');
-		await expect(p).rejects.toMatchObject({ kind: 'overflow' });
+		await tickAsync(clock, 1);
+		fallback.emit(JSON.stringify({ error: { message: 'context length exceeded' } }));
+		fallback.end(200);
+		await assertion;
 	});
 
 	it('klassifiziert erfolgreichen Fallback-Content mit "context window" nicht als Overflow', async () => {
-		const { client, sse, json } = make();
-		json.responses.set('http://localhost:1234/v1/chat/completions', {
-			choices: [
-				{ message: { content: 'Das context window beschreibt die maximale Tokenanzahl.' }, finish_reason: 'stop' },
-			],
-		});
-		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
-		await Promise.resolve();
+		const { client, sse, fallback, clock } = make();
+		const { p } = await start(client, clock);
 		sse.fail('StreamNetworkError');
+		await tickAsync(clock, 1);
+		fallback.emit(completion('Das context window beschreibt die maximale Tokenanzahl.'));
+		fallback.end(200);
 		const r = await p;
 		expect(r.content).toBe('Das context window beschreibt die maximale Tokenanzahl.');
 		expect(r.finishReason).toBe('stop');
+	});
+
+	it('scheitert auch der Fallback am Netz, wirft der Client den Netzfehler (kein zweiter Versuch)', async () => {
+		const { client, sse, fallback, clock } = make();
+		const { p } = await start(client, clock);
+		const assertion = expect(p).rejects.toThrow(/refused/);
+		sse.fail('StreamNetworkError');
+		await tickAsync(clock, 1);
+		fallback.fail('StreamNetworkError');
+		await assertion;
 	});
 });
 

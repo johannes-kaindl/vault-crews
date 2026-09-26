@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Ein Timeout oder Stall wird jetzt als `timeout` bzw. `stalled` protokolliert.** Bisher wurde daraus in Produktion `error_kind: io`: der Abbruch durch den eigenen Timer kam als AbortError des XHR-Transports an, bevor der Client die Ursache auswerten konnte. Gemessen am laufenden Obsidian gegen einen lokalen Fake-Server (harter Timer und Stall lieferten beide keine Fehlerart); die Unit-Tests sahen es nicht, ihre Attrappe löste bei Abbruch auf.
+
+### Changed
+- **Chat-Client und Streaming-Transport kommen aus dem Kit** (`createChatClient`, obsidian-kit 0.43.0; `XhrSseTransport` und der eigene SSE-Zweig von `local-llm-client.ts` entfallen). **Sichtbare Folgen:** die Fehlermeldung einer HTTP-Antwort trägt die Servermeldung wie bisher; eine HTTP-200-Antwort mit Fehlerkörper ist jetzt ein Fehler (`endpoint_error`) statt einer leeren Antwort; der Stall-Timer (60 s) startet mit dem ersten empfangenen Chunk statt mit dem ersten Token — ein Server, der sofort einen leeren Kopf-Chunk schickt und danach lange den Prompt verarbeitet, kann damit früher als „stalled“ gelten (bis zum ersten Chunk gilt weiter allein die Gesamtfrist). Der Fallback ohne Stream läuft jetzt über `requestUrl` im Kit und gilt je Endpunkt.
+- Kit-Pin `obsidian-kit` 0.41.1 → 0.43.0; die Kopien der Kit-CSS (`ENDPOINT_LIST_CSS`, `STREAM_AREA_CSS`) in `styles.css` sind auf den Stand 0.43.0 gebracht.
+
 ## [0.11.0] — 2026-09-26
 
 ### Added
