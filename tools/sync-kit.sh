@@ -22,7 +22,7 @@ CODE_KIT="${CODE_KIT_DIR:-../../libs/code-kit}"
 # Default ist die package.json-Version der Quelle; ein Upgrade ist eine BEWUSSTE Handlung.
 # Feste Default-Pins (Absicht, wie epub-exporter): ein Lauf ohne Variablen reproduziert den Stand,
 # statt still auf den Kit-Arbeitsstand zu heben. Heben = KIT_REF/CODE_KIT_REF setzen, danach npm run gate.
-VER="${KIT_REF:-0.41.1}"
+VER="${KIT_REF:-0.43.0}"
 # Zweiter Pin, ebenfalls Absicht: help-setting.ts (Hilfe-Zeile, UI-STANDARD §8) kam mit Kit 0.43.0 und
 # haengt an keinem anderen Modul — die uebrigen Module behalten ihren Pin (Vorlage: epub-exporter 877eb2c).
 KIT_HELP_REF="${KIT_HELP_REF:-0.43.0}"
@@ -153,7 +153,11 @@ PURE_MODULE="capabilities endpoint endpoint_config endpoint_diagnostics error_bo
 # Die gekoppelte Schicht (importiert `obsidian`). stream-area ist der Anlass dieses
 # Skripts (Welle 2, Streaming-Antwortbereich); stable-writer/stream-blocks bewusst nicht
 # vendoriert — vault-crews ist Bauart 2 (append-only), kein Markdown-Push.
-OBSIDIAN_MODULE="confirm endpoint-list model-picker settings_walker folder-suggest stream-area endpoint-source"
+OBSIDIAN_MODULE="chat-transport confirm endpoint-list model-picker settings_walker folder-suggest stream-area endpoint-source"
+# chat-client liegt in obsidian-kit/src/obsidian/, importiert aber KEIN obsidian (der Transport wird
+# injiziert) — wie clock.ts landet es deshalb in src/vendor/kit/ (Grenze am Import, UI-STANDARD §9) und
+# der pure Kern (src/core/local-llm-client.ts) darf es importieren. Querimporte auf code-kit -> ./ (relayer_pure).
+OBSIDIAN_PURE_MODULE="chat-client"
 
 for m in $PURE_MODULE; do
   quelle_fuer "$m" >/dev/null || {
@@ -183,8 +187,22 @@ for m in $OBSIDIAN_MODULE; do
   hole "$KIT" "$VER" "src/obsidian/$m.ts" "src/vendor/kit-obsidian/$m.ts" || {
     echo "FEHLER: $VER:src/obsidian/$m.ts nicht lesbar" >&2; exit 2; }
   case "$m" in endpoint-list|model-picker|endpoint-source) relayer "src/vendor/kit-obsidian/$m.ts" ;; esac
+  # chat-transport importiert nur den TYP SseTransport aus dem Nachbarmodul chat-client, das hier in
+  # src/vendor/kit/ liegt (s. OBSIDIAN_PURE_MODULE) — die zweite mechanische Abweichung, nur in dieser Datei.
+  case "$m" in chat-transport)
+    sed -e 's|from "./chat-client"|from "../kit/chat-client"|' "src/vendor/kit-obsidian/$m.ts" > "src/vendor/kit-obsidian/$m.ts.tmp" && mv "src/vendor/kit-obsidian/$m.ts.tmp" "src/vendor/kit-obsidian/$m.ts"
+    grep -q '../kit/chat-client' "src/vendor/kit-obsidian/$m.ts" || { echo "sync-kit: chat-client-Import in $m nicht umgeschrieben" >&2; exit 1; } ;;
+  esac
   stamp "src/vendor/kit-obsidian/$m.ts" "src/obsidian/$m.ts"
   echo "vendored obsidian-kit@$VER/obsidian/$m.ts"
+done
+
+for m in $OBSIDIAN_PURE_MODULE; do
+  hole "$KIT" "$VER" "src/obsidian/$m.ts" "src/vendor/kit/$m.ts" || {
+    echo "FEHLER: $VER:src/obsidian/$m.ts nicht lesbar" >&2; exit 2; }
+  relayer_pure "src/vendor/kit/$m.ts"
+  stamp "src/vendor/kit/$m.ts" "src/obsidian/$m.ts"
+  echo "vendored obsidian-kit@$VER/obsidian/$m.ts (pure Schicht)"
 done
 
 # help-setting.ts: eigener Pin (KIT_HELP_REF), Existenz in genau dieser Ref, nicht im Arbeitsstand.
@@ -216,8 +234,8 @@ cat > src/vendor/kit/VENDOR.json <<JSON
   "version": "$VER",
   "sha": "$SHA",
   "code_kit_version": "$CODE_VER",
-  "vendored": "$(liste "$PURE_MODULE") (code-kit), obsidian/clock.ts (obsidian-kit)",
-  "note": "Verbatim snapshot aus ZWEI Quellen (obsidian-kit + code-kit); welche Datei woher stammt, sagt ihr eigener Kopf. Never hand-edit. Re-vendor via tools/sync-kit.sh. version/sha gelten fuer clock.ts; code_kit_version fuer die uebrigen. clock.ts liegt hier statt in kit-obsidian, weil sie kein Obsidian-Symbol importiert."
+  "vendored": "$(liste "$PURE_MODULE") (code-kit), obsidian/clock.ts, obsidian/chat-client.ts (obsidian-kit)",
+  "note": "Verbatim snapshot aus ZWEI Quellen (obsidian-kit + code-kit); welche Datei woher stammt, sagt ihr eigener Kopf. Never hand-edit. Re-vendor via tools/sync-kit.sh. version/sha gelten fuer clock.ts und chat-client.ts (chat-client.ts traegt die eine Abweichung ../vendor/code-kit/pure/ → ./); code_kit_version fuer die uebrigen. clock.ts liegt hier statt in kit-obsidian, weil sie kein Obsidian-Symbol importiert."
 }
 JSON
 cat > src/vendor/kit-obsidian/VENDOR.json <<JSON
@@ -226,7 +244,7 @@ cat > src/vendor/kit-obsidian/VENDOR.json <<JSON
   "version": "$VER",
   "sha": "$SHA",
   "vendored": "$(liste "$OBSIDIAN_MODULE"), help-setting.ts (Kit $KIT_HELP_REF, $HELP_SHA)",
-  "note": "Verbatim snapshot. Never hand-edit. Re-vendor via tools/sync-kit.sh. endpoint-list.ts, model-picker.ts und endpoint-source.ts tragen EINE mechanische Abweichung: kit-interne Importe ../vendor/code-kit/{pure,web}/ sind auf ../kit/ umgeschrieben (Vendor-Layout). Bei jedem Re-Vendoring reproduzieren; sonst darf nichts abweichen. stream-area.ts ist verbatim (keine Kit-internen Importe)."
+  "note": "Verbatim snapshot. Never hand-edit. Re-vendor via tools/sync-kit.sh. endpoint-list.ts, model-picker.ts und endpoint-source.ts tragen EINE mechanische Abweichung: kit-interne Importe ../vendor/code-kit/{pure,web}/ sind auf ../kit/ umgeschrieben (Vendor-Layout). Bei jedem Re-Vendoring reproduzieren; sonst darf nichts abweichen. stream-area.ts ist verbatim (keine Kit-internen Importe). chat-transport.ts traegt zusaetzlich eine zweite Abweichung: ./chat-client → ../kit/chat-client (das Nachbarmodul liegt in der pure-Ablage)."
 }
 JSON
 echo "VENDOR.json → $VER ($SHA)"
