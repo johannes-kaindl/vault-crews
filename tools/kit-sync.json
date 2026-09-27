@@ -6,7 +6,7 @@
   "targets": [
     {
       "dir": "src/vendor/kit", "source": "code-kit", "from": "src/ts/pure",
-      "modules": ["capabilities", "endpoint", "endpoint_config", "endpoint_diagnostics", "error_body", "i18n", "model-context", "model-choice", "model-list-cache", "reasoning", "sampling-profiles", "settings", "sse", "think-splitter", "timeout"]
+      "modules": ["capabilities", "endpoint", "endpoint_config", "endpoint_diagnostics", "error_body", "i18n", "model-context", "model-choice", "model-list-cache", "reasoning", "sampling-profiles", "settings", { "name": "sse", "ref": "0.8.0" }, "think-splitter", "timeout"]
     },
     {
       "dir": "src/vendor/kit", "source": "obsidian-kit", "from": "src/pure",
@@ -15,7 +15,7 @@
     },
     {
       "dir": "src/vendor/kit", "source": "obsidian-kit", "from": "src/obsidian",
-      "modules": ["clock", "chat-client"],
+      "modules": ["clock", { "name": "chat-client", "ref": "0.44.0" }],
       "rewrite": [["../vendor/code-kit/pure/", "./"], ["../vendor/code-kit/web/", "./"]]
     },
     {
