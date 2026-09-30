@@ -4,6 +4,7 @@
     "code-kit": { "ref": "0.7.0" }
   },
   "targets": [
+    { "dir": "src/vendor/kit", "source": "code-kit", "from": "src/ts/web", "modules": ["clipboard"] },
     {
       "dir": "src/vendor/kit", "source": "code-kit", "from": "src/ts/pure",
       "modules": ["capabilities", "endpoint", "endpoint_config", "endpoint_diagnostics", "error_body", "i18n", "model-context", "model-choice", "model-list-cache", "reasoning", "sampling-profiles", "settings", { "name": "sse", "ref": "0.8.0" }, "think-splitter", "timeout"]
@@ -20,7 +21,7 @@
     },
     {
       "dir": "src/vendor/kit-obsidian", "source": "obsidian-kit", "from": "src/obsidian",
-      "modules": ["chat-transport", "confirm", "endpoint-list", "model-picker", "settings_walker", "folder-suggest", "stream-area", "endpoint-source", "help-setting"],
+      "modules": ["chat-transport", "confirm", "endpoint-list", "model-picker", "settings_walker", "folder-suggest", "stream-area", "endpoint-source", "help-setting", "clipboard", "collapsible", "request-section", "request-session"],
       "rewrite": [["../vendor/code-kit/pure/", "../kit/"], ["../vendor/code-kit/web/", "../kit/"], ["../pure/", "../kit/"], ["./chat-client", "../kit/chat-client"]]
     }
   ]
