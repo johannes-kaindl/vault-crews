@@ -114,7 +114,7 @@ Local servers almost always need a port, for example `http://localhost:1234/v1`.
 
 > This model kept reasoning despite 'thinking: off' — suppression does not fully apply.
 
-**Cause:** some models think whatever the request says. The run is not wrong, but reasoning tokens cost time.
+**Cause:** some models think whatever the request says. The run is not wrong, but reasoning tokens cost time. Since 0.13.0 this notice also appears for agents with `thinking: auto` (the default): `auto` now asks for the thinking level of the **Request** settings, which is off unless you changed it. Before, `auto` sent nothing and the server's own default applied.
 
 **Fix:** none needed; pick a different model if the delay matters.
 

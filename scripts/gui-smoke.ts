@@ -931,7 +931,7 @@ async function w11ChatClient(cdp: Cdp): Promise<void> {
           if (!model) { window.__vcW11 = { done: true, skip: "kein Modell am Endpunkt (" + ids.length + " Modelle)" }; return; }
           let calls = 0, text = "";
           const r = await c.stream([{ role: "user", content: "Zähle auf Deutsch von eins bis zehn, durch Kommas getrennt." }],
-            { model, temperature: 0, maxTokens: 200, thinking: "off" },
+            { model, sentModel: model, params: { temperature: 0, max_tokens: 200 }, thinkingLevel: "off" },
             (t, isThink) => { if (!isThink) { calls++; text += t; } }, new AbortController().signal);
           window.__vcW11 = { done: true, model, calls, text, content: r.content, finish: r.finishReason };
         } catch (e) { window.__vcW11 = { done: true, skip: "Endpunkt nicht erreichbar: " + String(e?.message ?? e).slice(0, 120) }; }
@@ -983,7 +983,7 @@ async function w11ChatClient(cdp: Cdp): Promise<void> {
       const t0 = Date.now();
       let firstMs;
       try {
-        const r = await c.stream([{ role: "user", content: "hi" }], { model: "fake-modell", temperature: 0, maxTokens: 20, thinking: "off" }, () => { firstMs ??= Date.now() - t0; }, new AbortController().signal);
+        const r = await c.stream([{ role: "user", content: "hi" }], { model: "fake-modell", sentModel: "fake-modell", params: { temperature: 0, max_tokens: 20 }, thinkingLevel: "off" }, () => { firstMs ??= Date.now() - t0; }, new AbortController().signal);
         return { ok: true, content: r.content, finish: r.finishReason, ms: Date.now() - t0, firstMs };
       } catch (e) { return { ok: false, kind: e?.kind, err: String(e?.message ?? e).slice(0, 120), ms: Date.now() - t0, firstMs }; }
     `);
@@ -1008,6 +1008,225 @@ async function w11ChatClient(cdp: Cdp): Promise<void> {
       ${PLUGIN}.settings.callTimeoutS = ${saved.call}; ${PLUGIN}.settings.stallTimeoutS = ${saved.stall};
       delete window.__vcW11; return true;
     `).catch(() => undefined);
+  }
+}
+
+/** Welle 14 — was ein Lauf mit dem Modell schickt (Modus structured), gemessen AM DRAHT.
+ *  Die Kette ist die echte — Lauf → Orchestrator → RequestPort (Familie aus dem Namen, Backend-Probe) →
+ *  `buildCrewParams` → Kit-Client → XHR —; nur der Endpunkt ist ein Fake-Server, der jeden gesendeten
+ *  Body festhält. `lastRequest()` der Sitzung zeigt, was das Plugin zu senden GLAUBT, nicht was ankam. */
+async function w14Body(cdp: Cdp): Promise<void> {
+  const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
+  const modell = "qwen/qwen3.8-27b";
+  const id = "zz-w14";
+  const ordner = "zz-w14-ordner";
+  const bodies: Array<Record<string, unknown>> = [];
+  // CORS wie ein echter LM Studio: der Stream-Weg (XHR) läuft im Renderer und braucht Preflight und Kopfzeilen —
+  // ohne sie weicht der Client auf den Fallback ohne Stream aus (`stream:false`), und der Punkt misst den Ausweichweg.
+  const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "GET, POST, OPTIONS" };
+  const server: Server = createServer((req, res) => {
+    if (req.method === "OPTIONS") { res.writeHead(204, cors); res.end(); return; }
+    if (req.method === "GET" && req.url?.startsWith("/v1/models")) {
+      res.writeHead(200, { "content-type": "application/json", ...cors });
+      res.end(JSON.stringify({ object: "list", data: [{ id: modell, object: "model" }] }));
+      return;
+    }
+    if (req.method === "POST" && /chat\/completions/.test(req.url ?? "")) {
+      let raw = "";
+      req.on("data", (c) => { raw += String(c); });
+      req.on("end", () => {
+        try { bodies.push(JSON.parse(raw) as Record<string, unknown>); } catch { bodies.push({ _unparseable: raw }); }
+        res.writeHead(200, { "content-type": "text/event-stream", ...cors });
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '{"items":[]}' } }] })}\n\n`);
+        res.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
+        res.end("data: [DONE]\n\n");
+      });
+      return;
+    }
+    res.writeHead(404, cors); res.end("{}");
+  });
+  await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
+  const port = (server.address() as { port: number }).port;
+  const team = ["---", "crew-kind: team", "name: ZZ W14", "version: 1", "description: Smoke", "trigger: manual",
+    "limits:", "  max_writes: 1", "write_scope:", `  - "${ordner}/**/*.md"`, "tasks:",
+    "  - id: collect", "    kind: collector", "    collector: vault.list", "    params:", `      folder: ${ordner}`,
+    "  - id: analyse", "    kind: llm", "    agent: zz-w14-agent", "    inputs: [collect]", "    instruction: Tue nichts.",
+    "    output_schema: triage-v1", "    on_error: skip",
+    "  - id: apply", "    kind: actions", "    inputs: [analyse]", "    allowed_actions: [frontmatter.patch]", "    allowed_keys: [priority]",
+    "---", "Smoke", ""].join("\n");
+  const agentMd = (extra: string[]): string => ["---", "crew-kind: agent", "name: ZZ W14", ...extra, "---", "Du bist ein Test.", ""].join("\n");
+  const teamPfad = `${root}/teams/${id}.md`;
+  const agentPfad = `${root}/agents/zz-w14-agent.md`;
+  const notePfad = `${ordner}/a.md`;
+  let runDir = "";
+  /** Ein Lauf mit gegebener Persona und (optional) Überschreibung des Plugins; liefert den ERSTEN Body dieses Laufs. */
+  const fahre = async (agentZeilen: string[], ueberschreibung: number | null): Promise<Record<string, unknown> | undefined> => {
+    const vorher = bodies.length;
+    await cdp.evaluate(`await app.vault.adapter.write(${JSON.stringify(agentPfad)}, ${JSON.stringify(agentMd(agentZeilen))}); return true;`);
+    // Der Orchestrator liest die Persona aus dem metadataCache, und der zieht nach einem Schreiben mit Verzug nach:
+    // ein Lauf direkt nach dem Schreiben rechnete sonst mit der VORIGEN Persona (gemessen: N2-3/N2-4 lasen jeweils die
+    // Werte des Vorlaufs). Also erst starten, wenn der Cache die neue Persona trägt — Schlüssel für Schlüssel.
+    const erwartet = Object.fromEntries(agentZeilen.map((z) => z.split(": ") as [string, string]));
+    const gezogen = await pollUntil<boolean>(cdp, `
+      const f = app.vault.getAbstractFileByPath(${JSON.stringify(agentPfad)});
+      const fm = (f && app.metadataCache.getFileCache(f)?.frontmatter) ?? null;
+      if (!fm) return null;
+      const erw = ${JSON.stringify(erwartet)};
+      for (const k of ["temperature", "max_tokens", "thinking"]) {
+        if (k in erw ? String(fm[k]) !== erw[k] : fm[k] !== undefined) return null;
+      }
+      return true;`, 10_000, 200).catch(() => null);
+    if (!gezogen) console.log("    (metadataCache trägt die neue Persona nach 10 s nicht — der Punkt misst vermutlich die vorige)");
+    await cdp.evaluate(`
+      ${PLUGIN}.settings.request = ${JSON.stringify(ueberschreibung === null
+        ? { overrides: {}, thinking: {}, lastOnLevel: {}, levelPickerInChat: false }
+        : { overrides: { structured: { "qwen3.8": { temperature: ueberschreibung } } }, thinking: {}, lastOnLevel: {}, levelPickerInChat: false })};
+      delete ${PLUGIN}.lastRuns[${JSON.stringify(id)}];
+      ${PLUGIN}.runCrew(${JSON.stringify(id)});
+      return true;`);
+    // Fertig heißt: Ergebnis gesetzt UND der Ein-Lauf-Mutex wieder frei — sonst weist der nächste `runCrew` ab
+    // („Ein Lauf ist aktiv"), und der Punkt läse den Body des Vorlaufs.
+    const fertig = await wartetAuf(cdp, `${PLUGIN}.lastRuns[${JSON.stringify(id)}] && ${PLUGIN}.runActive === false`, 20000);
+    if (fertig) {
+      const info = await cdp.evaluate<{ runId: string }>(`return ${PLUGIN}.lastRuns[${JSON.stringify(id)}];`);
+      runDir = `${root}/runs/${info.runId}`;
+    }
+    console.log(`    (Lauf: ${fertig ? "fertig" : "KEIN Ergebnis"}, ${bodies.length - vorher} Body/Bodies am Fake-Server)`);
+    return bodies.length > vorher ? bodies[vorher] : undefined;
+  };
+  const saved = await cdp.evaluate<{ endpoints: unknown; request: unknown }>(
+    `return { endpoints: JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints)), request: JSON.parse(JSON.stringify(${PLUGIN}.settings.request)) };`);
+  try {
+    await cdp.evaluate(`
+      for (const d of [${JSON.stringify(root)}, ${JSON.stringify(root + "/teams")}, ${JSON.stringify(root + "/agents")}, ${JSON.stringify(ordner)}]) {
+        if (!app.vault.getAbstractFileByPath(d)) await app.vault.createFolder(d);
+      }
+      await app.vault.create(${JSON.stringify(teamPfad)}, ${JSON.stringify(team)});
+      await app.vault.create(${JSON.stringify(agentPfad)}, ${JSON.stringify(agentMd([]))});
+      await app.vault.create(${JSON.stringify(notePfad)}, "---\\npriority: mittel\\n---\\nInhalt\\n");
+      ${PLUGIN}.settings.endpoints = [{ url: "http://127.0.0.1:${port}/v1", model: ${JSON.stringify(modell)} }];
+      await ${PLUGIN}.refreshTeams?.();
+      return true;`);
+    // --- N2-1: ohne Persona-Werte und ohne Überschreibung: Profilwerte am Draht ------------------
+    const b1 = await fahre([], null);
+    record("N2-1 Body am Draht trägt Profilwerte (qwen3.8, Modus structured)",
+      b1 !== undefined && b1.model === modell && b1.stream === true && b1.temperature === 0.1 && b1.top_p === 0.8
+        && b1.reasoning_effort === "none" && b1.max_tokens === 2048 && !("top_k" in b1),
+      b1 ? `model ${String(b1.model)}, stream ${String(b1.stream)}, temperature ${String(b1.temperature)}, top_p ${String(b1.top_p)}, reasoning_effort ${String(b1.reasoning_effort)}, max_tokens ${String(b1.max_tokens)}, top_k ${"top_k" in b1 ? "DA" : "weg"}` : "kein Request angekommen");
+    // --- N2-2: die Überschreibung des Plugins kommt an (Gegenprobe zu N2-1) ----------------------
+    const b2 = await fahre([], 0.3);
+    record("N2-2 Überschreibung des Plugins ändert den Body (Gegenprobe zu N2-1)", b2 !== undefined && b2.temperature === 0.3,
+      b2 ? `temperature ${String(b2.temperature)} (Plugin-Überschreibung 0.3, Profil 0.1)` : "kein Request angekommen");
+    // --- N2-3: die Persona steht darüber — Temperatur UND Budget ---------------------------------
+    const b3 = await fahre(["temperature: 0.4", "max_tokens: 1500"], 0.3);
+    record("N2-3 Persona schlägt Überschreibung und Profil (Temperatur 0.4 statt 0.3, Budget 1500)", b3 !== undefined && b3.temperature === 0.4 && b3.max_tokens === 1500,
+      b3 ? `temperature ${String(b3.temperature)}, max_tokens ${String(b3.max_tokens)}` : "kein Request angekommen");
+    // --- N2-4: thinking: on → fest medium; Budget auf die Reserve der Familie --------------------
+    const b4 = await fahre(["thinking: on"], null);
+    record("N2-4 thinking: on in der Persona sendet die Stufe medium und hebt das Budget (Reserve der Familie)",
+      b4 !== undefined && b4.reasoning_effort === "medium" && typeof b4.max_tokens === "number" && b4.max_tokens >= 2048 && b4.top_p === 0.95,
+      b4 ? `reasoning_effort ${String(b4.reasoning_effort)}, max_tokens ${String(b4.max_tokens)}, top_p ${String(b4.top_p)}` : "kein Request angekommen");
+    const letzte = await cdp.evaluate<Record<string, unknown> | null>(`
+      const l = ${PLUGIN}.requestSession.lastRequest();
+      return l ? l.params : null;`);
+    record("N2-5 Die Sitzung zeigt, was wirklich gesendet wurde (letzte Anfrage = Body des vierten Laufs)",
+      letzte !== null && b4 !== undefined && ["temperature", "top_p", "reasoning_effort", "max_tokens"].every((k) => letzte[k] === b4[k]),
+      letzte ? `Sitzung: temperature ${String(letzte.temperature)}, reasoning_effort ${String(letzte.reasoning_effort)}` : "keine Aufzeichnung");
+  } finally {
+    server.closeAllConnections?.();
+    server.close();
+    await cdp.evaluate(`
+      ${PLUGIN}.settings.endpoints = ${JSON.stringify(saved.endpoints)};
+      ${PLUGIN}.settings.request = ${JSON.stringify(saved.request)};
+      for (const p of [${JSON.stringify(teamPfad)}, ${JSON.stringify(agentPfad)}, ${JSON.stringify(notePfad)}, ${JSON.stringify(ordner)}, ${JSON.stringify(runDir)}]) {
+        if (!p) continue;
+        const f = app.vault.getAbstractFileByPath(p);
+        if (f) await app.vault.delete(f, true);
+      }
+      delete ${PLUGIN}.lastRuns[${JSON.stringify(id)}];
+      return true;`).catch(() => undefined);
+  }
+}
+
+/** N1: der Abschnitt „Request" in den Einstellungen — Öffnen des Tabs NACH N2 (also auch der Beleg, dass der Tab die
+ *  Sitzung neu liest: „Letzte Anfrage" steht da), dann zwei Bearbeitungen hintereinander (Überschreiben, Zurücksetzen):
+ *  der Abschnitt darf dazwischen nicht zuklappen. Zwei Sprachen, deshalb Muster und `data-field` statt Literale. */
+async function w14Abschnitt(cdp: Cdp): Promise<void> {
+  const name = "N1 Abschnitt Request";
+  const ui = await einstellungenOeffnen(cdp);
+  if (!ui) { skipped(name, "kein Einstellungen-Fenster am Port — nichts gemessen"); return; }
+  const kopf = `
+    const wurzel = document.querySelector(".modal.mod-settings") ?? document.body;
+    const kopf = [...wurzel.querySelectorAll(".okit-collapsible-header")].find((h) => /^(Request|Anfrage)$/.test(h.textContent.trim()));
+    const koerper = kopf ? kopf.nextElementSibling : null;`;
+  try {
+    const offen = await ui.evaluate<{ gefunden: boolean; offen: boolean }>(`
+      ${kopf}
+      if (!kopf) return { gefunden: false, offen: false };
+      if (koerper.classList.contains("is-collapsed")) kopf.click();
+      await new Promise((r) => setTimeout(r, 400));
+      return { gefunden: true, offen: !koerper.classList.contains("is-collapsed") };`);
+    if (!offen.gefunden) { record(`${name} ist vorhanden und aufklappbar`, false, "Kopf „Request/Anfrage“ fehlt in den Einstellungen"); return; }
+    const inhalt = await ui.evaluate<{ felder: string[]; letzte: string | null; hinweis: boolean }>(`
+      ${kopf}
+      return {
+        felder: [...koerper.querySelectorAll("input[data-field]")].map((i) => i.dataset.field),
+        letzte: koerper.querySelector("pre.okit-request-last")?.textContent ?? null,
+        hinweis: /temperature|max_tokens|thinking/.test(koerper.parentElement?.textContent ?? ""),
+      };`);
+    const fehlt = ["temperature", "top_p", "max_tokens"].filter((f) => !inhalt.felder.includes(f));
+    record(`${name} ist vorhanden, klappt auf und zeigt die Felder`, offen.offen && fehlt.length === 0,
+      fehlt.length === 0 ? `${inhalt.felder.length} Felder (${inhalt.felder.join(", ")})` : `fehlt: ${fehlt.join(", ")}`);
+    record("N1-2 „Letzte Anfrage“ trägt die Anfrage aus N2 (Tab liest die Sitzung beim Öffnen neu)",
+      inhalt.letzte !== null && inhalt.letzte.includes('"temperature"') && inhalt.letzte.includes('"max_tokens"'),
+      inhalt.letzte !== null ? inhalt.letzte.replace(/\s+/g, " ").slice(0, 90) : "keine Aufzeichnung im Abschnitt");
+    record("N1-3 Der Persona-Hinweis steht im Abschnitt", inhalt.hinweis, inhalt.hinweis ? "Hinweistext nennt temperature/max_tokens/thinking" : "kein Hinweis");
+
+    const setzen = await ui.evaluate<boolean>(`
+      ${kopf}
+      const inp = koerper.querySelector('input[data-field="temperature"]');
+      if (!inp) return false;
+      inp.focus(); inp.value = "0.3"; inp.dispatchEvent(new Event("blur"));
+      return true;`);
+    const nachSetzen = setzen ? await pollUntil<{ offen: boolean }>(ui, `
+      ${kopf}
+      const inp = koerper?.querySelector('input[data-field="temperature"]');
+      if (!inp || !inp.classList.contains("okit-request-own")) return null;
+      return { offen: !koerper.classList.contains("is-collapsed") };`, 8_000, 300).catch(() => null) : null;
+    const zurueck = nachSetzen ? await ui.evaluate<boolean>(`
+      ${kopf}
+      const zeile = koerper.querySelector('input[data-field="temperature"]').closest(".setting-item");
+      const knopf = [...zeile.querySelectorAll("[aria-label]")].find((k) => /^(Reset|Zurücksetzen)$/.test(k.getAttribute("aria-label")));
+      if (!knopf) return false;
+      knopf.click();
+      return true;`) : false;
+    const nachReset = zurueck ? await pollUntil<{ offen: boolean; leer: boolean }>(ui, `
+      ${kopf}
+      const inp = koerper?.querySelector('input[data-field="temperature"]');
+      if (!inp || inp.classList.contains("okit-request-own")) return null;
+      return { offen: !koerper.classList.contains("is-collapsed"), leer: inp.value === "" };`, 8_000, 300).catch(() => null) : null;
+    const gespeichert = await cdp.evaluate<string>(`return JSON.stringify(${PLUGIN}.settings.request.overrides);`);
+    record("N1-4 Überschreiben und Zurücksetzen nacheinander: Abschnitt bleibt offen, Wert wird gespeichert und wieder gelöscht",
+      Boolean(nachSetzen?.offen) && Boolean(nachReset?.offen) && Boolean(nachReset?.leer) && gespeichert === "{}",
+      !setzen ? "Temperatur-Feld nicht gefunden"
+        : !nachSetzen ? "Überschreibung kam nicht an (Feld nicht als eigen markiert)"
+        : !zurueck ? "Zurücksetzen-Knopf fehlt"
+        : !nachReset ? "Zurücksetzen griff nicht"
+        : `nach Überschreiben ${nachSetzen.offen ? "offen" : "ZU"}, nach Zurücksetzen ${nachReset.offen ? "offen" : "ZU"}, gespeichert ${gespeichert}`);
+  } finally {
+    await cdp.evaluate(`
+      if (${PLUGIN}.settings.request?.overrides?.structured) { delete ${PLUGIN}.settings.request.overrides.structured; }
+      return true;`).catch(() => undefined);
+    await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
+  }
+}
+
+async function abschnittWelle14(cdp: Cdp): Promise<void> {
+  try {
+    await w14Body(cdp);
+    await w14Abschnitt(cdp);
+  } catch (e) {
+    record("Welle 14 — Abschnitt lief bis zum Ende", false, `abgebrochen: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
 
@@ -1148,6 +1367,7 @@ async function main(): Promise<void> {
     await abschnittDrittanbieter(cdp);
     await abschnittPanel(cdp);
     await abschnittWelle8(cdp);
+    await abschnittWelle14(cdp);
   } finally {
     // Zurueckschreiben und das Ergebnis MESSEN statt darauf vertrauen.
     if (vorwert) {

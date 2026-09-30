@@ -156,6 +156,7 @@ Eigene Teams und Agenten zu schreiben ist schlichtes Markdown im Vault — siehe
 |---|---|---|
 | **Endpunkte** | `http://localhost:1234/v1` | Eine Zeile je Endpunkt, jede mit eigener URL, optionalem API-Schlüssel und eigenem Modell; genutzt wird der erste erreichbare je Lauf. **Check connections** prüft jede Zeile und meldet abgelehnt / unbekannter Host / Zeitüberschreitung / keine LLM-API / Zugriff verweigert getrennt |
 | **Gesperrte Endpunkte** | `localhost:8080`, `127.0.0.1:8080` | Werden nie kontaktiert — der Standard hält das Plugin von einem Port fern, den andere lokale Modell-Server üblicherweise belegen. Eine Einstellung, nicht fest verdrahtet |
+| **Anfrage** (Request) | (Profil) | Was ein Lauf mit jedem Modellaufruf sendet: Sampling-Werte (temperature, top_p, top_k, …) und die Denkstufe, aus einer Profiltabelle je Modellfamilie und Backend. Eingeklappter Abschnitt; zeigt, was gesendet wird und was davon auf deinem Backend wirkt, nimmt eigene Werte je Modellfamilie an und listet die letzte Anfrage und die Abweichungen dieser Sitzung. Werte in einer Agent-Note gehen für diesen Agenten vor. Die Zeile „Level picker in chat“ hat in Vault Crews keine Wirkung |
 | **Crew-Wurzelordner** | `_crews` | Vault-relativer Ordner mit Agenten, Teams und Lauf-Protokollen |
 | **Max. Schreibvorgänge pro Lauf** | 10 | Plugin-weite Obergrenze; der `max_writes`-Wert eines Teams kann nur darunter liegen |
 | **Wanduhr-Limit** | 10 Minuten | Bricht einen davonlaufenden Lauf ab; seine Teiländerungen bleiben gesichert und rückgängig zu machen |
@@ -305,6 +306,12 @@ Eine Crew ist Markdown im Vault: ein **Team** (`crew-kind: team`) als Pipeline a
 `collector → llm → actions`, plus **Agent**-Notes (`crew-kind: agent`, System-Prompt
 im Body). Die mitgelieferten Crews (Command „Install example crews") sind editierbare
 Beispiele — kopiere und passe sie an.
+
+### Modell-Einstellungen eines Agenten (`temperature`, `max_tokens`, `thinking`)
+
+Eine Agent-Note kann im Frontmatter drei Modellwerte setzen; alle sind optional und gehen für diesen Agenten den **Anfrage**-Einstellungen des Plugins vor.
+
+`temperature` wird wie angegeben gesendet; ohne sie gilt der Profilwert der Modellfamilie (0,1 für Crews). `max_tokens` ist das Token-Budget des Agenten (Standard 2048); eine Denkstufe kann es auf die Reserve der Modellfamilie anheben, damit das Denken nicht das ganze Budget aufbraucht. `thinking` ist `off`, `on` oder `auto` (Standard): `off` bittet das Modell, nicht zu denken, `on` bestellt die Stufe `medium`, `auto` folgt den **Anfrage**-Einstellungen, deren Standard „aus“ ist.
 
 ### Output-Vokabular (`output:`)
 

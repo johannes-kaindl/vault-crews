@@ -143,6 +143,7 @@ Writing your own teams and agents is plain Markdown in the vault — see
 |---|---|---|
 | **Endpoints** | `http://localhost:1234/v1` | One row per endpoint, each with its own URL, optional API key and model; the first reachable one is used per run. **Check connections** probes each row and reports refused / unknown host / timeout / not-an-LLM-API / access denied separately |
 | **Denied endpoints** | `localhost:8080`, `127.0.0.1:8080` | Never contacted — the default keeps the plugin off a port other local model servers commonly claim. A setting, not hardcoded |
+| **Request** | (profile) | What a run sends with each model call: sampling values (temperature, top_p, top_k, …) and the thinking level, from a profile table per model family and backend. Collapsed section; shows what is sent and what has an effect on your backend, takes your own values per model family, lists the last request and any deviations seen this session. Values in an agent note override it for that agent. The row "Level picker in chat" has no effect in Vault Crews |
 | **Crew root folder** | `_crews` | Vault-relative folder holding agents, teams and run logs |
 | **Hide crew folder in the file explorer** | off | Purely cosmetic: the crew root disappears from the explorer, its notes stay in the vault |
 | **Max writes per run** | 10 | Plugin-wide cap; a team's own `max_writes` can only be lower |
@@ -294,6 +295,12 @@ A crew is Markdown in the vault: a **team** (`crew-kind: team`) as a pipeline of
 `collector → llm → actions`, plus **agent** notes (`crew-kind: agent`, system prompt in
 the body). The crews that ship with the plugin (command "Install example crews") are
 editable examples — copy them and adjust.
+
+### Model settings of an agent (`temperature`, `max_tokens`, `thinking`)
+
+An agent note can set three model values in its frontmatter; all are optional and override the plugin's **Request** settings for that agent.
+
+`temperature` is sent as given; without it the profile value for the model family applies (0.1 for crews). `max_tokens` is the agent's token budget (default 2048); a thinking level can raise it to the model family's reserve so thinking cannot eat the whole budget. `thinking` is `off`, `on` or `auto` (default): `off` asks the model not to think, `on` asks for the `medium` level, `auto` follows the **Request** settings, whose default is off.
 
 ### Output vocabulary (`output:`)
 
