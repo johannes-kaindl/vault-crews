@@ -5,7 +5,11 @@ export interface AgentDef {
 	id: string;
 	name: string;
 	model: string | null;
-	temperature: number;
+	/** Nur gesetzt, wenn die Persona eine `temperature` im Frontmatter nennt — sie ist dann die
+	 *  oberste Überschreibungsebene (Persona > Plugin-Überschreibung > Profilwert). Fehlt sie,
+	 *  gilt der Profilwert des Modus (structured: 0.1). */
+	temperature?: number;
+	/** Token-Budget des Agenten (Default 2048); das Profil kann es für Denkstufen anheben. */
 	maxTokens: number;
 	thinking: 'auto' | 'on' | 'off';
 	systemPrompt: string;

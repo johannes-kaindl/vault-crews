@@ -10,6 +10,8 @@ import { FakeClock } from '../helpers/fake-clock';
 import { RecorderReporter } from '../helpers/recorder-reporter';
 import { FakeSnapshotStore, FinalizeFailsSnapshotStore } from '../helpers/fake-snapshot';
 import { ScriptLlmClient, type ScriptedCall } from '../helpers/script-llm';
+import { fakeRequestPort, type FakeRequestPort } from '../helpers/fake-request-port';
+import { DEFAULT_REQUEST_SETTINGS } from '../../src/vendor/kit/sampling-profiles';
 
 const START_MS = 1_700_000_000_000;
 
@@ -27,7 +29,7 @@ function baseSettings(overrides: Partial<Settings> = {}): Settings {
   return {
     crewRoot: '_crews', configDir: '.obsidian',
     endpoints: [{ url: 'http://localhost:1234', model: 'test-model' }], deniedEndpoints: [],
-    limits: LIMITS, undoHistoryDepth: 15, ...overrides,
+    limits: LIMITS, undoHistoryDepth: 15, request: DEFAULT_REQUEST_SETTINGS, ...overrides,
   };
 }
 
@@ -56,6 +58,7 @@ interface HarnessOpts {
   clock?: FakeClock;
   abort?: AbortSignal;
   settings?: Partial<Settings>;
+  request?: FakeRequestPort;
   seedLock?: string;
 }
 
@@ -66,6 +69,7 @@ interface Harness {
   reporter: RecorderReporter;
   snapshot: FakeSnapshotStore;
   llm: LlmClient;
+  request: FakeRequestPort;
   deps: RunDeps;
   teamPath: string;
 }
@@ -96,8 +100,9 @@ async function harness(opts: HarnessOpts = {}): Promise<Harness> {
   const llm = opts.llm ?? new ScriptLlmClient([{ content: TRIAGE_OK }]);
   const abort = opts.abort ?? new AbortController().signal;
 
-  const deps: RunDeps = { vault, meta, llm, snapshot, clock, reporter, settings: baseSettings(opts.settings), abort };
-  return { vault, meta, clock, reporter, snapshot, llm, deps, teamPath };
+  const request = opts.request ?? fakeRequestPort();
+  const deps: RunDeps = { vault, meta, llm, request, snapshot, clock, reporter, settings: baseSettings(opts.settings), abort };
+  return { vault, meta, clock, reporter, snapshot, llm, request, deps, teamPath };
 }
 
 /** Non-token event types (token events are frequent and asserted separately). */
@@ -366,16 +371,29 @@ describe('executeRun — always-on-thinker Laufzeit-Detektion', () => {
     expect(result.alwaysOnThinker).toBe(false);
   });
 
-  it('thinking auto + Reasoning → alwaysOnThinker false (Suppression gar nicht angefordert)', async () => {
-    // Beweist, dass die thinking==='off'-Bedingung load-bearing ist: bei erlaubtem
-    // Denken (auto) ist Reasoning erwartet, keine Suppressions-Lücke → Flag bleibt false.
+  it('thinking on + Reasoning → alwaysOnThinker false (Denken wurde gerade bestellt)', async () => {
+    // Beweist, dass die Stufe off load-bearing ist: bei bestelltem Denken ist Reasoning erwartet,
+    // keine Suppressions-Lücke → Flag bleibt false.
+    const llm = new ScriptLlmClient([{ content: TRIAGE_OK, reasoned: true }]);
+    const h = await harness({
+      llm,
+      agents: { 'triage-analyst': { fm: { 'crew-kind': 'agent', name: 'A', thinking: 'on' }, body: 'x' } },
+    });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.alwaysOnThinker).toBe(false);
+  });
+
+  it('thinking auto + Reasoning → alwaysOnThinker TRUE: auto heißt seit 0.13.0 „Modusvorgabe", und die ist off', async () => {
+    // Verhaltensänderung (Welle 14): bis 0.12.0 schickte `auto` nichts und ließ den Server-Standard
+    // gelten — Reasoning war dort erwartet. Jetzt bestellt `auto` die Stufe des Modus (structured: off),
+    // also ist ein Modell, das trotzdem denkt, eine Suppressions-Lücke.
     const llm = new ScriptLlmClient([{ content: TRIAGE_OK, reasoned: true }]);
     const h = await harness({
       llm,
       agents: { 'triage-analyst': { fm: { 'crew-kind': 'agent', name: 'A', thinking: 'auto' }, body: 'x' } },
     });
     const result = await executeRun(h.teamPath, h.deps);
-    expect(result.alwaysOnThinker).toBe(false);
+    expect(result.alwaysOnThinker).toBe(true);
   });
 });
 
@@ -734,3 +752,59 @@ describe('executeRun — snapshot-finalize-failure resilience (M9)', () => {
     expect(protocolTask).toBeDefined();
   });
 });
+
+describe('executeRun — Anfrage-Profil (Modus structured)', () => {
+  const call0 = (h: Harness): LlmParams => (h.llm as ScriptLlmClient).calls[0]!.params;
+
+  it('schickt die aufgelösten Parameter: Persona-Temperatur, Budget und Draht-Modell', async () => {
+    const h = await harness({
+      agents: { 'triage-analyst': { fm: { 'crew-kind': 'agent', name: 'A', temperature: 0.4, max_tokens: 1500 }, body: 'x' } },
+    });
+    await executeRun(h.teamPath, h.deps);
+    expect(call0(h)).toMatchObject({ model: 'test-model', sentModel: 'test-model', thinkingLevel: 'off', params: { temperature: 0.4, max_tokens: 1500 } });
+  });
+
+  it('ohne Persona-Temperatur gilt der Profilwert des Modus (0.1), nicht ein Parser-Default', async () => {
+    const h = await harness();
+    await executeRun(h.teamPath, h.deps);
+    expect(call0(h).params.temperature).toBe(0.1);
+  });
+
+  it('Familie und Backend kommen aus dem Port und landen im Body: qwen3.8 auf Open WebUI trägt presence_penalty', async () => {
+    const request = fakeRequestPort({ family: 'qwen3.8', backend: 'openwebui' });
+    const h = await harness({ request });
+    await executeRun(h.teamPath, h.deps);
+    expect(call0(h).params).toMatchObject({ top_p: 0.8, top_k: 20, presence_penalty: 1.5, reasoning_effort: 'none' });
+    // Das Backend wird EINMAL je Lauf erfragt, nach der Endpunktwahl — am Endpunkt, der antwortete.
+    expect(request.backendAsked).toEqual(['http://localhost:1234']);
+  });
+
+  it('hält jede gesendete Anfrage in der Sitzung fest (Abschnitt „Anfrage": letzte Anfrage)', async () => {
+    const h = await harness();
+    await executeRun(h.teamPath, h.deps);
+    expect(h.request.recorded).toHaveLength(1);
+    expect(h.request.recorded[0]).toEqual(call0(h).params);
+  });
+
+  it('meldet eine Abweichung, wenn das Modell trotz off gedacht hat', async () => {
+    const llm = new ScriptLlmClient([{ content: TRIAGE_OK, facts: { status: 200, finishReason: 'stop', content: TRIAGE_OK, reasoning: 'hmm' } }]);
+    const h = await harness({ llm });
+    await executeRun(h.teamPath, h.deps);
+    expect(h.request.reported.flat().map((d) => d.kind)).toContain('thinking-despite-off');
+  });
+
+  it('meldet eine Ablehnung des Servers (HTTP 400) mit Status und Text', async () => {
+    const llm = new ScriptLlmClient([{ error: 'http', httpDetail: { status: 400, detail: 'unknown field top_k' } }]);
+    const h = await harness({ llm });
+    await executeRun(h.teamPath, h.deps);
+    expect(h.request.reported.flat()).toEqual([expect.objectContaining({ kind: 'rejected', detail: expect.stringContaining('top_k') })]);
+  });
+
+  it('meldet nichts, wenn die Antwort zur Bestellung passt', async () => {
+    const llm = new ScriptLlmClient([{ content: TRIAGE_OK, facts: { status: 200, finishReason: 'stop', content: TRIAGE_OK, reasoning: '' } }]);
+    const h = await harness({ llm });
+    await executeRun(h.teamPath, h.deps);
+    expect(h.request.reported.flat()).toEqual([]);
+  });
+});
+

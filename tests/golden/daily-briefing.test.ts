@@ -47,6 +47,8 @@ import { FixtureMetadataPort, InMemoryVaultPort } from '../helpers/in-memory-vau
 import { FakeSnapshotStore } from '../helpers/fake-snapshot';
 import { RecorderReporter } from '../helpers/recorder-reporter';
 import { ScriptLlmClient } from '../helpers/script-llm';
+import { fakeRequestPort } from '../helpers/fake-request-port';
+import { DEFAULT_REQUEST_SETTINGS } from '../../src/vendor/kit/sampling-profiles';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FIXTURE_DIR = join(REPO_ROOT, 'tests/fixtures/pallas-tasknotes');
@@ -137,9 +139,10 @@ describe('Golden-Run: ausgelieferte Daily-Briefing-Crew, end-to-end', () => {
 			deniedEndpoints: [],
 			limits: LIMITS,
 			undoHistoryDepth: 15,
+			request: DEFAULT_REQUEST_SETTINGS,
 		};
 		const deps: RunDeps = {
-			vault, meta, llm, snapshot, clock, reporter, settings,
+			vault, meta, llm, request: fakeRequestPort(), snapshot, clock, reporter, settings,
 			abort: new AbortController().signal,
 		};
 

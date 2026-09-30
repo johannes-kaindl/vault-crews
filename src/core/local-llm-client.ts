@@ -2,13 +2,14 @@
  *  Transport ist injiziert (PROF-OBS-12) — der pure-Layer kennt kein XHR/requestUrl.
  *  Timeout-Realität (Spec §7): Hard-Timeout ab Call-Start; Stall-Detektor erst NACH dem
  *  ersten Token scharf (JIT-Modell-Laden braucht > 60 s bis zum ersten Token).
- *  Thinking-Suppression nach vault-rag-Muster (reasoning_effort + chat_template_kwargs) —
- *  greift nur, wenn das Modell abschaltbar ist (`isAlwaysOnThinker`): gpt-oss/harmony lehnt
- *  die Suppress-Felder mit HTTP 400 ab, statt sie als No-op zu ignorieren. */
+ *  Sampling und Denkstufe entscheidet nicht dieser Client: `LlmParams.params` kommt fertig aus
+ *  `buildCrewParams` (Profil-Tabelle × Plugin-Überschreibung × Persona) und geht unverändert
+ *  auf den Draht. Dass gpt-oss nie `reasoning_effort: none` bekommt (HTTP 400), steht dort in
+ *  der Familien-Tabelle und als Golden-Zeile in `tests/core/crew-request.test.ts`. */
 import { createChatClient, type ChatClient, type ChatResult, type SseTransport } from '../vendor/kit/chat-client';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { authHeaders, type EndpointConfig } from '../vendor/kit/endpoint_config';
-import { isAlwaysOnThinker, parseLmStudioContext, parseOllamaContext, suppressParams } from './model-info';
+import { parseLmStudioContext, parseOllamaContext } from './model-info';
 import { reasoningHappened } from '../vendor/kit/reasoning';
 import type { ClockPort } from '../vendor/kit/clock';
 import { LlmCallError } from './ports';
@@ -125,14 +126,10 @@ export class LocalLlmClient implements LlmClient {
 		try {
 			res = await this.chat.complete({
 				endpoint: this.cfg,
-				model: params.model,
+				model: params.sentModel,
 				messages,
 				// Sampling gehört dem Plugin, nicht dem Kit-Client (Kit-Vertrag `params`).
-				params: {
-					temperature: params.temperature,
-					max_tokens: params.maxTokens,
-					...suppressParams(params.thinking === 'off' && !isAlwaysOnThinker(params.model)),
-				},
+				params: params.params,
 				signal: ctrl.signal,
 				onToken: (t) => onToken(t, false),
 				onReasoning: (t) => onToken(t, true),
@@ -148,6 +145,10 @@ export class LocalLlmClient implements LlmClient {
 				thinkTokens: thinkTokens(res.reasoning),
 				reasoned: reasoningHappened(res.content, res.reasoning),
 				finishReason: res.finishReason === 'length' ? 'length' : 'stop',
+				facts: {
+					status: 200, finishReason: res.finishReason ?? null, content: res.content, reasoning: res.reasoning,
+					...(res.model !== undefined ? { responseModel: res.model } : {}),
+				},
 			};
 		}
 		const partial = (finishReason: LlmStreamResult['finishReason']): LlmStreamResult => ({
@@ -164,11 +165,11 @@ export class LocalLlmClient implements LlmClient {
 					: new LlmCallError(`Kein neues Token innerhalb ${this.timeouts.stallTimeoutMs} ms`, 'stalled');
 			case 'truncated':
 				// Am Token-Limit abgeschnitten, ohne Text: der Orchestrator entscheidet über `length` (output_truncated).
-				return partial('length');
+				return { ...partial('length'), facts: { status: 200, finishReason: 'length', content: '', reasoning: res.reasoning } };
 			case 'overflow':
 				throw new LlmCallError(`HTTP ${String(res.status ?? 0)}: Kontextfenster überschritten`, 'overflow');
 			case 'http':
-				throw new LlmCallError(`HTTP ${String(res.status ?? 0)}: ${res.detail}`, 'http');
+				throw new LlmCallError(`HTTP ${String(res.status ?? 0)}: ${res.detail}`, 'http', { status: res.status ?? 0, detail: res.detail });
 			case 'network':
 				throw new Error(res.detail);
 		}

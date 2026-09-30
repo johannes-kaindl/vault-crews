@@ -31,6 +31,7 @@ import {
   type SettingsHost,
 } from "../../src/obsidian/settings";
 import type { EndpointStatus } from "../../src/vendor/kit/endpoint_diagnostics";
+import { createRequestSession } from "../../src/vendor/kit-obsidian/request-session";
 
 const OK_STATUS: EndpointStatus = { reachable: true, kind: "ok", klartext: "Connected" };
 
@@ -53,6 +54,9 @@ function makeFakeHost(overrides: Partial<SettingsHost> = {}): SettingsHost {
     listModels: vi.fn().mockResolvedValue(["m1", "m2"]),
     resolveActive: vi.fn().mockResolvedValue(null),
     installExamples: vi.fn(),
+    requestSession: createRequestSession({ message: (d) => d.kind, notice: () => {} }),
+    requestSectionState: () => ({ family: null, familySource: "none", backend: "unknown", backendSource: "none", model: "", sentModel: "" }),
+    refreshRequestSource: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -158,6 +162,7 @@ describe("DEFAULT_SETTINGS", () => {
       endpoints: [{ url: "http://localhost:1234/v1" }],
       deniedEndpoints: ["http://localhost:8080", "http://127.0.0.1:8080"],
       choice: {},
+      request: { overrides: {}, thinking: {}, lastOnLevel: {}, levelPickerInChat: false },
       crewRoot: "_crews",
       hideCrewFolder: false,
       maxWrites: 10,
@@ -187,7 +192,8 @@ describe("SettingsTab.display()", () => {
     // EIN Kind statt sechs: er sitzt jetzt in einer eigenen Zeile, die `settingBodyHost`
     // zum leeren Block gemacht hat, statt direkt in den Container zu zeichnen.
     // +1 seit 0.11.0: die Hilfe-Zeile steht als erstes Element vor den Gruppen.
-    expect(tab.containerEl.children.length).toBe(16);
+    // +1 seit 0.13.0: die Zeile „Request" (Kit-Abschnitt Anfrage) sitzt in der Gruppe Connection.
+    expect(tab.containerEl.children.length).toBe(17);
   });
 
   it("gibt dem Kit-Endpunkt-Editor eine Zeile, die er auch füllt", () => {
@@ -205,7 +211,8 @@ describe("SettingsTab.display()", () => {
         (el as { className?: string }).className?.includes("setting-item") === false &&
         ((el as { children?: unknown[] }).children?.length ?? 0) > 1,
     );
-    expect(gefuellteBloecke).toHaveLength(1);
+    // Zwei gefüllte Blöcke: der Endpunkt-Editor und (seit 0.13.0) der Kit-Abschnitt „Request".
+    expect(gefuellteBloecke).toHaveLength(2);
   });
 
   it("re-rendering (repeated display() calls) clears the previous content first", () => {
@@ -414,3 +421,48 @@ describe("sanitizeChoice", () => {
     expect(sanitizeChoice(undefined)).toEqual({});
   });
 });
+
+describe("SettingsTab — Abschnitt „Request“ (Modus structured)", () => {
+  it("zeichnet Modus, Felder und Denkstufe aus dem Kit-Abschnitt und sagt, dass die Persona darüber entscheidet", () => {
+    const host = makeFakeHost();
+    const texts = captureSettingTexts();
+    const tab = new SettingsTab(makeFakePlugin(), host);
+
+    tab.display();
+
+    const joined = texts.join(" | ");
+    expect(joined).toContain("Structured");
+    expect(joined).toContain("Temperature (temperature)");
+    expect(joined).toContain("Thinking level");
+    expect(joined).toContain("Last request");
+  });
+
+  it("löst die Quelle für den Abschnitt je Öffnen genau einmal auf und beim nächsten Öffnen wieder", () => {
+    const host = makeFakeHost();
+    const tab = new SettingsTab(makeFakePlugin(), host);
+
+    tab.display();
+    tab.display(); // ein Rebuild im selben Öffnen — keine zweite Auflösung
+    expect(host.refreshRequestSource).toHaveBeenCalledTimes(1);
+
+    tab.hide();
+    tab.display(); // neues Öffnen
+    expect(host.refreshRequestSource).toHaveBeenCalledTimes(2);
+  });
+
+  it("liest Familie und Backend vom Host (letzter Lauf), nicht aus den Einstellungen", () => {
+    const host = makeFakeHost({
+      requestSectionState: vi.fn().mockReturnValue({
+        family: "qwen3.8", familySource: "name", backend: "lmstudio", backendSource: "probe", model: "qwen/qwen3.8-27b", sentModel: "qwen/qwen3.8-27b",
+      }),
+    });
+    const texts = captureSettingTexts();
+    const tab = new SettingsTab(makeFakePlugin(), host);
+
+    tab.display();
+
+    expect(host.requestSectionState).toHaveBeenCalled();
+    expect(texts.join(" | ")).toContain("Family: Qwen 3.8 (estimated from the name) · Backend: LM Studio (detected)");
+  });
+});
+

@@ -2,6 +2,7 @@
  *  Obsidian-/Node-Implementierungen leben in src/obsidian/. Quelle: Interface-Skelett (bindend). */
 import type { ActionOutcome, FmValue, RunResult } from './types';
 import type { EndpointConfig } from '../vendor/kit/endpoint_config';
+import type { BackendId, Deviation, FamilyId, ResponseFacts, ThinkingLevel } from '../vendor/kit/sampling-profiles';
 
 export interface VaultPort {
 	read(path: string): Promise<string>;
@@ -22,8 +23,39 @@ export interface MetadataPort {
 }
 
 export interface LlmMessage { role: 'system' | 'user'; content: string; }
-export interface LlmParams { model: string; temperature: number; maxTokens: number; thinking: 'auto' | 'on' | 'off'; }
-export interface LlmStreamResult { content: string; thinkTokens: number; reasoned: boolean; finishReason: 'stop' | 'length' | 'aborted'; }
+/** Was ein Modellaufruf braucht — fertig aufgelöst. Die Werte baut `buildCrewParams`
+ *  (crew-request.ts) aus Profil-Tabelle, Plugin-Überschreibung und Persona; der Client sendet
+ *  sie unverändert und erfindet nichts dazu. */
+export interface LlmParams {
+	/** Das Modell, wie Nutzer/Agent es nennen (Anzeige, Log). */
+	model: string;
+	/** Das Modell, wie es über den Draht geht (nach `aliasOf`-Auflösung). */
+	sentModel: string;
+	/** Sampling- und Denk-Felder, flach in den Body gemischt. */
+	params: Record<string, number | string>;
+	/** Die gewünschte Denkstufe — Information für die Always-on-Erkennung
+	 *  („Modell dachte trotz off"), nicht für den Draht. */
+	thinkingLevel: ThinkingLevel;
+}
+export interface LlmStreamResult {
+	content: string; thinkTokens: number; reasoned: boolean; finishReason: 'stop' | 'length' | 'aborted';
+	/** Was `checkResponse` aus der Antwort braucht. Fehlt bei Test-Doubles; der echte Client
+	 *  liefert es immer. */
+	facts?: ResponseFacts;
+}
+
+/** Was der pure Orchestrator über das Modell hinter dem Endpunkt nicht selbst wissen kann:
+ *  Familie und Draht-Schreibweise (aus dem Manager oder dem Namen), das Backend (Probe) —
+ *  und wohin die Sitzung ihre Anfragen und Abweichungen meldet. Die Obsidian-Schicht
+ *  implementiert es (main.ts); der Orchestrator wählt den Endpunkt per Failover selbst,
+ *  deshalb kann die Antwort erst nach `checkEndpointAndModel` eingeholt werden. */
+export interface RequestPort {
+	describe(model: string): { family: FamilyId | null; sentModel: string };
+	/** Wirft nie; `unknown`, wenn nichts erkannt wird. */
+	backendOf(endpoint: EndpointConfig): Promise<BackendId>;
+	recordRequest(params: Record<string, number | string>): void;
+	report(deviations: Deviation[]): void;
+}
 export interface ModelInfo { id: string; contextLength: number | null; }
 export interface LlmClient {
 	/** Probt EINEN Endpunkt — mitsamt seinem Schlüssel, sonst antwortet ein Gateway, das
@@ -48,7 +80,12 @@ export interface LlmClient {
 /** Typisierter LLM-Call-Fehler: der Orchestrator entscheidet Fehlerpfade über `kind`
  *  statt über Message-Sniffing (Zusatz-Vertrag zum Skelett, s. Plan Task 12/13). */
 export class LlmCallError extends Error {
-	constructor(message: string, readonly kind: 'overflow' | 'timeout' | 'stalled' | 'http') {
+	constructor(
+		message: string,
+		readonly kind: 'overflow' | 'timeout' | 'stalled' | 'http',
+		/** Nur bei `http`: Status und Servertext — `checkResponse` erkennt daran eine abgelehnte Anfrage. */
+		readonly http?: { status: number; detail: string },
+	) {
 		super(message);
 		this.name = 'LlmCallError';
 	}

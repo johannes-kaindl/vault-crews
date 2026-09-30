@@ -33,8 +33,10 @@ describe('parseAgentDef', () => {
 		if (!r.ok) return;
 		expect(r.value).toEqual({
 			id: 'triage-analyst', name: 'Triage-Analyst', model: null,
-			temperature: 0.1, maxTokens: 2048, thinking: 'auto', systemPrompt: 'Du bist nüchtern.',
+			maxTokens: 2048, thinking: 'auto', systemPrompt: 'Du bist nüchtern.',
 		});
+		// Keine Temperatur im Frontmatter: es gibt keinen Persona-Wert, der das Profil überstimmt.
+		expect('temperature' in r.value).toBe(false);
 	});
 
 	it('meldet fehlenden name, leeren Body und falschen kind einzeln', () => {

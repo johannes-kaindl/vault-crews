@@ -65,7 +65,7 @@ export function parseAgentDef(path: string, fm: Record<string, unknown> | null, 
 	if (systemPrompt === '') err('systemPrompt', 'Note-Body ist leer (erwartet System-Prompt-Prosa)');
 
 	const model = typeof fm.model === 'string' && fm.model.trim() !== '' ? fm.model.trim() : null;
-	const temperature = typeof fm.temperature === 'number' ? fm.temperature : 0.1;
+	const temperature = typeof fm.temperature === 'number' ? fm.temperature : undefined;
 	const maxTokens = typeof fm.max_tokens === 'number' ? fm.max_tokens : 2048;
 	const thinkingRaw = fm.thinking;
 	const thinking = thinkingRaw === 'on' || thinkingRaw === 'off' || thinkingRaw === 'auto' ? thinkingRaw : 'auto';
@@ -74,7 +74,10 @@ export function parseAgentDef(path: string, fm: Record<string, unknown> | null, 
 	if (errors.length > 0) return { ok: false, errors };
 	return {
 		ok: true,
-		value: { id: slugFromPath(path), name: name ?? '', model, temperature, maxTokens, thinking, systemPrompt },
+		value: {
+			id: slugFromPath(path), name: name ?? '', model, ...(temperature !== undefined ? { temperature } : {}),
+			maxTokens, thinking, systemPrompt,
+		},
 	};
 }
 

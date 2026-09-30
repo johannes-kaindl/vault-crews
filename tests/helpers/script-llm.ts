@@ -1,5 +1,6 @@
 import type { LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo } from '../../src/core/ports';
 import { LlmCallError } from '../../src/core/ports';
+import type { ResponseFacts } from '../../src/vendor/kit/sampling-profiles';
 
 export interface ScriptedCall {
 	content?: string;
@@ -8,6 +9,10 @@ export interface ScriptedCall {
 	finishReason?: LlmStreamResult['finishReason'];
 	/** Fehlerinjektion statt Antwort. */
 	error?: 'overflow' | 'timeout' | 'stalled' | 'http';
+	/** Status und Servertext eines injizierten HTTP-Fehlers (wie ihn der echte Client am LlmCallError trägt). */
+	httpDetail?: { status: number; detail: string };
+	/** Antwort-Fakten für `checkResponse` (der echte Client liefert sie immer). */
+	facts?: ResponseFacts;
 }
 
 export class ScriptLlmClient implements LlmClient {
@@ -24,9 +29,12 @@ export class ScriptLlmClient implements LlmClient {
 		this.calls.push({ messages, params });
 		const step = this.queue.shift();
 		if (!step) throw new Error('ScriptLlmClient: Queue leer — Test hat mehr Calls gemacht als gescriptet');
-		if (step.error) throw new LlmCallError(`injected: ${step.error}`, step.error);
+		if (step.error) throw new LlmCallError(`injected: ${step.error}`, step.error, step.httpDetail);
 		const content = step.content ?? '';
 		for (const chunk of content.match(/.{1,8}/gs) ?? []) onToken(chunk, false);
-		return { content, thinkTokens: step.thinkTokens ?? 0, reasoned: step.reasoned ?? false, finishReason: step.finishReason ?? 'stop' };
+		return {
+			content, thinkTokens: step.thinkTokens ?? 0, reasoned: step.reasoned ?? false, finishReason: step.finishReason ?? 'stop',
+			...(step.facts !== undefined ? { facts: step.facts } : {}),
+		};
 	}
 }

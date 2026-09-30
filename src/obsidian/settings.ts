@@ -4,12 +4,16 @@ import { ENDPOINT_PRESETS, type EndpointStatus } from "../vendor/kit/endpoint_di
 import { parseEndpointList } from "../vendor/kit/endpoint";
 import type { EndpointConfig } from "../vendor/kit/endpoint_config";
 import type { EndpointChoice } from "../vendor/kit/endpoint-source";
+import { DEFAULT_REQUEST_SETTINGS, FAMILIES, BACKENDS, type BackendId, type FamilyId, type RequestSettings } from "../vendor/kit/sampling-profiles";
+import { buildRequestSection, type RequestSectionState } from "../vendor/kit-obsidian/request-section";
+import type { RequestSession } from "../vendor/kit-obsidian/request-session";
+import { deviationDetail, fieldStateText } from "./request-text";
 import { createModelListCache, type ModelListCache } from "../vendor/kit/model-list-cache";
 import { guessFromName, type Capabilities } from "../vendor/kit/capabilities";
 import { buildEndpointSourceSection } from "../vendor/kit-obsidian/endpoint-source";
 import { buildEndpointList, type EndpointListStrings } from "../vendor/kit-obsidian/endpoint-list";
 import { githubHelpUrls, helpSettingDefinition } from "../vendor/kit-obsidian/help-setting";
-import { renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "../vendor/kit-obsidian/settings_walker";
+import { installTabRefreshOnOpen, renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "../vendor/kit-obsidian/settings_walker";
 import { statusKindKey, warnRuleKey } from "./endpoint-labels";
 
 /**
@@ -28,6 +32,9 @@ export interface PluginSettings {
   /** Wahl gegenueber dem LLM Endpoint Manager (optionales Nachbar-Plugin); leer = automatisch.
    *  Die lokale Liste oben bleibt Rueckfall, solange der Manager fehlt. */
   choice: EndpointChoice;
+  /** Was die Läufe mit dem Modell schicken: Überschreibungen der Sampling-Werte je Modus × Modellfamilie
+   *  und die Denkstufe (Abschnitt „Anfrage"). Die Persona kann darüber noch einmal entscheiden. */
+  request: RequestSettings;
   crewRoot: string;
   /** Crew-Ordner im Datei-Explorer verstecken (rein kosmetisch, Muster aus vault-rag/slide-deck). */
   hideCrewFolder: boolean;
@@ -53,6 +60,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   endpoints: [{ url: "http://localhost:1234/v1" }],
   deniedEndpoints: ["http://localhost:8080", "http://127.0.0.1:8080"],
   choice: {},
+  request: DEFAULT_REQUEST_SETTINGS,
   crewRoot: "_crews",
   hideCrewFolder: false,
   maxWrites: 10,
@@ -77,6 +85,12 @@ export interface SettingsHost {
   listModels(cfg: EndpointConfig): Promise<string[]>;
   /** Normalisierte URL des ersten erreichbaren Eintrags, oder null. */
   resolveActive(): Promise<string | null>;
+  /** Anfragen und Abweichungen dieser Sitzung (Abschnitt „Anfrage"). */
+  requestSession: RequestSession;
+  /** Familie, Backend und gesendetes Modell des zuletzt aufgelösten Endpunkts. */
+  requestSectionState(): RequestSectionState;
+  /** Löst die Quelle des nächsten Laufs auf und hält sie für `requestSectionState()` fest. */
+  refreshRequestSource(): Promise<void>;
   /** Installiert die Beispiel-Crews — derselbe Pfad wie der Empty-State-Knopf im Panel
    *  (`PanelHost.installExamples`), damit zwei gleich beschriftete Knöpfe dasselbe tun. */
   installExamples(): void;
@@ -170,6 +184,8 @@ export class SettingsTab extends PluginSettingTab {
   private activeUrl: string | null = null;
   /** Verhindert, dass jeder Rebuild eine weitere Auflösung nachschiebt. */
   private resolving = false;
+  /** Einmal je Öffnen des Tabs die Quelle für den Abschnitt „Anfrage" auflösen (in hide() zurückgesetzt). */
+  private requestSourceAsked = false;
   /** Cleanups der Hatches des vorigen Fallback-Durchlaufs. */
   private cleanupPrevious: () => void = () => {};
 
@@ -180,6 +196,10 @@ export class SettingsTab extends PluginSettingTab {
     // Echtes Plugin-Objekt statt Cast — main.ts ruft `new SettingsTab(this, this)`.
     // Alle Settings-Zugriffe laufen ausschließlich über `host`, nie über `this.plugin`.
     super(plugin.app, plugin);
+    // „Letzte Anfrage" und die Abweichungen leben in der Sitzung des Plugins, nicht im Tab: das erneute
+    // Öffnen muss sie neu zeichnen. Einmal für die Lebensdauer des Tabs installiert und in hide() NICHT
+    // zurückgenommen — Obsidian hält eine Tab-Instanz je Plugin und öffnet dieselbe wieder.
+    installTabRefreshOnOpen(this, () => this.renderImperative());
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
@@ -216,6 +236,11 @@ export class SettingsTab extends PluginSettingTab {
           // (Fund obsidian-paperize, REGISTRY). Weglassen wirkt in beiden Pfaden, weil
           // diese Methode bei jedem Rebuild neu ausgewertet wird.
           ...this.capabilityItems(),
+          {
+            name: t("request.title"),
+            desc: t("request.desc"),
+            render: (setting) => this.renderRequest(setting),
+          },
           {
             name: t("settings.connection.deniedEndpoints.name"),
             desc: t("settings.connection.deniedEndpoints.desc"),
@@ -303,6 +328,7 @@ export class SettingsTab extends PluginSettingTab {
   hide(): void {
     this.modelCache.clear();
     this.activeUrl = null;
+    this.requestSourceAsked = false;
     super.hide();
   }
 
@@ -389,6 +415,57 @@ export class SettingsTab extends PluginSettingTab {
    *  `update()`-API, darunter über den vollen Rebuild. */
   private refreshUi(): void {
     refreshSettingsTab(this, () => this.renderImperative());
+  }
+
+  /** Der Kit-Abschnitt „Anfrage" (Modus structured): was ein Lauf sendet, je Modellfamilie
+   *  überschreibbar, Denkstufe, letzte Anfrage, Abweichungen. Die Persona-Werte stehen darüber —
+   *  der Hinweis sagt es dazu, weil der Abschnitt sie sonst nicht kennt. */
+  private renderRequest(setting: Setting): void {
+    const host = settingBodyHost(setting);
+    if (!this.requestSourceAsked) {
+      this.requestSourceAsked = true;
+      void this.host.refreshRequestSource().then(() => { this.refreshUi(); });
+    }
+    host.createEl("p", { text: t("request.personaHint"), cls: "setting-item-description" });
+    buildRequestSection({
+      containerEl: host,
+      modes: ["structured"],
+      state: () => this.host.requestSectionState(),
+      settings: () => this.host.settings.request,
+      save: async (next) => { this.host.settings.request = next; await this.host.saveSettings(); },
+      // Das Token-Budget ist das der Persona (`max_tokens`, Default 2048), kein Feld dieses Abschnitts.
+      maxTokens: () => 2048,
+      session: this.host.requestSession,
+      rerender: () => this.refreshUi(),
+      strings: {
+        title: t("request.title"),
+        head: (family, familySource, backend, backendSource) => {
+          const famLabel = family === "—" ? "—" : (FAMILIES[family as FamilyId]?.label ?? family);
+          const backLabel = backend === "unknown" ? t("request.backendSource.none") : (BACKENDS[backend as BackendId]?.label ?? backend);
+          return t("request.head", famLabel, t(`request.familySource.${familySource}`), backLabel, t(`request.backendSource.${backendSource}`));
+        },
+        unknownFamily: t("request.unknownFamily"),
+        jitWarning: (model, defaultModel) => t("request.jitWarning", model, defaultModel),
+        sentAs: (model) => t("request.sentAs", model),
+        modeHeading: (mode) => t(`request.mode.${mode}`),
+        fieldName: (field) => t(`request.field.${field}`),
+        fieldDesc: fieldStateText,
+        reset: t("request.reset"),
+        thinkingLevel: t("request.thinkingLevel"),
+        level: (l) => t(`request.level.${l}`),
+        levelPicker: t("request.levelPicker"),
+        levelPickerDesc: t("request.levelPickerDesc"),
+        dormant: (fam) => t("request.dormant", fam === "unknown" ? t("request.familySource.none") : (FAMILIES[fam]?.label ?? fam)),
+        deleteDormant: t("request.deleteDormant"),
+        lastRequest: t("request.lastRequest"),
+        lastRequestNone: t("request.lastRequestNone"),
+        copy: t("request.copy"),
+        copied: t("request.copied"),
+        deviationsOk: t("request.deviationsOk"),
+        deviationsWarn: (n) => t("request.deviationsWarn", String(n)),
+        deviation: (kind, count, detail) => `${deviationDetail(kind, detail)} (${count}×)`,
+      },
+    });
   }
 
   /** Die aktive Zeile steht erst fest, wenn die Proben zurück sind. Einmal je Zustand

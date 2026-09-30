@@ -14,13 +14,15 @@ import { buildRunMd, buildStateJson } from './run-log';
 import { fnv1a } from './collectors';
 import { isAlwaysOnThinker } from './model-info';
 import { resolveTaskModel } from './model-resolution';
+import { buildCrewParams } from './crew-request';
 import { redactRunState } from './redact';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { resolveActiveEndpointConfig, type EndpointConfig } from '../vendor/kit/endpoint_config';
 import type { ClockPort } from '../vendor/kit/clock';
+import { checkResponse, type BackendId, type FamilyId, type RequestSettings, type ThinkingLevel } from '../vendor/kit/sampling-profiles';
 import { LlmCallError } from './ports';
 import type {
-	LlmClient, LlmMessage, LlmParams, LlmStreamResult, MetadataPort, RunReporter, SnapshotStore, VaultPort,
+	LlmClient, LlmMessage, LlmParams, LlmStreamResult, MetadataPort, RequestPort, RunReporter, SnapshotStore, VaultPort,
 } from './ports';
 import type {
 	Action, ActionsTaskDef, AgentDef, Artifact, CollectorTaskDef, ErrorKind, LlmTaskDef,
@@ -31,6 +33,8 @@ export interface RunDeps {
 	vault: VaultPort;
 	meta: MetadataPort;
 	llm: LlmClient;
+	/** Familie/Backend des Modells und die Sitzungs-Aufzeichnung der Anfragen (Abschnitt „Anfrage"). */
+	request: RequestPort;
 	snapshot: SnapshotStore;
 	clock: ClockPort;
 	reporter: RunReporter;
@@ -43,6 +47,8 @@ export interface RunDeps {
 		deniedEndpoints: string[];
 		limits: RunLimits;
 		undoHistoryDepth: number;
+		/** Plugin-Überschreibungen und Denkstufe je Modus (Abschnitt „Anfrage"). */
+		request: RequestSettings;
 	};
 	abort: AbortSignal;
 }
@@ -73,6 +79,8 @@ class RunFsm {
 	 *  Agenten auf DIESER Leitung überhaupt existiert. */
 	private availableModels: ReadonlySet<string> = new Set();
 	private team: TeamDef | null = null;
+	/** Backend hinter dem aktiven Endpunkt — einmal je Lauf nach der Endpunkt-Wahl erkannt. */
+	private backend: BackendId = 'unknown';
 	private stopped = false;   // ein Task hat den Lauf abgebrochen (on_error abort / actions-Fail)
 	private aborted = false;   // Watchdog / User-Abbruch
 
@@ -159,6 +167,9 @@ class RunFsm {
 		// nachfolgenden Calls (listModels/modelInfo/stream) MÜSSEN ihn auch tatsächlich
 		// ansprechen, sonst bricht Multi-Endpoint-Failover (endpoints[0] tot, [1] lebt).
 		this.deps.llm.setEndpoint(active);
+		// Das Backend bestimmt, welche Sampling-Felder wirken (Profil-Tabelle). Der Port wirft nie;
+		// „unbekannt" ist ein gültiger Zustand und schickt dann nur, was jedes Backend versteht.
+		this.backend = await this.deps.request.backendOf(active);
 
 		try {
 			const available = new Set(await this.deps.llm.listModels());
@@ -278,8 +289,15 @@ class RunFsm {
 		const slugTables = mergeSlugTables(inputs);
 		const target = this.resolveTarget(task);
 		const ctxLen = this.modelCtx.get(rec.model) ?? CONTEXT_FALLBACK;
-		const budget = Math.max(1, ctxLen - agent.maxTokens - Math.floor(ctxLen * BUDGET_RESERVE));
-		const params: LlmParams = { model: rec.model, temperature: agent.temperature, maxTokens: agent.maxTokens, thinking: agent.thinking };
+		const { family, sentModel } = this.deps.request.describe(rec.model);
+		const { params: wire, thinkingLevel } = buildCrewParams({
+			family, backend: this.backend, agent, settings: this.deps.settings.request,
+		});
+		const params: LlmParams = { model: rec.model, sentModel, params: wire, thinkingLevel };
+		const check = { family, thinking: thinkingLevel };
+		// Das Profil kann das Budget für eine Denkstufe anheben: die Kontextrechnung nimmt, was gesendet wird.
+		const sentMax = typeof wire.max_tokens === 'number' ? wire.max_tokens : agent.maxTokens;
+		const budget = Math.max(1, ctxLen - sentMax - Math.floor(ctxLen * BUDGET_RESERVE));
 
 		// Primärer Call mit genau einem reaktiven Overflow-Retry (Material halbieren).
 		let result: LlmStreamResult;
@@ -289,7 +307,7 @@ class RunFsm {
 			try {
 				const prompt = buildPrompt(agent, task, inputs, schema, b);
 				rec.promptHash = prompt.promptHash;
-				result = await this.stream(prompt.messages, params, task.id);
+				result = await this.stream(prompt.messages, params, task.id, check);
 			} catch (e) {
 				if (e instanceof LlmCallError && e.kind === 'overflow' && !overflowRetried) {
 					overflowRetried = true;
@@ -300,7 +318,7 @@ class RunFsm {
 			break;
 		}
 		rec.thinkTokens += result.thinkTokens;
-		if (params.thinking === 'off' && result.reasoned) this.state.alwaysOnThinker = true;
+		if (params.thinkingLevel === 'off' && result.reasoned) this.state.alwaysOnThinker = true;
 		if (result.finishReason === 'aborted') { this.abortRun(task.id, 'Stream abgebrochen'); rec.error = { kind: 'aborted', message: 'Stream abgebrochen' }; return 'failed'; }
 
 		let validated = validateOutput(result.content, schema, sources, slugTables, target);
@@ -309,19 +327,19 @@ class RunFsm {
 		// und wäre ein verbrannter Call. Ursache ist ein Budget, nicht das Modell — also auch
 		// nicht als invalid_output melden, sonst sucht der Nutzer an der falschen Stelle.
 		if (!validated.ok && result.finishReason === 'length') {
-			return this.failLlm(task, rec, 'output_truncated', truncatedMsg(params.maxTokens));
+			return this.failLlm(task, rec, 'output_truncated', truncatedMsg(sentMax));
 		}
 		if (!validated.ok && this.state.llmCalls < this.limits.maxLlmCalls) {
 			// genau ein Repair-Zyklus
 			try {
-				const repair = await this.stream(buildRepairPrompt(result.content, validated.errors), params, task.id);
+				const repair = await this.stream(buildRepairPrompt(result.content, validated.errors), params, task.id, check);
 				rec.thinkTokens += repair.thinkTokens;
-				if (params.thinking === 'off' && repair.reasoned) this.state.alwaysOnThinker = true;
+				if (params.thinkingLevel === 'off' && repair.reasoned) this.state.alwaysOnThinker = true;
 				if (repair.finishReason === 'aborted') { this.abortRun(task.id, 'Stream abgebrochen'); rec.error = { kind: 'aborted', message: 'Stream abgebrochen' }; return 'failed'; }
 				validated = validateOutput(repair.content, schema, sources, slugTables, target);
 				if (!validated.ok) await this.writeArtifact(task.id, 2, repair.content);
 				if (!validated.ok && repair.finishReason === 'length') {
-					return this.failLlm(task, rec, 'output_truncated', truncatedMsg(params.maxTokens));
+					return this.failLlm(task, rec, 'output_truncated', truncatedMsg(sentMax));
 				}
 			} catch (e) {
 				return this.failLlm(task, rec, llmErrorKind(e), errMsg(e));
@@ -468,16 +486,30 @@ class RunFsm {
 		return out;
 	}
 
-	private async stream(messages: LlmMessage[], params: LlmParams, taskId: string): Promise<LlmStreamResult> {
+	private async stream(
+		messages: LlmMessage[], params: LlmParams, taskId: string,
+		check: { family: FamilyId | null; thinking: ThinkingLevel },
+	): Promise<LlmStreamResult> {
 		if (this.state.llmCalls >= this.limits.maxLlmCalls) {
 			throw new LlmCallError(`LLM-Call-Limit erreicht (${this.limits.maxLlmCalls})`, 'http');
 		}
 		this.state.llmCalls += 1;
-		return this.deps.llm.stream(
-			messages, params,
-			(text, isThink) => this.deps.reporter.emit({ type: 'token', taskId, isThink, text }),
-			this.deps.abort,
-		);
+		this.deps.request.recordRequest(params.params);
+		try {
+			const result = await this.deps.llm.stream(
+				messages, params,
+				(text, isThink) => this.deps.reporter.emit({ type: 'token', taskId, isThink, text }),
+				this.deps.abort,
+			);
+			// Abweichungen zwischen Profil und Antwort gehören in die Sitzung — kein stiller Wiederholversuch.
+			if (result.facts) this.deps.request.report(checkResponse(check, result.facts));
+			return result;
+		} catch (e) {
+			if (e instanceof LlmCallError && e.http !== undefined) {
+				this.deps.request.report(checkResponse(check, { status: e.http.status, errorText: e.http.detail, content: '', reasoning: '' }));
+			}
+			throw e;
+		}
 	}
 
 	private failLlm(task: LlmTaskDef, rec: TaskRecord, kind: ErrorKind, message: string): TaskStatus {

@@ -8,7 +8,7 @@ import type { JsonTransport, LlmParams } from '../../src/core/ports';
 import { FakeClock } from '../helpers/fake-clock';
 
 const fixture = (name: string): string => readFileSync(join(__dirname, '../fixtures/streams', name), 'utf8');
-const PARAMS: LlmParams = { model: 'qwen/qwen3.6-35b-a3b', temperature: 0.1, maxTokens: 512, thinking: 'auto' };
+const PARAMS: LlmParams = { model: 'qwen/qwen3.6-35b-a3b', sentModel: 'qwen/qwen3.6-35b-a3b', params: { temperature: 0.1, max_tokens: 512 }, thinkingLevel: 'off' };
 const TIMEOUTS = { callTimeoutMs: 300_000, stallTimeoutMs: 60_000 };
 
 /** Kit-Transportvertrag (obsidian-kit `SseTransport`). Verhalten wie der echte XHR-Transport: ein Abbruch
@@ -153,14 +153,17 @@ describe('LocalLlmClient.stream', () => {
 		expect(r.thinkTokens).toBeGreaterThan(0);
 	});
 
-	it('sendet Suppression-Hints bei thinking=off (vault-rag-Muster)', async () => {
+	it('sendet die fertigen Params flach in den Body und als Modell den Draht-Namen (sentModel)', async () => {
 		const { client, sse, clock } = make();
-		const p = client.stream([{ role: 'user', content: 'q' }], { ...PARAMS, thinking: 'off' }, () => {}, new AbortController().signal);
+		const params: LlmParams = {
+			model: 'verdigado-pro', sentModel: 'openai/gpt-oss-120b',
+			params: { temperature: 0.2, top_k: 20, reasoning_effort: 'minimal', max_tokens: 777 }, thinkingLevel: 'off',
+		};
+		const p = client.stream([{ role: 'user', content: 'q' }], params, () => {}, new AbortController().signal);
 		await tickAsync(clock, 1);
 		sse.play(fixture('basic.sse'));
 		await p;
-		expect(sse.lastBody.reasoning_effort).toBe('none');
-		expect(sse.lastBody.chat_template_kwargs).toEqual({ enable_thinking: false });
+		expect(sse.lastBody).toMatchObject({ model: 'openai/gpt-oss-120b', temperature: 0.2, top_k: 20, reasoning_effort: 'minimal', max_tokens: 777 });
 	});
 
 	it('routes content tokens as isThink=false and reasoning tokens as isThink=true', async () => {
@@ -201,51 +204,24 @@ describe('LocalLlmClient.stream', () => {
 	});
 });
 
-describe('LocalLlmClient thinking-Suppression', () => {
-	it('sendet reasoning_effort "none" + enable_thinking:false + reasoning_budget:0 bei thinking:off', async () => {
-		const { client, sse, clock } = make();
-		const params: LlmParams = { model: 'm', temperature: 0.1, maxTokens: 128, thinking: 'off' };
-		const p = client.stream([{ role: 'user', content: 'q' }], params, () => {}, new AbortController().signal);
-		await tickAsync(clock, 1);
-		sse.play(fixture('basic.sse'));
-		await p;
-		expect(sse.lastBody.reasoning_effort).toBe('none');
-		expect(sse.lastBody.chat_template_kwargs).toEqual({ enable_thinking: false });
-		expect(sse.lastBody.reasoning_budget).toBe(0);
-	});
-
-	it('sendet keine Suppress-Felder bei thinking:auto', async () => {
+describe('LocalLlmClient — Antwort-Fakten für checkResponse, Fristen und Kontextlänge', () => {
+	it('eine fertige Antwort trägt Status 200, Abschlussgrund, Inhalt und das, was der Server als Modell nennt', async () => {
 		const { client, sse, clock } = make();
 		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
 		await tickAsync(clock, 1);
 		sse.play(fixture('basic.sse'));
-		await p;
-		expect(sse.lastBody.reasoning_effort).toBeUndefined();
-		expect(sse.lastBody.reasoning_budget).toBeUndefined();
+		const r = await p;
+		expect(r.facts).toMatchObject({ status: 200, content: 'Hallo Welt' });
+		expect(r.facts?.reasoning).toEqual(expect.any(String));
 	});
 
-	it('unterdrückt Thinking bei thinking:off NICHT für gpt-oss (always-on, lehnt reasoning_effort ab)', async () => {
+	it('ein HTTP-Fehler trägt Status und Servertext am LlmCallError (Grundlage für „Server lehnte die Anfrage ab")', async () => {
 		const { client, sse, clock } = make();
-		const params: LlmParams = { model: 'openai/gpt-oss-20b', temperature: 0.1, maxTokens: 128, thinking: 'off' };
-		const p = client.stream([{ role: 'user', content: 'q' }], params, () => {}, new AbortController().signal);
+		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);
+		const assertion = expect(p).rejects.toMatchObject({ kind: 'http', http: { status: 400 } });
 		await tickAsync(clock, 1);
-		sse.play(fixture('basic.sse'));
-		await p;
-		expect(sse.lastBody.reasoning_effort).toBeUndefined();
-		expect(sse.lastBody.chat_template_kwargs).toBeUndefined();
-		expect(sse.lastBody.reasoning_budget).toBeUndefined();
-	});
-
-	it('unterdrückt Thinking bei thinking:off weiterhin für ein Qwen-Modell', async () => {
-		const { client, sse, clock } = make();
-		const params: LlmParams = { model: 'qwen/qwen3.6-35b-a3b', temperature: 0.1, maxTokens: 128, thinking: 'off' };
-		const p = client.stream([{ role: 'user', content: 'q' }], params, () => {}, new AbortController().signal);
-		await tickAsync(clock, 1);
-		sse.play(fixture('basic.sse'));
-		await p;
-		expect(sse.lastBody.reasoning_effort).toBe('none');
-		expect(sse.lastBody.chat_template_kwargs).toEqual({ enable_thinking: false });
-		expect(sse.lastBody.reasoning_budget).toBe(0);
+		sse.play('{"error":{"message":"bad param"}}', 400);
+		await assertion;
 	});
 
 	it('Hard-Timeout ohne ersten Token → LlmCallError timeout (JIT-TTFB: Stall bleibt stumm)', async () => {

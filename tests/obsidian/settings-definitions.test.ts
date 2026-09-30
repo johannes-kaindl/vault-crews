@@ -19,6 +19,7 @@ import {
   type SettingsHost,
 } from "../../src/obsidian/settings";
 import type { EndpointStatus } from "../../src/vendor/kit/endpoint_diagnostics";
+import { createRequestSession } from "../../src/vendor/kit-obsidian/request-session";
 
 const OK_STATUS: EndpointStatus = { reachable: true, kind: "ok", klartext: "Connected" };
 
@@ -36,6 +37,9 @@ function makeFakeHost(overrides: Partial<SettingsHost> = {}): SettingsHost {
     listModels: vi.fn().mockResolvedValue(["m1", "m2"]),
     resolveActive: vi.fn().mockResolvedValue(null),
     installExamples: vi.fn(),
+    requestSession: createRequestSession({ message: (d) => d.kind, notice: () => {} }),
+    requestSectionState: () => ({ family: null, familySource: "none", backend: "unknown", backendSource: "none", model: "", sentModel: "" }),
+    refreshRequestSource: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }

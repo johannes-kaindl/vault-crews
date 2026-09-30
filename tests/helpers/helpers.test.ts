@@ -96,10 +96,10 @@ describe('ScriptLlmClient', () => {
 			{ error: 'overflow' },
 		]);
 		const tokens: string[] = [];
-		const r = await llm.stream([{ role: 'user', content: 'q' }], { model: 'm', temperature: 0, maxTokens: 10, thinking: 'off' }, (t) => tokens.push(t), new AbortController().signal);
+		const r = await llm.stream([{ role: 'user', content: 'q' }], { model: 'm', sentModel: 'm', params: { temperature: 0, max_tokens: 10 }, thinkingLevel: 'off' }, (t) => tokens.push(t), new AbortController().signal);
 		expect(r.content).toBe('antwort-1');
 		expect(tokens.join('')).toBe('antwort-1');
-		await expect(llm.stream([{ role: 'user', content: 'q' }], { model: 'm', temperature: 0, maxTokens: 10, thinking: 'off' }, () => {}, new AbortController().signal))
+		await expect(llm.stream([{ role: 'user', content: 'q' }], { model: 'm', sentModel: 'm', params: { temperature: 0, max_tokens: 10 }, thinkingLevel: 'off' }, () => {}, new AbortController().signal))
 			.rejects.toMatchObject({ kind: 'overflow' });
 		expect(llm.calls.length).toBe(2);
 	});

@@ -48,7 +48,13 @@ import { RecoveryModal, checkOrphanedRun } from "./obsidian/recovery";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { installExampleCrews } from "./obsidian/install-examples";
 import { findEndpointManager } from "./vendor/kit-obsidian/endpoint-source";
-import { resolveEndpointSource } from "./vendor/kit/endpoint-source";
+import { resolveEndpointSource, type EndpointSourceResult } from "./vendor/kit/endpoint-source";
+import { sanitizeRequestSettings } from "./vendor/kit/sampling-profiles";
+import { createRequestSession, type RequestSession } from "./vendor/kit-obsidian/request-session";
+import type { RequestSectionState } from "./vendor/kit-obsidian/request-section";
+import { cachedProbe } from "./obsidian/backend-probe";
+import { createRequestPort } from "./obsidian/request-port";
+import { deviationNotice } from "./obsidian/request-text";
 import { buildHideCss } from "./obsidian/folder-hide";
 import { noticeWithLink, NOTICE_WITH_LINK_MS } from "./obsidian/run-notice";
 import { ObsidianMetadataPort, ObsidianVaultPort } from "./obsidian/vault-port";
@@ -120,6 +126,16 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
   private meta!: MetadataPort;
   private snapshot!: SnapshotStore;
   private llm!: LlmClient;
+  /** Ergebnis der letzten Quellenwahl gegen den LLM Endpoint Manager — nur dann gesetzt, wenn er
+   *  installiert ist. Trägt Familie/Alias des Modells, das der Manager kennt. */
+  private managerSource: EndpointSourceResult | null = null;
+  /** Anfragen und Abweichungen dieser Sitzung (Abschnitt „Anfrage"); wird nicht gespeichert. */
+  readonly requestSession: RequestSession = createRequestSession({ message: (d) => deviationNotice(d) });
+  private readonly requestPort = createRequestPort({
+    managerSource: () => this.managerSource,
+    probe: (url, model) => cachedProbe(url, model),
+    session: this.requestSession,
+  });
   private clock!: ClockPort;
 
   private statusBarEl: HTMLElement | null = null;
@@ -208,6 +224,14 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     // Ladepfad). Gleiches Muster wie `lastRuns` weiter unten.
     delete (this.settings as unknown as Record<string, unknown>).defaultModel;
     this.settings.choice = sanitizeChoice(this.settings.choice);
+    // Die gespeicherten Anfrage-Einstellungen sind handeditierbar: was die Prüfung nicht besteht,
+    // fällt auf das Profil zurück — und wird gemeldet, statt still zu verschwinden.
+    const { settings: request, dropped } = sanitizeRequestSettings(raw?.request);
+    this.settings.request = request;
+    if (dropped.length > 0) {
+      new Notice(t("request.dropped", String(dropped.length)));
+      console.warn("vault-crews: request settings dropped", dropped);
+    }
     this.lastRuns = raw && isRecord(raw.lastRuns) ? filterValidLastRuns(raw.lastRuns) : {};
     // lastRuns ist ein eigenes data.json-Feld, nicht Teil von PluginSettings —
     // aus dem Merge-Ergebnis wieder entfernen, damit `settings` sauber bleibt.
@@ -279,13 +303,43 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
    *  Meldung sein. Ohne Manager bleibt die lokale Liste samt Failover im Orchestrator. */
   async effectiveEndpoints(): Promise<EndpointConfig[]> {
     const manager = findEndpointManager(this.app);
-    if (manager === null) return this.settings.endpoints;
+    if (manager === null) { this.managerSource = null; return this.settings.endpoints; }
     const r = await resolveEndpointSource(
-      { manager, local: this.settings.endpoints, capability: "chat", choice: this.settings.choice, caller: "vault-crews" },
+      {
+        manager, local: this.settings.endpoints, capability: "chat", choice: this.settings.choice, caller: "vault-crews",
+        // Der Manager nennt sein Backend selbst; fehlt es dort, wird der gewählte Endpunkt geprobt.
+        backendOf: (cfg) => cachedProbe(cfg.url, cfg.model ?? ""),
+      },
       () => Promise.resolve(true),
     );
+    this.managerSource = r;
     if (r.config === null) return [];
     return [r.model !== "" ? { ...r.config, model: r.model } : r.config];
+  }
+
+  /** Was der Abschnitt „Anfrage" über Familie, Backend und gesendetes Modell sagt: was der letzte
+   *  Lauf (oder `refreshRequestSource`) aufgelöst hat. Vor dem ersten Lauf ist es leer. */
+  requestSectionState(): RequestSectionState {
+    return this.requestPort.state();
+  }
+
+  /** Löst die Quelle auf, mit der der nächste Lauf rechnen würde (Manager, sonst die erste
+   *  erreichbare Zeile der lokalen Liste), und hält Familie/Backend für den Abschnitt „Anfrage"
+   *  fest — sonst bliebe er bis zum ersten Lauf leer. Wirft nie. */
+  async refreshRequestSource(): Promise<void> {
+    try {
+      const client = this.buildLlmClient();
+      const manager = findEndpointManager(this.app);
+      const r = await resolveEndpointSource(
+        {
+          manager, local: this.settings.endpoints, capability: "chat", choice: this.settings.choice, caller: "vault-crews",
+          backendOf: (cfg) => cachedProbe(cfg.url, cfg.model ?? ""),
+        },
+        (cfg) => client.ping(cfg),
+      );
+      this.managerSource = manager === null ? null : r;
+      if (r.config !== null) this.requestPort.seed(r);
+    } catch { /* best effort: der Abschnitt zeigt dann „unbekannt" */ }
   }
 
   // ── Port-Verdrahtung (genau einmal) ───────────────────────────────────────
@@ -394,6 +448,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       vault: this.vault,
       meta: this.meta,
       llm: this.llm,
+      request: this.requestPort.port,
       snapshot: this.snapshot,
       clock: this.clock,
       reporter,
@@ -404,6 +459,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
         deniedEndpoints: this.settings.deniedEndpoints,
         limits: this.buildLimits(),
         undoHistoryDepth: this.settings.undoHistoryDepth,
+        request: this.settings.request,
       },
       abort: controller.signal,
     };

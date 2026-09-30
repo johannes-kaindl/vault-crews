@@ -383,7 +383,9 @@ describe("VaultCrewsPlugin — Endpunkte vom LLM Endpoint Manager", () => {
     const plugin = new VaultCrewsPlugin(app, MANIFEST);
     await plugin.onload();
     plugin.runCrew("task-triage");
-    for (let i = 0; i < 10; i++) await Promise.resolve();
+    // Nicht mehr „zehn Mikrotask-Ticks": die Quellenwahl fragt inzwischen auch das Backend des
+    // gewählten Endpunkts (Probe), die Zahl der Schritte bis `executeRun` ist kein Vertrag.
+    await vi.waitFor(() => { expect(executeRun).toHaveBeenCalled(); });
     const deps = vi.mocked(executeRun).mock.calls[0]?.[1];
     return deps?.settings.endpoints;
   }
