@@ -1,5 +1,5 @@
 /** Geteilte Datentypen des pure-Layers — Quelle: Interface-Skelett
- *  docs/superpowers/plans/2026-07-02-vault-crews-v1-interfaces.md (bindend). */
+ *  Cockpit _SDD/2026-07-02-vault-crews-v1-interfaces.md (bindend). */
 
 export interface AgentDef {
 	id: string;
