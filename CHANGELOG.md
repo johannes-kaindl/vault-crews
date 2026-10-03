@@ -21,161 +21,161 @@ All notable changes to this project are documented here. The format follows
 ## [0.12.0] — 2026-09-26
 
 ### Fixed
-- **Ein Timeout oder Stall wird jetzt als `timeout` bzw. `stalled` protokolliert.** Bisher wurde daraus in Produktion `error_kind: io`: der Abbruch durch den eigenen Timer kam als AbortError des XHR-Transports an, bevor der Client die Ursache auswerten konnte. Gemessen am laufenden Obsidian gegen einen lokalen Fake-Server (harter Timer und Stall lieferten beide keine Fehlerart); die Unit-Tests sahen es nicht, ihre Attrappe löste bei Abbruch auf.
+- **A timeout or stall is now logged as `timeout` or `stalled`.** Until now production turned it into `error_kind: io`: the abort by the plugin's own timer reached the client as an AbortError from the XHR transport before the client could evaluate the cause. Measured in a running Obsidian against a local fake server (the hard timer and the stall both yielded no error kind); the unit tests did not see it because their stand-in resolved on abort.
 
 ### Changed
-- **Chat-Client und Streaming-Transport kommen aus dem Kit** (`createChatClient`, obsidian-kit 0.43.0; `XhrSseTransport` und der eigene SSE-Zweig von `local-llm-client.ts` entfallen). **Sichtbare Folgen:** die Fehlermeldung einer HTTP-Antwort trägt die Servermeldung wie bisher; eine HTTP-200-Antwort mit Fehlerkörper ist jetzt ein Fehler (`endpoint_error`) statt einer leeren Antwort; der Stall-Timer (60 s) startet mit dem ersten empfangenen Chunk statt mit dem ersten Token — ein Server, der sofort einen leeren Kopf-Chunk schickt und danach lange den Prompt verarbeitet, kann damit früher als „stalled“ gelten (bis zum ersten Chunk gilt weiter allein die Gesamtfrist). Der Fallback ohne Stream läuft jetzt über `requestUrl` im Kit und gilt je Endpunkt.
-- Kit-Pin `obsidian-kit` 0.41.1 → 0.43.0; die Kopien der Kit-CSS (`ENDPOINT_LIST_CSS`, `STREAM_AREA_CSS`) in `styles.css` sind auf den Stand 0.43.0 gebracht.
+- **The chat client and the streaming transport now come from the kit** (`createChatClient`, obsidian-kit 0.43.0; `XhrSseTransport` and the own SSE branch of `local-llm-client.ts` are gone). **Visible effects:** the error message of an HTTP response carries the server message as before; an HTTP 200 response with an error body is now an error (`endpoint_error`) instead of an empty answer; the stall timer (60 s) starts with the first received chunk instead of the first token — a server that immediately sends an empty head chunk and then takes a long time to process the prompt can therefore count as "stalled" sooner (until the first chunk only the overall deadline applies, as before). The fallback without a stream now runs through `requestUrl` in the kit and applies per endpoint.
+- Kit pin `obsidian-kit` 0.41.1 → 0.43.0; the copies of the kit CSS (`ENDPOINT_LIST_CSS`, `STREAM_AREA_CSS`) in `styles.css` are brought up to the 0.43.0 state.
 
 ## [0.11.0] — 2026-09-26
 
 ### Added
 
-- **Hilfe-Zeile ganz oben in den Einstellungen** (UI-STANDARD §8): Text-Knopf „Open documentation“ auf den Doku-Index und Bug-Icon auf den Issue-Tracker auf GitHub (Help row at the top of the settings with links to the documentation and the issue tracker). Kit-Modul `help-setting.ts` aus obsidian-kit 0.43.0 (einzeln gepinnt, die übrigen vendorten Module bleiben unverändert).
+- **Help row at the very top of the settings** (UI-STANDARD §8): a text button "Open documentation" linking to the documentation index and a bug icon linking to the issue tracker on GitHub. Kit module `help-setting.ts` from obsidian-kit 0.43.0 (pinned individually, the other vendored modules stay unchanged).
 
 ## [0.10.0] — 2026-09-25
 
 ### Added
 
-- **Lauf-Transparenz: ein Collector ohne Treffer ist jetzt eine eigene Ursache.** `run.md` nennt je Collector-Task „Gefunden: N Notiz(en) in `<Quelle>`" bzw. „⚠ Collector fand 0 passende Notizen in `<Quelle>` — Ordner/Filter prüfen". Die Notice nach dem Lauf sagt bei 0 Treffern und 0 Schreibvorgängen genau das statt „0 Dateien geschrieben", die Ergebnis-Karte und die Statuszeile der Crew im Panel nennen die Quelle, und die Notice trägt den Link „Protokoll öffnen" zur `run.md` dieses Laufs. Eine verweigerte oder fehlgeschlagene Crew nennt den Grund im Klartext in ihrer Statuszeile.
-- **Einstellung „Crew-Ordner im Datei-Explorer ausblenden"** (Standard: aus). Rein kosmetisch, der Ordner bleibt im Vault; `folder-hide.ts` ist aus slide-deck übernommen.
+- **Run transparency: a collector without matches is now a cause of its own.** `run.md` states per collector task "Found: N note(s) in `<source>`" or "⚠ Collector found 0 matching notes in `<source>` — check folder/filter". After a run, the notice says exactly that for 0 matches and 0 writes instead of "0 files written", the result card and the status line of the crew in the panel name the source, and the notice carries the link "Open log" to the `run.md` of that run. A refused or failed crew states the reason in plain words in its status line.
+- **Setting "Hide crew folder in the file explorer"** (default: off). Purely cosmetic, the folder stays in the vault; `folder-hide.ts` was taken over from slide-deck.
 
 ### Fixed
 
-- **Der Knopf „Beispiel-Crews installieren" in den Einstellungen installiert jetzt selbst.** Er zeigte bisher nur den Hinweis, den Befehl aus der Befehlspalette zu nehmen, obwohl der gleich beschriftete Knopf im Panel wirklich installierte. Beide Knöpfe rufen jetzt denselben Pfad.
-- **`thinking:off` unterdrückt Thinking nicht mehr bei gpt-oss/harmony-Modellen** (`local-llm-client.ts`). Diese Modelle lehnen `reasoning_effort`/`chat_template_kwargs`/`reasoning_budget` mit HTTP 400 ab, statt sie als No-op zu ignorieren — der Request schlug also bisher fehl, sobald die Thinking-Abschaltung aktiv war. Guard `isAlwaysOnThinker(params.model)` (bereits vendort) vor `suppressParams`.
+- **The "Install example crews" button in the settings now installs by itself.** Until now it only showed a hint to use the command from the command palette, although the identically labelled button in the panel really did install. Both buttons now call the same path.
+- **`thinking:off` no longer suppresses thinking for gpt-oss/harmony models** (`local-llm-client.ts`). These models reject `reasoning_effort`/`chat_template_kwargs`/`reasoning_budget` with HTTP 400 instead of ignoring them as a no-op — so the request failed as soon as the thinking suppression was active. Guard `isAlwaysOnThinker(params.model)` (already vendored) before `suppressParams`.
 
 ### Changed
 
-- **Endpunkte vom LLM Endpoint Manager, wenn installiert.** Ist das Plugin `llm-endpoint-manager` aktiv, kommt der Endpunkt eines Laufs von dort (Wahl, Standardmodell, Schlüssel aus dem Schlüsselbund) und die Einstellungen zeigen statt der Endpunkt-Liste den Manager-Baustein (Endpunkt wählen, Modell wählen, lokale Endpunkte in den Manager übernehmen). Sichtbare Folge: Meldet der Manager keinen Endpunkt, verweigert der Lauf mit „Kein erreichbarer LLM-Endpoint“ — es gibt dann bewusst keinen stillen Rückfall auf die lokale Liste. Ohne Manager ändert sich nichts, die lokale Liste samt Failover bleibt. Neues Settings-Feld `choice` (leer = automatisch).
-- **Kit-Pin `obsidian-kit` 0.35.0 → 0.41.1, `code-kit` 0.6.0 → 0.7.0**, dazu neu vendort `endpoint-source` (pure + obsidian) und `sampling-profiles`; `tools/sync-kit.sh` kennt jetzt `relayer_pure`. Der übrige Bestand zieht mit (Endpunkt-Zeilen-Editor, Settings-Walker, Streaming-Antwortbereich); an den Chat-Anfragen ändert sich nichts, `sampling-profiles` ist vendort, aber noch nicht verdrahtet.
-- **Verhaltenswechsel: kein Modellaufruf mehr auf leerem Kontext.** Ein LLM-Task, dessen sämtliche Eingaben Collectors ohne Treffer sind, wird nicht gestartet (`skipped`, mit Grund in `run.md`); der Lauf endet dadurch `partial` statt `ok`. Tasks mit mindestens einer nicht-leeren Eingabe laufen wie bisher.
-- **Kit-Pin `obsidian-kit` 0.27.0 → 0.35.0 (+ code-kit 0.6.0).** Alle vendorten pure-Module ziehen seit obsidian-kit 2ab1bb5 aus code-kit; `tools/sync-kit.sh` (neu, aus `lingotuner` übernommen) macht das Re-Vendoring wiederholbar. `think.ts` heißt jetzt `think-splitter.ts` (Modulname = Dateiname, wie in allen anderen Kit-Consumern).
-- **Streaming-Antwortbereich auf `buildStreamArea` aus dem Kit umgestellt** (UI-STANDARD §8, der verbindliche Baustein; vorher Eigenbau). Drei Verhaltensänderungen (CORE-META-21):
-  1. Der Gedankenblock bleibt während des Streams offen, wenn der Nutzer ihn geöffnet hat — vorher schloss ihn jeder volle Re-Render implizit wieder zu, bis `thinkOpen` ihn erneut öffnete.
-  2. Der Scroll folgt dem laufenden Text nur, wenn man ohnehin (nahe) am unteren Rand ist (`atBottom`-Schwelle 40px statt vorher 24px) — reißt nicht mehr hoch, wenn man zurückgescrollt mitliest.
-  3. Der Gedankenblock entsteht jetzt **lazy** beim ersten Denk-Token (kein leeres `<details>` als Ballast, solange ein Task nichts denkt) — vorher stand die (leere) Zusammenfassungszeile immer schon da.
-  4. Der Token-Zähler in der Zusammenfassungszeile („Denkt … N Token") aktualisiert sich nur noch bei einem vollen Render (Task-Grenzen), nicht mehr bei jedem einzelnen Denk-Token — das Kit kapselt die Zusammenfassungszeile und bietet keinen Haken für eine Live-Aktualisierung von außen an; der Gedankentext selbst streamt weiterhin live.
+- **Endpoints from the LLM Endpoint Manager, when installed.** If the plugin `llm-endpoint-manager` is active, the endpoint of a run comes from there (choice, default model, key from the keychain) and the settings show the manager block instead of the endpoint list (choose endpoint, choose model, adopt local endpoints into the manager). Visible effect: if the manager reports no endpoint, the run refuses with "No reachable LLM endpoint" — there is deliberately no silent fallback to the local list. Without the manager nothing changes, the local list including failover stays. New settings field `choice` (empty = automatic).
+- **Kit pin `obsidian-kit` 0.35.0 → 0.41.1, `code-kit` 0.6.0 → 0.7.0**, plus newly vendored `endpoint-source` (pure + obsidian) and `sampling-profiles`; `tools/sync-kit.sh` now knows `relayer_pure`. The rest of the stock comes along (endpoint row editor, settings walker, streaming answer area); nothing changes in the chat requests, `sampling-profiles` is vendored but not yet wired up.
+- **Behaviour change: no model call on an empty context any more.** An LLM task whose inputs are all collectors without matches is not started (`skipped`, with the reason in `run.md`); the run therefore ends `partial` instead of `ok`. Tasks with at least one non-empty input run as before.
+- **Kit pin `obsidian-kit` 0.27.0 → 0.35.0 (+ code-kit 0.6.0).** All vendored pure modules have been pulled from code-kit since obsidian-kit 2ab1bb5; `tools/sync-kit.sh` (new, taken over from `lingotuner`) makes re-vendoring repeatable. `think.ts` is now called `think-splitter.ts` (module name = file name, as in all other kit consumers).
+- **Streaming answer area switched to `buildStreamArea` from the kit** (UI-STANDARD §8, the mandatory building block; previously a custom build). Four behaviour changes (CORE-META-21):
+  1. The thinking block stays open during the stream if the user has opened it — before, every full re-render implicitly closed it again until `thinkOpen` reopened it.
+  2. The scroll follows the running text only if you are (close to) the bottom anyway (`atBottom` threshold 40px instead of 24px before) — it no longer jumps up when you have scrolled back to read along.
+  3. The thinking block is now created **lazily** at the first thinking token (no empty `<details>` as ballast while a task is not thinking) — before, the (empty) summary line was always there.
+  4. The token counter in the summary line ("Thinking … N tokens") now only updates on a full render (task boundaries), no longer on every single thinking token — the kit encapsulates the summary line and offers no hook for a live update from outside; the thinking text itself still streams live.
 
 ## [0.9.5] — 2026-09-02
 
 ### Changed
 
-- **Das Panel schweigt nicht mehr in drei Lagen, in denen es etwas zu sagen hat.** Alle drei kosten die Person Zeit, die gerade ihre erste eigene Crew schreibt. (1) Eine Crew-Datei, die flach im Crew-Ordner liegt statt in `teams/` oder `agents/`, wird nicht geladen — das Panel meldete dafür „Noch keine Crews", also dasselbe wie für einen leeren Vault. Jetzt steht dort, wie viele Dateien mit `crew-kind:` am falschen Ort liegen. (2) Wer eine Crew anlegt, umbenennt oder ändert, sah sie erst nach Schließen und erneutem Öffnen des Panels; die Liste zieht jetzt selbst nach. (3) Eine Crew, deren Definition nicht vollständig parst, blieb ohne Hinweis in der Liste — der Fehler zeigte sich erst nach dem Starten im Preflight. Die Zeile bleibt startbar (der Preflight nennt weiterhin den vollständigen Fehler), trägt aber ein Warndreieck, dessen Tooltip die erste Meldung nennt.
+- **The panel no longer stays silent in three situations where it has something to say.** All three cost time for the person who is just writing their first own crew. (1) A crew file that lies flat in the crew folder instead of in `teams/` or `agents/` is not loaded — the panel reported "No crews yet" for it, the same as for an empty vault. Now it states how many files with `crew-kind:` lie in the wrong place. (2) Whoever created, renamed or changed a crew only saw it after closing and reopening the panel; the list now catches up by itself. (3) A crew whose definition does not parse completely stayed in the list without a hint — the error only showed after starting, in the preflight. The row stays startable (the preflight still names the full error) but now carries a warning triangle whose tooltip names the first message.
 
 ### Fixed
 
-- **Ein API-Schlüssel mit Anführungszeichen, Backslash oder Zeilenumbruch landete unmaskiert im Vault.** Läufe werden als `run.md`/`state.json` in den Vault geschrieben, und ein Vault wird gesynct — die Maskierung soll genau das verhindern. Sie lief über die Serialisierung und suchte den Schlüssel in seiner **rohen** Form; im JSON-Text steht ein `"` aber als `\"` und ein Zeilenumbruch als `\n`, die Suche fand also nichts, ersetzte nichts, und der Schlüssel wurde geschrieben. Ohne Fehler, ohne Hinweis. Gesucht wird jetzt zusätzlich nach der JSON-escapten Form — zusätzlich, nicht statt: Umlaute, CJK und Emoji escapt JSON gerade nicht, dort trägt allein die Rohform. Wer einen betroffenen Schlüssel verwendet hat, sollte ihn als kompromittiert behandeln und die bestehenden Run-Logs prüfen.
+- **An API key containing quotation marks, a backslash or a line break ended up unmasked in the vault.** Runs are written to the vault as `run.md`/`state.json`, and a vault gets synced — the masking is meant to prevent exactly that. It ran over the serialization and searched for the key in its **raw** form; in JSON text, however, a `"` appears as `\"` and a line break as `\n`, so the search found nothing, replaced nothing, and the key was written. No error, no hint. The search now also looks for the JSON-escaped form — in addition, not instead: umlauts, CJK and emoji are precisely not escaped by JSON, there the raw form alone carries. Anyone who used an affected key should treat it as compromised and check the existing run logs.
 
 ## [0.9.4] — 2026-09-02
 
 ### Fixed
 
-- **Ein Endpunkt, der seinen Fehler im FastAPI-Format meldet, zeigt jetzt die Servermeldung statt rohem JSON.** Antwortet ein Backend mit `{"detail":"Not authenticated"}` — die Form, die OpenWebUI und andere Python-Gateways schicken —, stand bisher genau dieser JSON-Rumpf in der Fehlermeldung, weil das Feld `detail` nirgends gelesen wurde. Jetzt steht dort „Not authenticated". Drei Feldformen kannte das Plugin schon (`error.message`, `error`, `message`); `detail` ist die vierte.
-- **Ein leeres Fehlerfeld verschluckt die Meldung nicht mehr.** Antwortete ein Server mit `{"error":"","message":"model not found"}`, sah man „HTTP 400: " bzw. „Non-Streaming-Antwort ohne content: " — ohne jeden Fehlertext, obwohl der Server einen mitgeschickt hatte: der leere String galt als Treffer und war zugleich nicht leer genug, damit der Rohtext-Fallback greift. Leere und nur aus Leerzeichen bestehende Felder fallen jetzt durch, die Suche läuft über die restlichen Felder weiter, und greift keines davon, erscheint der Rohtext der Antwort.
+- **An endpoint that reports its error in FastAPI format now shows the server message instead of raw JSON.** When a backend answers with `{"detail":"Not authenticated"}` — the shape sent by OpenWebUI and other Python gateways — exactly this JSON body appeared in the error message, because the field `detail` was never read. Now it says "Not authenticated". The plugin already knew three field shapes (`error.message`, `error`, `message`); `detail` is the fourth.
+- **An empty error field no longer swallows the message.** If a server answered with `{"error":"","message":"model not found"}`, you saw "HTTP 400: " or "Non-streaming response without content: " — without any error text, although the server had sent one: the empty string counted as a hit and at the same time was not empty enough for the raw-text fallback to kick in. Empty fields and fields consisting only of whitespace now fall through, the search continues over the remaining fields, and if none of them matches, the raw text of the response appears.
 
 ## [0.9.3] — 2026-08-18
 
 ### Fixed
 
-- **Eine am Token-Limit abgeschnittene Antwort heißt jetzt so — und kostet keinen zweiten Anlauf mehr.** Läuft ein Agent in sein `max_tokens`-Budget, bricht die Antwort mitten im Satz ab; das Ergebnis ist unvollständiges JSON. Gemeldet wurde das bisher als „Die Ausgabe des Modells ließ sich auch nach einem Reparatur-Versuch nicht parsen" — also als Qualitätsproblem des Modells, während die Ursache eine Zahl in der Agenten-Notiz ist. Zusätzlich lief eine Reparatur-Runde gegen exakt dieselbe Grenze und war damit sicher verbrannt. Jetzt endet der Lauf als `output_truncated` mit dem Hinweis, `max_tokens` zu erhöhen, und ohne den zweiten Aufruf (gemessen an einem Live-Lauf: vorher `invalid_output` nach 2 Aufrufen und 9 s, jetzt `output_truncated` nach 1 Aufruf und 2 s). Eine abgeschnittene Antwort, die trotzdem gültig ist, bleibt weiterhin ein erfolgreicher Lauf.
+- **An answer truncated at the token limit is now called that — and no longer costs a second attempt.** If an agent runs into its `max_tokens` budget, the answer breaks off mid-sentence; the result is incomplete JSON. Until now this was reported as "The model's output could not be parsed even after a repair attempt" — that is, as a quality problem of the model, while the cause is a number in the agent note. In addition, a repair round ran against exactly the same limit and was therefore certain to be wasted. Now the run ends as `output_truncated` with the hint to raise `max_tokens`, and without the second call (measured on a live run: before `invalid_output` after 2 calls and 9 s, now `output_truncated` after 1 call and 2 s). A truncated answer that is valid anyway remains a successful run.
 
 ## [0.9.2] — 2026-08-17
 
 ### Changed
 
-- **Die Einstellungen sind wieder auffindbar.** Ab Obsidian 1.13 fragt der Host die Einstellungen deklarativ ab (`getSettingDefinitions()`); wer das nicht anbietet, dessen Felder erscheinen in der Einstellungs-Suche schlicht nicht — keines davon. Das Plugin bietet sie jetzt an und zeichnet dieselbe Struktur über den Kit-Walker weiterhin selbst, solange Obsidian älter als 1.13 ist. Sichtbar ändert sich sonst nichts: dieselben vier Gruppen, dieselben Zeilen, derselbe Endpunkt-Editor.
+- **The settings can be found again.** From Obsidian 1.13 the host queries the settings declaratively (`getSettingDefinitions()`); whoever does not offer that, their fields simply do not appear in the settings search — none of them. The plugin now offers them and keeps drawing the same structure itself via the kit walker as long as Obsidian is older than 1.13. Otherwise nothing changes visibly: the same four groups, the same rows, the same endpoint editor.
 
 ## [0.9.1] — 2026-08-17
 
 ### Fixed
 
-- **Ein Endpunkt mit fehlendem oder falschem API-Schlüssel sagt das jetzt auch.** Statt einer Erklärung stand an dieser Stelle der rohe Übersetzungs-Schlüssel `settings.endpoint.status.unauthorized` — er sah aus wie ein Text, war aber keiner. Getroffen wurde ausgerechnet der Fall, für den die Statusklasse mit 0.9.0 eingeführt wurde: ein gehostetes Gateway, das mit 401 oder 403 antwortet. Jetzt steht dort „Zugriff verweigert — Schlüssel fehlt oder ist ungültig." (EN: „Access denied — API key missing or invalid."). Ein Vollständigkeits-Wächter im Typecheck sorgt dafür, dass eine künftige Statusklasse aus dem Kit nicht wieder unübersetzt durchrutscht.
+- **An endpoint with a missing or wrong API key now says so.** Instead of an explanation, the raw translation key `settings.endpoint.status.unauthorized` stood in this place — it looked like a text but was not one. It hit precisely the case for which the status class was introduced with 0.9.0: a hosted gateway that answers with 401 or 403. Now it says "Access denied — API key missing or invalid." (DE: "Zugriff verweigert — Schlüssel fehlt oder ist ungültig."). A completeness guard in the typecheck makes sure that a future status class from the kit does not slip through untranslated again.
 
 ## [0.9.0] — 2026-08-17
 
 ### Added
 
-- **API-Schlüssel je Endpunkt.** Jede Zeile der Endpunkt-Liste trägt jetzt ihren eigenen Schlüssel — damit lässt sich eine Fallback-Liste aus lokalen und gehosteten Anbietern mischen: erst LM Studio, und wenn das aus ist, ein OpenAI-kompatibles Gateway. Der Schlüssel geht auch an die Erreichbarkeitsprobe; ein Gateway, das unauthentifiziert mit 401 antwortet, gilt sonst fälschlich als tot.
-- **Das Modell gehört zur Endpunkt-Zeile.** Es wird je Zeile aus einem Dropdown der Modelle gewählt, die *dieser* Endpunkt meldet (mit „Modell-Liste neu laden" je Zeile). Ein Agent darf weiterhin sein eigenes `model:` nennen; es gilt, solange der aktive Endpunkt es führt, sonst läuft der Task auf dem Modell der Zeile — sonst bräche der Fallback genau dann, wenn er gebraucht wird.
-- **Fähigkeiten des aktiven Modells** werden unter der Liste angezeigt (Reasoning, Bilder) — und ehrlich beschriftet: „aus dem Namen geraten" steht dort, wo geraten wurde.
-- **Zeilen umsortieren** („zuerst verwenden"), Rollen-Anzeige je Zeile („aktiv" / „Bereitschaft — Platz 2" / „nicht erreichbar") und ein Hinweis, sobald eine Zeile einen Schlüssel trägt: Anfragen verlassen dann den Rechner.
+- **API key per endpoint.** Each row of the endpoint list now carries its own key — so a fallback list can mix local and hosted providers: first LM Studio, and when that is off, an OpenAI-compatible gateway. The key also goes to the reachability probe; a gateway that answers unauthenticated with 401 would otherwise wrongly count as dead.
+- **The model belongs to the endpoint row.** It is chosen per row from a dropdown of the models *this* endpoint reports (with "Reload model list" per row). An agent may still name its own `model:`; it applies as long as the active endpoint carries it, otherwise the task runs on the model of the row — otherwise the fallback would break exactly when it is needed.
+- **Capabilities of the active model** are shown below the list (reasoning, images) — and honestly labelled: "guessed from the name" appears where it was guessed.
+- **Reorder rows** ("use first"), a role display per row ("active" / "standby — place 2" / "unreachable") and a hint as soon as a row carries a key: requests then leave the computer.
 
 ### Changed
 
-- **Der Rückgängig-Dialog hat jetzt einen „Abbrechen"-Knopf.** Bisher gab es nur „Rückgängig machen" — wer den Dialog wieder loswerden wollte, musste Esc drücken oder danebenklicken. Beide Knöpfe stehen jetzt in Obsidians nativer Button-Zeile (Abbrechen links).
-- Die Liste der gesperrten Endpunkte ist ein einfaches Textfeld (eine Adresse je Zeile) statt eines Zeilen-Editors — eine Sperre ist keine Verbindung und braucht weder Status noch Modell.
-- **Das globale Feld „Standardmodell" entfällt.** Ein Modellname existiert nur auf dem Endpunkt, der ihn meldet; ein globales Feld daneben war dieselbe Angabe an zwei Orten. Bestehende Einstellungen werden beim ersten Start automatisch übernommen: die alte Endpunkt-Liste wird zu Einträgen, das bisherige Standardmodell wandert in die Zeilen.
+- **The undo dialog now has a "Cancel" button.** Until now there was only "Undo" — whoever wanted to get rid of the dialog had to press Esc or click away. Both buttons now sit in Obsidian's native button row (Cancel on the left).
+- The list of blocked endpoints is a plain text field (one address per line) instead of a row editor — a block is not a connection and needs neither status nor model.
+- **The global field "Default model" is gone.** A model name exists only on the endpoint that reports it; a global field next to it was the same information in two places. Existing settings are adopted automatically on first start: the old endpoint list becomes entries, the former default model moves into the rows.
 
 ### Security
 
-- **API-Schlüssel werden aus allem entfernt, was in den Vault geschrieben wird** — Lauf-Protokoll (`run.md`), `state.json` und Fehlermeldungen im Panel. Fehlerkörper sind der wahrscheinliche Weg dorthin: manche Gateways spiegeln den gesendeten Authorization-Header in ihrer Antwort, und ein Vault wird synchronisiert.
+- **API keys are removed from everything written to the vault** — run log (`run.md`), `state.json` and error messages in the panel. Error bodies are the likely way there: some gateways mirror the sent Authorization header in their answer, and a vault gets synchronised.
 
 ## [0.8.0] — 2026-08-14
 
 ### Added
 
-- **Live-Token-Streaming im Run-Panel**: Während ein Task läuft, zeigt die Sidebar jetzt den echten Token-Text des Modells (Content scrollbar, Reasoning im aufklappbaren „Thinking"-Bereich) statt nur einen Zähler. Reasoning-Tokens werden dabei erstmals real erfasst (`thinkCount`) — aus `<think>`-Blöcken und dem `reasoning_content`-Feld. Der Live-Text aktualisiert sich inkrementell und scrollt mit, solange man am unteren Rand ist.
+- **Live token streaming in the run panel**: while a task runs, the sidebar now shows the model's real token text (content scrollable, reasoning in the collapsible "Thinking" area) instead of just a counter. Reasoning tokens are captured for real for the first time (`thinkCount`) — from `<think>` blocks and the `reasoning_content` field. The live text updates incrementally and scrolls along as long as you are at the bottom.
 
 ### Fixed
 
-- **Der „Thinking"-Bereich bleibt offen, wenn man ihn geöffnet hat**: Bisher klappte er beim ersten Content-Token wieder zu — also genau dann, wenn die Antwort beginnt und man den Gedankengang mitliest. Der Bereich startet weiterhin zugeklappt; nur die eigene Aufklappung überlebt jetzt ein Neuzeichnen des Panels.
+- **The "Thinking" area stays open if you have opened it**: until now it collapsed again at the first content token — that is, exactly when the answer begins and you are reading along with the train of thought. The area still starts collapsed; only your own expansion now survives a redraw of the panel.
 
 ## [0.7.0] — 2026-07-12
 
 ### Fixed
 
-- **HTTP-Fehler ehrlich klassifizieren**: Ein Fehlerstatus vom LLM-Server (Server erreichbar, Request/Modell abgelehnt) wird jetzt als neue Fehlerklasse `endpoint_error` gemeldet statt fälschlich als `endpoint_unreachable` („keine Verbindung"). Betrifft die Next-Action-Meldung im Panel.
-- **Lesbarer Fehler-Body**: Fehlermeldungen zeigen nicht mehr nur `HTTP 400: {` — die Klartext-Message wird aus dem JSON-Fehlerbody (`error.message`/`error`/`message`) gezogen und einzeilig dargestellt.
-- **Always-on-Thinker zur Laufzeit erkennen**: Modelle, die trotz `thinking: off` weiterdenken, werden jetzt am tatsächlichen Reasoning erkannt (nicht nur am Modellnamen `gpt-oss`/`harmony`) — die Hinweis-Notice greift dadurch auch für Modelle wie ornith, und ihr Text ist modell-agnostisch.
+- **Classify HTTP errors honestly**: an error status from the LLM server (server reachable, request/model rejected) is now reported as the new error class `endpoint_error` instead of wrongly as `endpoint_unreachable` ("no connection"). Affects the next-action message in the panel.
+- **Readable error body**: error messages no longer show just `HTTP 400: {` — the plain-text message is pulled from the JSON error body (`error.message`/`error`/`message`) and shown on one line.
+- **Detect always-on thinkers at runtime**: models that keep thinking despite `thinking: off` are now recognised by their actual reasoning (not only by the model name `gpt-oss`/`harmony`) — the hint notice therefore also applies to models like ornith, and its text is model-agnostic.
 
 ## [0.6.0] — 2026-07-12
 
 ### Added
 
-- **`output:`-Block für `llm`-Tasks**: parametrisierbare Output-Familien (`frontmatter.set`, `section.write`) mit `allowed_keys`/`max_chars` — das Crew-Output-Vokabular ist damit offen. Die bisherigen `output_schema: triage-v1|briefing-v1` bleiben als Alias byte-identisch gültig.
-- `frontmatter.set` unterstützt **Listen-Werte** (z.B. `tags: [arbeit, notiz]`); die Slug-Enum-Prüfung greift je Listen-Element.
-- `tasknotes.query` unterstützt `include_content: true` (liefert Notiz-Inhalt für die gelieferten Notizen).
-- Zwei neue Beispiel-Crews: **Notiz-Tagger** (generisch, vault-agnostisch) und **Reifegrad-Tagger** (Pallas-Demo) — demonstrieren das `output:`-Vokabular (`frontmatter.set`) mit Inhalt.
-- README-Abschnitt „Eigene Crews schreiben" (output:-Syntax, include_content, write_scope).
+- **`output:` block for `llm` tasks**: parameterisable output families (`frontmatter.set`, `section.write`) with `allowed_keys`/`max_chars` — the crew output vocabulary is thereby open. The previous `output_schema: triage-v1|briefing-v1` remain valid as an alias, byte-identical.
+- `frontmatter.set` supports **list values** (e.g. `tags: [work, note]`); the slug enum check applies per list element.
+- `tasknotes.query` supports `include_content: true` (delivers note content for the delivered notes).
+- Two new example crews: **Note Tagger** (generic, vault-agnostic) and **Maturity Tagger** (Pallas demo) — demonstrate the `output:` vocabulary (`frontmatter.set`) with content.
+- README section "Writing your own crews" (output: syntax, include_content, write_scope).
 
 ## [0.5.0] — 2026-07-11
 
 ### Added
 
-- `create_if_missing`-Flag für `section.replace`-Tasks in Crews: legt die Zieldatei
-  (Marker-Block, kein Template) samt fehlender Elternordner an, statt kontrolliert zu
-  failen. Die Daily-Briefing-Beispiel-Crew nutzt es und braucht die heutige Daily Note
-  nicht mehr vorab. Undo entfernt die erzeugte Note (Papierkorb).
+- `create_if_missing` flag for `section.replace` tasks in crews: creates the target file
+  (marker block, no template) including missing parent folders instead of failing in a
+  controlled way. The Daily Briefing example crew uses it and no longer needs today's daily
+  note beforehand. Undo removes the created note (trash).
 
 ## [0.4.0] — 2026-07-10
 
 ### Added
 
-- Endpoint-Management-UI in den Settings: Zeilen-Editor für Endpunkte (Hinzufügen/Entfernen,
-  Per-Zeile-Verbindungsstatus mit Fehlerklassen, aktiv-Marker, nicht-blockierende
-  Eingabe-Warnungen, Ein-Klick-Presets für LM Studio und Ollama) und für gesperrte Endpunkte.
-- Standardmodell als Dropdown, geladen aus dem aktiven Endpoint (`Modelle laden`), mit
-  Freitext-Fallback offline; eine gespeicherte, aktuell nicht gelistete Modell-Auswahl bleibt
-  als Option erhalten.
+- Endpoint management UI in the settings: row editor for endpoints (add/remove,
+  per-row connection status with error classes, active marker, non-blocking input
+  warnings, one-click presets for LM Studio and Ollama) and for blocked endpoints.
+- Default model as a dropdown, loaded from the active endpoint (`Load models`), with
+  free-text fallback offline; a saved model choice that is currently not listed stays
+  available as an option.
 
 ### Changed
 
-- Verbindungstest läuft jetzt pro Endpunkt-Zeile (Live-Status) statt über einen globalen Button.
-- `endpoint_diagnostics` (Status-Klassifikation, Presets, Eingabe-Prüfung) aus `obsidian-kit`
-  vendored; `endpoint.ts` auf Kit-Stand gehoben (`parseEndpointList`).
+- The connection test now runs per endpoint row (live status) instead of via a global button.
+- `endpoint_diagnostics` (status classification, presets, input check) vendored from
+  `obsidian-kit`; `endpoint.ts` raised to the kit state (`parseEndpointList`).
 
 ## [0.3.0] — 2026-07-08
 
 ### Added
 
-- Ollama-Unterstützung ohne Provider-Setting: Kontextlängen-Sonde (`/api/show`),
-  provider-übergreifende Thinking-Suppression, CORS-Non-Stream-Fallback,
-  Always-on-Thinker-Erkennung (gpt-oss/harmony) mit run.md-Vermerk + Notice.
+- Ollama support without a provider setting: context-length probe (`/api/show`),
+  cross-provider thinking suppression, CORS non-stream fallback,
+  always-on-thinker detection (gpt-oss/harmony) with a run.md note + notice.
 
 ### Changed
 
-- `LmStudioClient` → `LocalLlmClient` (provider-agnostischer Name).
+- `LmStudioClient` → `LocalLlmClient` (provider-agnostic name).
 
 ## [0.2.0] — 2026-07-07
 
