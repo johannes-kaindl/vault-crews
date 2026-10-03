@@ -14,14 +14,11 @@ collector → llm → actions, constrain-then-verify, ein git-freies Snapshot-Un
 
 ## Historische Spezifikation (eingefroren, weiter gültig als Referenz)
 
-Die V1-Design-Grundlagen liegen im Repo — eingefroren (s. §Memory unten), aber als
-Referenz für Architektur-Entscheidungen weiter gültig; **neue SDD-Artefakte gehen ins
-Cockpit**, nicht hierher. In dieser Reihenfolge lesen:
+Die V1-Design-Grundlagen liegen nicht mehr im Repo: Specs und Pläne liegen im Vault-Cockpit unter `_SDD/` (CORE-META-14), eingefroren, aber als Referenz für Architektur-Entscheidungen weiter gültig; neue SDD-Artefakte gehen ebenfalls dorthin. In dieser Reihenfolge lesen:
 
-1. Spec: `docs/superpowers/specs/2026-07-02-vault-crews-design.md`
-2. Interface-Skelett (bindende Pfade/Typen/Signaturen): `docs/superpowers/plans/2026-07-02-vault-crews-v1-interfaces.md`
-3. Implementierungsplan (19 Tasks): `docs/superpowers/plans/2026-07-02-vault-crews-v1.md`
-   + Detail-Anhänge unter `docs/superpowers/plans/details/`
+1. Spec: `_SDD/2026-07-02-vault-crews-design.md`
+2. Interface-Skelett (bindende Pfade/Typen/Signaturen): `_SDD/2026-07-02-vault-crews-v1-interfaces.md`
+3. Implementierungsplan (19 Tasks): `_SDD/2026-07-02-vault-crews-v1.md` + Detail-Anhänge `_SDD/tasks-09-11-executor-gitplan-runlog.md` und `_SDD/tasks-14-15-gitport-adapter.md`
 
 ## Workflow conventions
 - **Gate (vor jedem Commit grün):** `npm run gate` = lint + typecheck + test + check:pure.
@@ -134,7 +131,7 @@ LM Studio: `finish_reason` steht im letzten Chunk, dessen `delta` leer ist.
   Coding-Cockpit des Maintainers (`$VAULT/25_Coding/vault-crews/_SDD/`, CORE-META-14, maintainer-lokal).
   Sie tragen Arbeitskontext (Vault-Pfade, Schwester-Repo-Interna), der in einem public Repo niemandem nützt.
   Das Repo behält die Design-Essenz in dieser Datei + `CHANGELOG.md`.
-- **Alt-Bestand:** `docs/superpowers/{specs,plans}/` ist eingefroren — nichts Neues dort ablegen.
+- **Alt-Bestand:** der frühere Ordner `docs/superpowers/` ist ins Cockpit `_SDD/` umgezogen (flach, Dateinamen unverändert); im Repo wird nichts Neues dort abgelegt.
 - **Nie im Repo:** absolute Pfade außerhalb des Repos (`/Users/…`, Vault-Pfade) — Platzhalter nutzen
   (`$VAULT/…`, `~/…`, repo-relativ). Herkunftsnachweise als Repo-Name + `Datei:Zeile` sind dagegen erwünscht.
   Gate: `scripts/check-no-abs-paths.mjs` (Teil von `npm test`).
