@@ -112,6 +112,7 @@ Snapshot-Undo braucht seit 0.2.0 kein git-Repo mehr.
 7. **Gehosteter Endpunkt** (seit 0.9.0, nur mit echtem Schlüssel prüfbar): zweite Zeile mit
    Schlüssel eintragen, lokalen Endpunkt ausschalten, eine Crew laufen lassen. Danach
    `run.md` gegenlesen — dort darf **kein** Schlüssel stehen.
+   Seit 0.14.0 zusätzlich `data.json` ansehen: dort steht eine `secretId`, kein `apiKey` (der Schlüssel liegt im Schlüsselbund von Obsidian). Der Treiber misst beides (Abschnitt „Welle 15“).
 
 ## Was der Treiber an der Brücke gelernt hat
 

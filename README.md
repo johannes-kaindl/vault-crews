@@ -12,7 +12,7 @@ ever touches your vault.
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](https://github.com/johannes-kaindl/vault-crews/blob/main/LICENSE)
 [![Docs: CC BY-SA 4.0](https://img.shields.io/badge/docs-CC%20BY--SA%204.0-lightgrey.svg)](https://github.com/johannes-kaindl/vault-crews/blob/main/LICENSE-DOCS)
 [![Release](https://img.shields.io/github/v/release/johannes-kaindl/vault-crews?label=release)](https://github.com/johannes-kaindl/vault-crews/releases)
-[![Obsidian](https://img.shields.io/badge/obsidian-1.8.7%2B%20·%20desktop%20only-purple)](https://obsidian.md)
+[![Obsidian](https://img.shields.io/badge/obsidian-1.11.4%2B%20·%20desktop%20only-purple)](https://obsidian.md)
 
 > 🇬🇧 English · [🇩🇪 Deutsch](https://github.com/johannes-kaindl/vault-crews/blob/main/README.de.md)
 
@@ -141,7 +141,7 @@ Writing your own teams and agents is plain Markdown in the vault — see
 
 | Setting | Default | Meaning |
 |---|---|---|
-| **Endpoints** | `http://localhost:1234/v1` | One row per endpoint, each with its own URL, optional API key and model; the first reachable one is used per run. **Check connections** probes each row and reports refused / unknown host / timeout / not-an-LLM-API / access denied separately |
+| **Endpoints** | `http://localhost:1234/v1` | One row per endpoint, each with its own URL, optional API key (kept in Obsidian's secret storage, not in `data.json`) and model; the first reachable one is used per run. **Check connections** probes each row and reports refused / unknown host / timeout / not-an-LLM-API / access denied separately |
 | **Denied endpoints** | `localhost:8080`, `127.0.0.1:8080` | Never contacted — the default keeps the plugin off a port other local model servers commonly claim. A setting, not hardcoded |
 | **Request** | (profile) | What a run sends with each model call: sampling values (temperature, top_p, top_k, …) and the thinking level, from a profile table per model family and backend. Collapsed section; shows what is sent and what has an effect on your backend, takes your own values per model family, lists the last request and any deviations seen this session. Values in an agent note override it for that agent. The row "Level picker in chat" has no effect in Vault Crews |
 | **Crew root folder** | `_crews` | Vault-relative folder holding agents, teams and run logs |
@@ -233,8 +233,10 @@ even a crashed or aborted run stays fully undoable, and why no git repository is
   as a fallback. Adding a key means requests — including the note content a crew collects —
   leave your machine for that provider. The settings row says so explicitly once a key is
   set, and the list is ordered: a reachable local endpoint above a hosted one is always used
-  first. Keys live in this plugin's `data.json` inside your vault, in plain text, like every
-  Obsidian plugin setting; if you sync your vault, they sync with it.
+  first. Keys live in Obsidian's secret storage (the system keychain), not in your vault:
+  `data.json` keeps only a reference, so a synced vault does not carry them. A key you entered
+  before 0.14.0 moves there the next time the plugin resolves its endpoints.
+- **Secrets in your notes are masked before a model sees them.** Private keys (PEM blocks), `Bearer` tokens and common API-key formats (`sk-…`, `ghp_…`, …) in the text a crew sends become placeholders such as `[redacted-token-1]`; the answer gets the original back before the crew writes it. Notes reach the model as JSON text, so a restored PEM block keeps its line breaks written as `\n`. E-mail addresses and other personal data are **not** masked.
 - **Keys never reach the run logs.** Everything written into your vault (`run.md`,
   `state.json`) and everything shown in the panel passes a redaction step first — including
   error bodies, which is the realistic leak path: some gateways echo the Authorization

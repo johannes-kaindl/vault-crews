@@ -13,7 +13,7 @@ wird eingeschränkt und dann geprüft, bevor sie deinen Vault berührt.
 [![Lizenz: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](https://github.com/johannes-kaindl/vault-crews/blob/main/LICENSE)
 [![Doku: CC BY-SA 4.0](https://img.shields.io/badge/docs-CC%20BY--SA%204.0-lightgrey.svg)](https://github.com/johannes-kaindl/vault-crews/blob/main/LICENSE-DOCS)
 [![Release](https://img.shields.io/github/v/release/johannes-kaindl/vault-crews?label=release)](https://github.com/johannes-kaindl/vault-crews/releases)
-[![Obsidian](https://img.shields.io/badge/obsidian-1.8.7%2B%20·%20nur%20Desktop-purple)](https://obsidian.md)
+[![Obsidian](https://img.shields.io/badge/obsidian-1.11.4%2B%20·%20nur%20Desktop-purple)](https://obsidian.md)
 
 > [🇬🇧 English](https://github.com/johannes-kaindl/vault-crews/blob/main/README.md) · 🇩🇪 Deutsch
 >
@@ -154,7 +154,7 @@ Eigene Teams und Agenten zu schreiben ist schlichtes Markdown im Vault — siehe
 
 | Einstellung | Standard | Bedeutung |
 |---|---|---|
-| **Endpunkte** | `http://localhost:1234/v1` | Eine Zeile je Endpunkt, jede mit eigener URL, optionalem API-Schlüssel und eigenem Modell; genutzt wird der erste erreichbare je Lauf. **Check connections** prüft jede Zeile und meldet abgelehnt / unbekannter Host / Zeitüberschreitung / keine LLM-API / Zugriff verweigert getrennt |
+| **Endpunkte** | `http://localhost:1234/v1` | Eine Zeile je Endpunkt, jede mit eigener URL, optionalem API-Schlüssel (liegt im Schlüsselbund von Obsidian, nicht in der `data.json`) und eigenem Modell; genutzt wird der erste erreichbare je Lauf. **Check connections** prüft jede Zeile und meldet abgelehnt / unbekannter Host / Zeitüberschreitung / keine LLM-API / Zugriff verweigert getrennt |
 | **Gesperrte Endpunkte** | `localhost:8080`, `127.0.0.1:8080` | Werden nie kontaktiert — der Standard hält das Plugin von einem Port fern, den andere lokale Modell-Server üblicherweise belegen. Eine Einstellung, nicht fest verdrahtet |
 | **Anfrage** (Request) | (Profil) | Was ein Lauf mit jedem Modellaufruf sendet: Sampling-Werte (temperature, top_p, top_k, …) und die Denkstufe, aus einer Profiltabelle je Modellfamilie und Backend. Eingeklappter Abschnitt; zeigt, was gesendet wird und was davon auf deinem Backend wirkt, nimmt eigene Werte je Modellfamilie an und listet die letzte Anfrage und die Abweichungen dieser Sitzung. Werte in einer Agent-Note gehen für diesen Agenten vor. Die Zeile „Level picker in chat“ hat in Vault Crews keine Wirkung |
 | **Crew-Wurzelordner** | `_crews` | Vault-relativer Ordner mit Agenten, Teams und Lauf-Protokollen |
@@ -245,6 +245,8 @@ vollständig rückgängig zu machen, und deshalb braucht es kein Git-Repository.
   (standardmäßig LM Studio `http://localhost:1234/v1` oder Ollama
   `http://localhost:11434/v1`, vom Nutzer konfigurierbar). Kein anderer Host wird je
   kontaktiert, keine Telemetrie, keine Analytics, keine Update-Pings.
+- **API-Schlüssel liegen im Schlüsselbund von Obsidian**, nicht in deinem Vault: die `data.json` behält nur einen Verweis, ein synchronisierter Vault trägt sie also nicht mit. Ein Schlüssel, den du vor 0.14.0 eingetragen hast, zieht um, sobald das Plugin seine Endpunkte das nächste Mal auflöst.
+- **Geheimnisse in deinen Notizen werden maskiert, bevor ein Modell sie sieht.** Private Schlüssel (PEM-Blöcke), `Bearer`-Tokens und gängige API-Schlüssel-Formate (`sk-…`, `ghp_…`, …) im Text, den eine Crew sendet, werden zu Platzhaltern wie `[redacted-token-1]`; die Antwort bekommt vor dem Schreiben das Original zurück. Notizen erreichen das Modell als JSON-Text, ein wiederhergestellter PEM-Block behält seine Zeilenumbrüche daher als `\n`. E-Mail-Adressen und andere personenbezogene Daten werden **nicht** maskiert.
 - Port 8080 steht standardmäßig auf der Denylist (üblicherweise von anderen lokalen
   Einzelnutzer-Modellservern belegt) — das ist eine *Einstellung* mit diesem Standard,
   kein fest verdrahtetes Verhalten, und lässt sich ändern.
