@@ -326,7 +326,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       {
         manager, local, capability: "chat", choice: this.settings.choice, caller: "vault-crews",
         // Der Manager nennt sein Backend selbst; fehlt es dort, wird der gewählte Endpunkt geprobt.
-        backendOf: (cfg) => cachedProbe(cfg.url, cfg.model ?? ""),
+        backendOf: (cfg) => cachedProbe(cfg.url, cfg.model ?? "", cfg.apiKey),
       },
       () => Promise.resolve(true),
     );
@@ -351,7 +351,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       const r = await resolveEndpointSource(
         {
           manager, local: this.localEndpoints(), capability: "chat", choice: this.settings.choice, caller: "vault-crews",
-          backendOf: (cfg) => cachedProbe(cfg.url, cfg.model ?? ""),
+          backendOf: (cfg) => cachedProbe(cfg.url, cfg.model ?? "", cfg.apiKey),
         },
         (cfg) => client.ping(cfg),
       );
