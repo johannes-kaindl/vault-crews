@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-10-09
+
 ### Changed
 
 - **API keys now live in Obsidian's secret storage instead of `data.json`.** This needs Obsidian 1.11.4 or newer (`minAppVersion` was 1.8.7). A key you entered before moves there the next time the plugin resolves its endpoints, at the latest when you start the next run; `data.json` then keeps only a reference. Run logs and `state.json` still mask the key, also when it comes from the secret storage.
