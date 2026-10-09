@@ -844,6 +844,9 @@ async function w8LeererCollector(cdp: Cdp): Promise<void> {
       await ${PLUGIN}.refreshTeams?.();
       return true;
     `);
+    // Der Orchestrator liest Team und Persona aus dem metadataCache, der nach dem Anlegen mit Verzug nachzieht: ein Lauf
+    // direkt danach verweigert mit „Datei enthält einen Fehler“ (gemessen: Welle 8 war in jedem zweiten Lauf rot).
+    await wartetAuf(cdp, `app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(teamPfad)}))?.frontmatter && app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(agentPfad)}))?.frontmatter`, 8000);
     await clearNotices(cdp);
     await cdp.evaluate(`${PLUGIN}.runCrew(${JSON.stringify(id)}); return true;`);
     const fertig = await wartetAuf(cdp, `${PLUGIN}.lastRuns[${JSON.stringify(id)}]`, 15000);
