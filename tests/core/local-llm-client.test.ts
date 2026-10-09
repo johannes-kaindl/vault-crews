@@ -439,3 +439,40 @@ describe('LocalLlmClient.modelInfo', () => {
 		expect(await client.modelInfo('qwen3-8b')).toEqual({ id: 'qwen3-8b', contextLength: null });
 	});
 });
+
+describe('LocalLlmClient — Schwärzung (Kit-Chat-Client)', () => {
+	const PEM = '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----';
+	const BEARER = 'Bearer abcdef0123456789abcdef0123456789';
+	const chunk = (content: string): string => `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`;
+
+	it('sendet Platzhalter statt PEM und Bearer-Token und gibt dem JSON-Parser das Original zurück (restoreContent: json)', async () => {
+		const { client, sse } = make();
+		const p = client.stream([{ role: 'user', content: `Notiz:\n${PEM}\nHeader: ${BEARER}` }], PARAMS, () => {}, new AbortController().signal);
+		await Promise.resolve();
+		const wire = JSON.stringify(sse.lastBody);
+		expect(wire).not.toContain('BEGIN PRIVATE KEY');
+		expect(wire).not.toContain('abcdef0123456789');
+		const placeholder = /\[redacted-[a-z0-9-]+-\d+\]/.exec(wire)?.[0];
+		expect(placeholder).toBeDefined();
+		// Das Modell schreibt den Platzhalter in ein JSON-Feld zurück, wie es eine Crew mit Schema täte.
+		sse.emit(chunk(JSON.stringify({ secret: placeholder })));
+		sse.end();
+		const res = await p;
+		const parsed = JSON.parse(res.content) as { secret: string };
+		expect(parsed.secret).toBe(PEM);
+	});
+});
+
+describe('LocalLlmClient — Wiederherstellung bei Markdown-Schemata', () => {
+	const PEM = '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----';
+
+	it('setzt das Original wörtlich ein (restoreContent: text), kein JSON-Escape im Notiztext', async () => {
+		const { client, sse } = make();
+		const p = client.stream([{ role: 'user', content: PEM }], { ...PARAMS, restoreContent: 'text' }, () => {}, new AbortController().signal);
+		await Promise.resolve();
+		const placeholder = /\[redacted-[a-z0-9-]+-\d+\]/.exec(JSON.stringify(sse.lastBody))?.[0] ?? '';
+		sse.emit(`data: ${JSON.stringify({ choices: [{ delta: { content: `Schlüssel: ${placeholder}` } }] })}\n\ndata: [DONE]\n\n`);
+		sse.end();
+		expect((await p).content).toBe(`Schlüssel: ${PEM}`);
+	});
+});

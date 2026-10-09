@@ -490,6 +490,7 @@ export class SettingsTab extends PluginSettingTab {
       containerEl: host,
       capability: "chat",
       caller: "vault-crews",
+      pluginId: "vault-crews",
       choice: () => this.host.settings.choice,
       setChoice: async (c) => {
         this.host.settings.choice = c;
@@ -518,6 +519,8 @@ export class SettingsTab extends PluginSettingTab {
 
   private renderLocalEndpointList(host: HTMLElement): void {
     buildEndpointList({
+      app: this.app,
+      pluginId: "vault-crews",
       containerEl: host,
       label: t("settings.connection.endpoints.name"),
       desc: t("settings.connection.endpoints.desc"),

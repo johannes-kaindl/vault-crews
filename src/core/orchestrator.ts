@@ -293,7 +293,7 @@ class RunFsm {
 		const { params: wire, thinkingLevel } = buildCrewParams({
 			family, backend: this.backend, agent, settings: this.deps.settings.request,
 		});
-		const params: LlmParams = { model: rec.model, sentModel, params: wire, thinkingLevel };
+		const params: LlmParams = { model: rec.model, sentModel, params: wire, thinkingLevel, restoreContent: schema.outputFormat === 'json' ? 'json' : 'text' };
 		const check = { family, thinking: thinkingLevel };
 		// Das Profil kann das Budget für eine Denkstufe anheben: die Kontextrechnung nimmt, was gesendet wird.
 		const sentMax = typeof wire.max_tokens === 'number' ? wire.max_tokens : agent.maxTokens;

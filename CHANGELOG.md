@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **API keys now live in Obsidian's secret storage instead of `data.json`.** This needs Obsidian 1.11.4 or newer (`minAppVersion` was 1.8.7). A key you entered before moves there the next time the plugin resolves its endpoints, at the latest when you start the next run; `data.json` then keeps only a reference. Run logs and `state.json` still mask the key, also when it comes from the secret storage.
+- **Secrets in your notes are masked before they reach a model.** Private keys (PEM blocks), `Bearer` tokens and common API-key formats (`sk-…`, `ghp_…`, …) in the text a crew sends are replaced by placeholders (`[redacted-token-1]`); the answer gets the original back before the crew writes it. Crews with a JSON schema get the value JSON-escaped, crews with a Markdown schema (Daily-Briefing) as is. Notes reach the model as JSON text, so a restored PEM block keeps its line breaks written as `\n`. E-mail addresses are not masked.
+- The settings row "Level picker in chat" in the Request section is gone: it never had an effect here (a setting you had switched on stays visible so you can switch it off). The section now shows save errors in red.
+- Kit 0.51.2 / code-kit 0.15.0 (backend detection and the secret storage come from the shared kit modules).
+
 ## [0.13.1] — 2026-10-03
 
 ### Changed

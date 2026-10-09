@@ -130,6 +130,10 @@ export class LocalLlmClient implements LlmClient {
 				messages,
 				// Sampling gehört dem Plugin, nicht dem Kit-Client (Kit-Vertrag `params`).
 				params: params.params,
+				// Crews mit JSON-Schema parsen JSON aus `content` (output-validator): ein Platzhalter für einen
+				// mehrzeiligen Wert (PEM) muss als gültiges JSON-Escape zurückkommen. Markdown-Schemata (briefing-v1)
+				// bekommen das Original wörtlich, sonst stünde `\n` im Text der Notiz.
+				restoreContent: params.restoreContent ?? 'json',
 				signal: ctrl.signal,
 				onToken: (t) => onToken(t, false),
 				onReasoning: (t) => onToken(t, true),

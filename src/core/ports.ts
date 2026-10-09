@@ -36,6 +36,9 @@ export interface LlmParams {
 	/** Die gewünschte Denkstufe — Information für die Always-on-Erkennung
 	 *  („Modell dachte trotz off"), nicht für den Draht. */
 	thinkingLevel: ThinkingLevel;
+	/** Wie der Client geschwärzte Werte in die Antwort zurücksetzt: `json` maskiert sie für JSON-Zeichenketten
+	 *  (Schema mit JSON-Ausgabe), `text` setzt sie wörtlich ein (Markdown-Ausgabe). Fehlt das Feld, gilt `json`. */
+	restoreContent?: 'text' | 'json';
 }
 export interface LlmStreamResult {
 	content: string; thinkTokens: number; reasoned: boolean; finishReason: 'stop' | 'length' | 'aborted';

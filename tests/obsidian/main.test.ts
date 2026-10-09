@@ -408,3 +408,45 @@ describe("VaultCrewsPlugin — Endpunkte vom LLM Endpoint Manager", () => {
     expect(await endpointsPassedToRun(makeFakeApp() as App)).toEqual(LOCAL);
   });
 });
+
+describe("VaultCrewsPlugin — API-Schluessel im Schluesselbund", () => {
+  const KEY = "sk-geheim-1234567890";
+
+  /** Fake-App mit `app.secretStorage` (Map), sonst wie jede andere. */
+  function appWithSecretStorage(): { app: App; store: Map<string, string> } {
+    const app = makeFakeApp() as App;
+    const store = new Map<string, string>();
+    (app as unknown as { secretStorage: unknown }).secretStorage = {
+      getSecret: (id: string) => store.get(id) ?? "",
+      setSecret: (id: string, v: string) => { store.set(id, v); },
+    };
+    return { app, store };
+  }
+
+  async function runWithKey(app: App): Promise<{ plugin: VaultCrewsPlugin; passed: unknown }> {
+    vi.mocked(executeRun).mockResolvedValue(okResult());
+    const plugin = new VaultCrewsPlugin(app, MANIFEST);
+    await plugin.onload();
+    plugin.settings.endpoints = [{ url: "http://gw:1", apiKey: KEY, model: "m" }];
+    plugin.runCrew("task-triage");
+    await vi.waitFor(() => { expect(executeRun).toHaveBeenCalled(); });
+    return { plugin, passed: vi.mocked(executeRun).mock.calls[0]?.[1].settings.endpoints };
+  }
+
+  it("legt einen Klartext-Schluessel beim Aufloesen im Schluesselbund ab und nimmt ihn aus den Settings", async () => {
+    const { app, store } = appWithSecretStorage();
+    const { plugin } = await runWithKey(app);
+    expect([...store.values()]).toContain(KEY);
+    const saved = plugin.settings.endpoints[0];
+    expect(saved).toBeDefined();
+    expect(saved).not.toHaveProperty("apiKey");
+    expect(saved?.secretId).toBeTruthy();
+    expect(JSON.stringify(plugin.settings)).not.toContain(KEY);
+  });
+
+  it("reicht dem Lauf den Schluessel aus dem Schluesselbund — damit redactRunState ihn in run.md schwaerzen kann", async () => {
+    const { app } = appWithSecretStorage();
+    const { passed } = await runWithKey(app);
+    expect(passed).toEqual([expect.objectContaining({ url: "http://gw:1", apiKey: KEY, model: "m" })]);
+  });
+});

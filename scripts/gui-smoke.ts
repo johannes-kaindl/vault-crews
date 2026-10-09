@@ -1230,6 +1230,240 @@ async function abschnittWelle14(cdp: Cdp): Promise<void> {
   }
 }
 
+// --- Welle 15: Schlüsselbund, Schwärzung, Wiederherstellung --------------------
+
+const W15_KEY = "sk-w15-geheim-1234567890abcdef";
+const W15_PEM = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7\n-----END PRIVATE KEY-----";
+const W15_BEARER = "abcdef0123456789abcdef0123456789";
+const W15_CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "GET, POST, OPTIONS" };
+
+interface W15Antwort { status: number; content?: string; raw?: string }
+interface W15Server { server: Server; port: number; bodies: string[]; auth: Array<string | undefined> }
+
+/** Fake-Endpunkt mit CORS (der XHR-Stream-Weg läuft im Renderer): hält jeden gesendeten Chat-Body und den
+ *  Authorization-Kopf fest und antwortet, was `antwort` aus dem Body macht. */
+async function w15Server(antwort: (body: string) => W15Antwort): Promise<W15Server> {
+  const bodies: string[] = [];
+  const auth: Array<string | undefined> = [];
+  const server = createServer((req, res) => {
+    if (req.method === "OPTIONS") { res.writeHead(204, W15_CORS); res.end(); return; }
+    if (req.method === "GET" && req.url?.startsWith("/v1/models")) {
+      res.writeHead(200, { "content-type": "application/json", ...W15_CORS });
+      res.end(JSON.stringify({ object: "list", data: [{ id: "fake-modell", object: "model" }] }));
+      return;
+    }
+    if (req.method === "POST" && /chat\/completions/.test(req.url ?? "")) {
+      let raw = "";
+      req.on("data", (c) => { raw += String(c); });
+      req.on("end", () => {
+        bodies.push(raw);
+        auth.push(typeof req.headers.authorization === "string" ? req.headers.authorization : undefined);
+        const a = antwort(raw);
+        if (a.status !== 200) { res.writeHead(a.status, { "content-type": "application/json", ...W15_CORS }); res.end(a.raw ?? "{}"); return; }
+        res.writeHead(200, { "content-type": "text/event-stream", ...W15_CORS });
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: a.content ?? "" } }] })}\n\n`);
+        res.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
+        res.end("data: [DONE]\n\n");
+      });
+      return;
+    }
+    res.writeHead(404, W15_CORS); res.end("{}");
+  });
+  await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
+  return { server, port: (server.address() as { port: number }).port, bodies, auth };
+}
+
+/** Platzhalter der Schwärzung in der Reihenfolge ihres ersten Auftretens im gesendeten Body. */
+function w15Platzhalter(body: string): { pem: string | undefined; token: string | undefined } {
+  const alle = [...new Set(body.match(/\[redacted-[a-z0-9-]+-\d+\]/g) ?? [])];
+  return { pem: alle.find((p) => p.includes("private-key")), token: alle.find((p) => p.includes("token")) };
+}
+
+/** Punkt 1: Klartext-Schlüssel wandert beim ersten Auflösen in den Schlüsselbund, der Lauf bekommt ihn von dort. */
+async function w15Schluesselbund(cdp: Cdp, dataPfad: string): Promise<void> {
+  const vorher = await cdp.evaluate<unknown>(`return JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints));`);
+  let secretId = "";
+  try {
+    await cdp.evaluate(`
+      ${PLUGIN}.settings.endpoints = [{ url: "http://127.0.0.1:59998/v1", apiKey: ${JSON.stringify(W15_KEY)}, model: "fake-modell" }];
+      await ${PLUGIN}.saveSettings();
+      return true;`);
+    const klartextDa = readFileSync(dataPfad, "utf8").includes(W15_KEY);
+    if (!klartextDa) { skipped("Welle 15 — Schlüsselbund: Klartext-Schlüssel wandert aus data.json", "Vorbedingung (Klartext in data.json) nicht herzustellen"); return; }
+    const eps = await cdp.evaluate<Array<{ apiKey?: string }>>(`
+      const r = await ${PLUGIN}.effectiveEndpoints();
+      await new Promise((ok) => setTimeout(ok, 800));
+      return r;`);
+    const disk = readFileSync(dataPfad, "utf8");
+    const gespeichert = JSON.parse(disk) as { endpoints?: Array<{ apiKey?: string; secretId?: string }> };
+    secretId = gespeichert.endpoints?.[0]?.secretId ?? "";
+    record("Welle 15 — Schlüsselbund: nach dem Auflösen steht kein Schlüssel mehr in data.json",
+      !disk.includes(W15_KEY) && gespeichert.endpoints?.[0]?.apiKey === undefined && secretId !== "",
+      `Klartext in data.json: ${disk.includes(W15_KEY) ? "JA" : "nein"} · apiKey-Feld: ${gespeichert.endpoints?.[0]?.apiKey === undefined ? "weg" : "da"} · secretId: ${secretId || "FEHLT"}`);
+    const imBund = secretId === "" ? null : await cdp.evaluate<string | null>(`return app.secretStorage.getSecret(${JSON.stringify(secretId)});`);
+    record("Welle 15 — Schlüsselbund: der Schlüssel liegt im Schlüsselbund", imBund === W15_KEY, imBund === W15_KEY ? "getSecret liefert den Wert" : `getSecret: ${String(imBund)}`);
+    record("Welle 15 — Schlüsselbund: der Lauf bekommt den Schlüssel von dort (nur im Speicher)", eps[0]?.apiKey === W15_KEY,
+      eps[0]?.apiKey === W15_KEY ? "effectiveEndpoints trägt apiKey" : `apiKey: ${String(eps[0]?.apiKey)}`);
+  } finally {
+    await cdp.evaluate(`
+      ${secretId ? `app.secretStorage.setSecret(${JSON.stringify(secretId)}, "");` : ""}
+      ${PLUGIN}.settings.endpoints = ${JSON.stringify(vorher)};
+      await ${PLUGIN}.saveSettings();
+      return true;`).catch(() => undefined);
+  }
+}
+
+/** Punkte 2–4: drei echte Läufe gegen einen Fake-Endpunkt.
+ *  (a) JSON-Schema: PEM und Bearer-Token in der Quellnotiz gehen als Platzhalter über den Draht, kommen als
+ *      Originale in die Notiz (PEM JSON-maskiert und wieder gültig).
+ *  (b) Markdown-Schema (briefing-v1): dasselbe, aber das PEM wörtlich mit Zeilenumbrüchen.
+ *  (c) 401 mit dem Schlüssel im Body: weder run.md noch state.json tragen ihn (Schwärzung kennt den Schlüssel aus dem
+ *      Schlüsselbund), der Server sah ihn im Authorization-Kopf. */
+async function w15Laeufe(cdp: Cdp): Promise<void> {
+  const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
+  const ordner = "zz-w15-ordner";
+  const agentPfad = `${root}/agents/zz-w15-agent.md`;
+  const vorher = await cdp.evaluate<unknown>(`return JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints));`);
+  const aufraeumen: string[] = [agentPfad];
+  const lauf = async (id: string, srv: W15Server, teamZeilen: string[]): Promise<{ runDir: string; info: { runId: string; status: string } | null }> => {
+    const teamPfad = `${root}/teams/${id}.md`;
+    aufraeumen.push(teamPfad);
+    await cdp.evaluate(`
+      for (const d of [${JSON.stringify(root)}, ${JSON.stringify(root + "/teams")}, ${JSON.stringify(root + "/agents")}, ${JSON.stringify(ordner)}]) {
+        if (!app.vault.getAbstractFileByPath(d)) await app.vault.createFolder(d);
+      }
+      ${PLUGIN}.settings.endpoints = [{ url: "http://127.0.0.1:${srv.port}/v1", model: "fake-modell" }];
+      await app.vault.create(${JSON.stringify(teamPfad)}, ${JSON.stringify(teamZeilen.join("\n"))});
+      return true;`);
+    // Team und Persona stehen erst im metadataCache, wenn der Orchestrator sie lesen kann (Baseline: Welle 8 lief ohne dieses Warten rot).
+    await wartetAuf(cdp, `app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(teamPfad)}))?.frontmatter && app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(agentPfad)}))?.frontmatter`, 8000);
+    await cdp.evaluate(`await ${PLUGIN}.refreshTeams?.(); delete ${PLUGIN}.lastRuns[${JSON.stringify(id)}]; ${PLUGIN}.runCrew(${JSON.stringify(id)}); return true;`);
+    const fertig = await wartetAuf(cdp, `${PLUGIN}.lastRuns[${JSON.stringify(id)}]`, 20000);
+    if (!fertig) return { runDir: "", info: null };
+    const info = await cdp.evaluate<{ runId: string; status: string }>(`return ${PLUGIN}.lastRuns[${JSON.stringify(id)}];`);
+    aufraeumen.push(`${root}/runs/${info.runId}`);
+    return { runDir: `${root}/runs/${info.runId}`, info };
+  };
+  const kopf = (id: string, name: string, schema: string[], extra: string[]): string[] => ["---", "crew-kind: team", `name: ${name}`, "version: 1", "description: Smoke", "trigger: manual",
+    "limits:", "  max_writes: 3", "write_scope:", `  - "${ordner}/**/*.md"`, "tasks:",
+    "  - id: collect", "    kind: collector", "    collector: tasknotes.query", "    params:", `      folder: ${ordner}`, "      include_content: true",
+    "  - id: analyse", "    kind: llm", "    agent: zz-w15-agent", "    inputs: [collect]", "    instruction: Schreibe die Werte der Notiz heraus.",
+    ...schema, "    on_error: abort", "  - id: apply", "    kind: actions", "    inputs: [analyse]", ...extra, "---", id, ""];
+  try {
+    await cdp.evaluate(`
+      for (const d of [${JSON.stringify(root)}, ${JSON.stringify(root + "/teams")}, ${JSON.stringify(root + "/agents")}, ${JSON.stringify(ordner)}]) {
+        if (!app.vault.getAbstractFileByPath(d)) await app.vault.createFolder(d);
+      }
+      await app.vault.adapter.write(${JSON.stringify(agentPfad)}, ${JSON.stringify(["---", "crew-kind: agent", "name: ZZ W15", "---", "Du bist ein Test.", ""].join("\n"))});
+      await app.vault.adapter.write(${JSON.stringify(`${ordner}/a.md`)}, ${JSON.stringify(`Notiz mit Geheimnissen.\n\n${W15_PEM}\n\nAuthorization: Bearer ${W15_BEARER}\n`)});
+      return true;`);
+    aufraeumen.push(`${ordner}/a.md`);
+
+    // (a) JSON-Schema
+    const a = await w15Server((body) => {
+      const ph = w15Platzhalter(body);
+      return { status: 200, content: JSON.stringify({ items: [{ path: `${ordner}/a.md`, set: { pem: ph.pem ?? "FEHLT", token: ph.token ?? "FEHLT" } }] }) };
+    });
+    try {
+      const l = await lauf("zz-w15-json", a, kopf("zz-w15-json", "ZZ W15 json", ["    output:", "      family: frontmatter.set", "      allowed_keys: [pem, token]"],
+        ["    allowed_actions: [frontmatter.patch]", "    allowed_keys: [pem, token]"]));
+      const body = a.bodies[0] ?? "";
+      record("Welle 15 — Schwärzung: PEM und Bearer-Token gehen nicht im Klartext an den Server",
+        a.bodies.length >= 1 && !body.includes("BEGIN PRIVATE KEY") && !body.includes("MIIEvQ") && !body.includes(W15_BEARER),
+        a.bodies.length === 0 ? "Server sah keine Anfrage (Lauf: " + String(l.info?.status) + ")" : `Platzhalter am Draht: ${JSON.stringify(w15Platzhalter(body))}`);
+      const note = await cdp.evaluate<string>(`return await app.vault.adapter.read(${JSON.stringify(`${ordner}/a.md`)});`);
+      record("Welle 15 — Wiederherstellung (JSON-Schema): die Notiz trägt PEM und Token im Original, kein Platzhalter",
+        l.info?.status === "ok" && note.includes("MIIEvQIBADANBgkqhkiG9w0BAQEFAASC") && note.includes(W15_BEARER) && !note.includes("[redacted-"),
+        `Status ${String(l.info?.status)} · PEM ${note.includes("MIIEvQIBADANBgkqhkiG9w0BAQEFAASC") ? "da" : "FEHLT"} · Token ${note.includes(W15_BEARER) ? "da" : "FEHLT"} · Platzhalter ${note.includes("[redacted-") ? "STEHT NOCH DA" : "weg"}`);
+    } finally { a.server.closeAllConnections?.(); a.server.close(); }
+
+    // (b) Markdown-Schema — mit frischer Quellnotiz: der Lauf (a) hat PEM und Token in a.md geschrieben, und ein zweiter
+    // Lauf über dieselbe Notiz sähe dort zwei verschiedene PEM-Platzhalter (der erste wäre der schon JSON-maskierte Wert).
+    await cdp.evaluate(`
+      const alt = app.vault.getAbstractFileByPath(${JSON.stringify(`${ordner}/a.md`)});
+      if (alt) await app.vault.delete(alt, true);
+      await app.vault.adapter.write(${JSON.stringify(`${ordner}/b.md`)}, ${JSON.stringify(`Notiz mit Geheimnissen.\n\n${W15_PEM}\n`)});
+      return true;`);
+    aufraeumen.push(`${ordner}/b.md`);
+    const b = await w15Server((body) => {
+      const ph = w15Platzhalter(body);
+      return { status: 200, content: `Gefunden:\n\n${ph.pem ?? "FEHLT"}\n` };
+    });
+    try {
+      const l = await lauf("zz-w15-text", b, kopf("zz-w15-text", "ZZ W15 text", ["    output_schema: briefing-v1"],
+        ["    allowed_actions: [section.replace]", `    target: "${ordner}/ziel.md"`, "    create_if_missing: true"]));
+      aufraeumen.push(`${ordner}/ziel.md`);
+      const ziel = await cdp.evaluate<string>(`const f = app.vault.getAbstractFileByPath(${JSON.stringify(`${ordner}/ziel.md`)}); return f ? await app.vault.read(f) : "";`);
+      // Das Modell sieht Quellnotizen als JSON-Text im Prompt: ein PEM steht dort mit `\\n` statt echten Zeilenumbrüchen, und dieser
+      // Wortlaut ist das „Original", das zurückkommt. Mit dem Modus json käme es ein zweites Mal maskiert (`\\\\n`) in die Notiz.
+      const einfach = ziel.includes("-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC");
+      const doppelt = ziel.includes("-----BEGIN PRIVATE KEY-----\\\\n");
+      record("Welle 15 — Wiederherstellung (Markdown-Schema): das PEM kommt im Wortlaut des Prompts zurück, nicht ein zweites Mal maskiert",
+        l.info?.status === "ok" && einfach && !doppelt && !ziel.includes("[redacted-"),
+        `Status ${String(l.info?.status)} · ${doppelt ? "DOPPELT maskiert (\\\\n)" : einfach ? "Wortlaut des Prompts (\\n)" : "PEM fehlt"} · Platzhalter ${ziel.includes("[redacted-") ? "STEHT NOCH DA" : "weg"}`);
+    } finally { b.server.closeAllConnections?.(); b.server.close(); }
+
+    // (c) 401 mit dem Schlüssel im Body
+    const c = await w15Server(() => ({ status: 401, raw: JSON.stringify({ error: { message: `Incorrect API key provided: ${W15_KEY}` } }) }));
+    let secretId = "";
+    try {
+      await cdp.evaluate(`
+        ${PLUGIN}.settings.endpoints = [{ url: "http://127.0.0.1:${c.port}/v1", apiKey: ${JSON.stringify(W15_KEY)}, model: "fake-modell" }];
+        await ${PLUGIN}.saveSettings();
+        return true;`);
+      const teamPfad = `${root}/teams/zz-w15-401.md`;
+      aufraeumen.push(teamPfad);
+      await cdp.evaluate(`
+        await app.vault.create(${JSON.stringify(teamPfad)}, ${JSON.stringify(kopf("zz-w15-401", "ZZ W15 401", ["    output:", "      family: frontmatter.set", "      allowed_keys: [pem]"],
+          ["    allowed_actions: [frontmatter.patch]", "    allowed_keys: [pem]"]).join("\n"))});
+        return true;`);
+      await wartetAuf(cdp, `app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(teamPfad)}))?.frontmatter`, 8000);
+      await cdp.evaluate(`await ${PLUGIN}.refreshTeams?.(); delete ${PLUGIN}.lastRuns["zz-w15-401"]; ${PLUGIN}.runCrew("zz-w15-401"); return true;`);
+      const fertig = await wartetAuf(cdp, `${PLUGIN}.lastRuns["zz-w15-401"]`, 20000);
+      secretId = await cdp.evaluate<string>(`return ${PLUGIN}.settings.endpoints[0]?.secretId ?? "";`);
+      if (!fertig) { record("Welle 15 — 401-Body: der Schlüssel wird in run.md und state.json maskiert", false, "Lauf endete nicht innerhalb von 20 s"); }
+      else {
+        const info = await cdp.evaluate<{ runId: string; status: string }>(`return ${PLUGIN}.lastRuns["zz-w15-401"];`);
+        const dir = `${root}/runs/${info.runId}`;
+        aufraeumen.push(dir);
+        const dateien = await cdp.evaluate<Record<string, string>>(`
+          const out = {};
+          for (const n of ["run.md", "state.json"]) { try { out[n] = await app.vault.adapter.read(${JSON.stringify(dir)} + "/" + n); } catch { out[n] = ""; } }
+          return out;`);
+        const lecks = Object.entries(dateien).filter(([, t]) => t.includes(W15_KEY)).map(([n]) => n);
+        const leer = Object.entries(dateien).filter(([, t]) => t === "").map(([n]) => n);
+        record("Welle 15 — 401-Body: der Schlüssel wird in run.md und state.json maskiert",
+          lecks.length === 0 && leer.length === 0 && info.status !== "ok" && c.bodies.length >= 1,
+          lecks.length > 0 ? `SCHLÜSSEL IN: ${lecks.join(", ")}` : leer.length > 0 ? `nicht gelesen: ${leer.join(", ")}` : `Status ${info.status} · run.md/state.json ohne Schlüssel · Server sah ${c.bodies.length} Anfrage(n)`);
+        record("Welle 15 — der Schlüssel kommt aus dem Schlüsselbund an den Draht (Authorization-Kopf)",
+          c.auth.includes(`Bearer ${W15_KEY}`), `Kopf am Server: ${c.auth[0] === undefined ? "keiner" : c.auth[0].replace(W15_KEY, "<Schlüssel>")}`);
+      }
+    } finally {
+      c.server.closeAllConnections?.(); c.server.close();
+      if (secretId) await cdp.evaluate(`app.secretStorage.setSecret(${JSON.stringify(secretId)}, ""); return true;`).catch(() => undefined);
+    }
+  } finally {
+    await cdp.evaluate(`
+      for (const p of ${JSON.stringify(aufraeumen)}) {
+        const f = app.vault.getAbstractFileByPath(p);
+        if (f) await app.vault.delete(f, true);
+      }
+      for (const id of ["zz-w15-json", "zz-w15-text", "zz-w15-401"]) delete ${PLUGIN}.lastRuns[id];
+      ${PLUGIN}.settings.endpoints = ${JSON.stringify(vorher)};
+      await ${PLUGIN}.saveSettings();
+      return true;`).catch(() => undefined);
+  }
+}
+
+async function abschnittWelle15(cdp: Cdp, dataPfad: string): Promise<void> {
+  try {
+    await w15Schluesselbund(cdp, dataPfad);
+    await w15Laeufe(cdp);
+  } catch (e) {
+    record("Welle 15 — Abschnitt lief bis zum Ende", false, `abgebrochen: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 async function main(): Promise<void> {
   const cdp = await attachTo("workspace", PORT, VAULT);
   if (!cdp) {
@@ -1368,6 +1602,7 @@ async function main(): Promise<void> {
     await abschnittPanel(cdp);
     await abschnittWelle8(cdp);
     await abschnittWelle14(cdp);
+    await abschnittWelle15(cdp, dataPfad);
   } finally {
     // Zurueckschreiben und das Ergebnis MESSEN statt darauf vertrauen.
     if (vorwert) {

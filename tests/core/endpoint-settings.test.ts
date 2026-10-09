@@ -52,3 +52,10 @@ describe('migrateEndpointSettings', () => {
 			.toEqual([{ url: 'http://a' }]);
 	});
 });
+
+describe('migrateEndpointSettings — Schluesselbund-Verweise', () => {
+	it('behaelt id und secretId; sonst waere der Verweis nach dem naechsten Start weg, der Schluessel aber schon geloescht', () => {
+		const raw = { endpoints: [{ url: 'http://a', id: 'e-1', secretId: 'vault-crews-ep-e-1', model: 'm' }] };
+		expect(migrateEndpointSettings(raw, [])).toEqual(raw.endpoints);
+	});
+});

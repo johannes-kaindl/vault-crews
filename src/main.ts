@@ -52,7 +52,8 @@ import { resolveEndpointSource, type EndpointSourceResult } from "./vendor/kit/e
 import { sanitizeRequestSettings } from "./vendor/kit/sampling-profiles";
 import { createRequestSession, type RequestSession } from "./vendor/kit-obsidian/request-session";
 import type { RequestSectionState } from "./vendor/kit-obsidian/request-section";
-import { cachedProbe } from "./obsidian/backend-probe";
+import { cachedProbe } from "./vendor/kit-obsidian/backend-probe";
+import { hydrateLocalEndpoints, prepareLocalEndpoints } from "./vendor/kit-obsidian/endpoint-secrets";
 import { createRequestPort } from "./obsidian/request-port";
 import { deviationNotice } from "./obsidian/request-text";
 import { buildHideCss } from "./obsidian/folder-hide";
@@ -255,7 +256,8 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
    *  Run racen (der den geteilten Client via setBase umbiegt). `getJson` nutzt `throw:false`:
    *  ein antwortender Server resolvet (→ Response-Pfad), nur echte Netzfehler rejecten
    *  (→ Error-Pfad mit roher Meldung für die Regex-Klassifikation). */
-  async probeEndpoint(cfg: EndpointConfig): Promise<EndpointStatus> {
+  async probeEndpoint(entry: EndpointConfig): Promise<EndpointStatus> {
+    const cfg = this.withKey(entry);
     const target = normalizeEndpoint(cfg.url);
     const json = new RequestUrlJsonTransport();
     let input: ProbeInput;
@@ -279,9 +281,9 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
   /** Modelle GENAU EINES Eintrags — der Kit-Editor fragt je Zeile, nicht global.
    *  Ephemerer Client wie `probeEndpoint`: rührt `this.llm` nie an, kann also nie mit
    *  einem laufenden Run racen. */
-  async listModels(cfg: EndpointConfig): Promise<string[]> {
+  async listModels(entry: EndpointConfig): Promise<string[]> {
     const client = this.buildLlmClient();
-    client.setEndpoint(cfg);
+    client.setEndpoint(this.withKey(entry));
     try {
       return await client.listModels();
     } catch {
@@ -297,16 +299,32 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     return active ? normalizeEndpoint(active.url) : null;
   }
 
+  /** Die lokale Liste mit Schlüsseln aus dem Schlüsselbund (`apiKey` nur im Speicher). Migriert beim
+   *  ersten Aufruf Klartext-Schlüssel aus `data.json` und speichert die bereinigte Liste. Jede Stelle, die
+   *  einen Schlüssel braucht (Ping, Client, Schwärzung von run.md), liest diese Liste, nie `settings.endpoints`. */
+  private localEndpoints(): EndpointConfig[] {
+    return prepareLocalEndpoints({
+      app: this.app, pluginId: this.manifest.id, list: this.settings.endpoints,
+      persist: (list) => { this.settings.endpoints = list; return this.saveSettings(); },
+    });
+  }
+
+  /** Eine Zeile der Settings-Liste mit ihrem Schlüssel aus dem Schlüsselbund. */
+  private withKey(entry: EndpointConfig): EndpointConfig {
+    return hydrateLocalEndpoints(this.app, this.manifest.id, [entry])[0] ?? entry;
+  }
+
   /** Die Endpunkte, auf denen ein Lauf rechnet. Ist der LLM Endpoint Manager installiert, entscheidet
    *  er (Wahl + Standardmodell, Schluessel aus dem Schluesselbund); ein Fehler dort ergibt eine
    *  LEERE Liste und damit die Verweigerung „kein Endpunkt“ — die eine Wahrheit soll auch die eine
    *  Meldung sein. Ohne Manager bleibt die lokale Liste samt Failover im Orchestrator. */
   async effectiveEndpoints(): Promise<EndpointConfig[]> {
     const manager = findEndpointManager(this.app);
-    if (manager === null) { this.managerSource = null; return this.settings.endpoints; }
+    const local = this.localEndpoints();
+    if (manager === null) { this.managerSource = null; return local; }
     const r = await resolveEndpointSource(
       {
-        manager, local: this.settings.endpoints, capability: "chat", choice: this.settings.choice, caller: "vault-crews",
+        manager, local, capability: "chat", choice: this.settings.choice, caller: "vault-crews",
         // Der Manager nennt sein Backend selbst; fehlt es dort, wird der gewählte Endpunkt geprobt.
         backendOf: (cfg) => cachedProbe(cfg.url, cfg.model ?? ""),
       },
@@ -332,7 +350,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       const manager = findEndpointManager(this.app);
       const r = await resolveEndpointSource(
         {
-          manager, local: this.settings.endpoints, capability: "chat", choice: this.settings.choice, caller: "vault-crews",
+          manager, local: this.localEndpoints(), capability: "chat", choice: this.settings.choice, caller: "vault-crews",
           backendOf: (cfg) => cachedProbe(cfg.url, cfg.model ?? ""),
         },
         (cfg) => client.ping(cfg),
@@ -359,7 +377,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
    *  (mit toten Timeouts, s. RunDeps.settings.limits.callTimeoutMs/stallTimeoutMs, die
    *  nirgends mehr gelesen werden) für die gesamte Session eingefroren. */
   private buildLlmClient(): LocalLlmClient {
-    const first = this.settings.endpoints[0] ?? { url: "http://localhost:1234" };
+    const first = this.localEndpoints()[0] ?? { url: "http://localhost:1234" };
     return new LocalLlmClient(
       first,
       { transport: xhrSseTransport, fallbackTransport: requestUrlTransport },
