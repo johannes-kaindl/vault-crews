@@ -1,7 +1,7 @@
 {
   "id": "vault-crews",
   "name": "Vault Crews",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "minAppVersion": "1.11.4",
   "description": "Run autonomous local LLM agent teams (crews) on your vault via LM Studio.",
   "author": "Johannes Kaindl",

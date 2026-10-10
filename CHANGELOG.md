@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-10-10
+
 ### Changed
 
 - **Masking of API keys in run logs now comes from the shared code-kit module `redact` (code-kit 0.18.0).** Visible differences: if one of your keys is the beginning of another, the longer one is now masked completely (before, the rest of it stayed readable in `run.md`); a key is masked in one pass over the text, so a mask can no longer be hit by a later key.
