@@ -15,7 +15,7 @@ import { fnv1a } from './collectors';
 import { isAlwaysOnThinker } from './model-info';
 import { resolveTaskModel } from './model-resolution';
 import { buildCrewParams } from './crew-request';
-import { redactRunState } from './redact';
+import { redactKeysInValue } from '../vendor/kit/redact';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { resolveActiveEndpointConfig, type EndpointConfig } from '../vendor/kit/endpoint_config';
 import type { ClockPort } from '../vendor/kit/clock';
@@ -63,6 +63,11 @@ export function executeRun(teamPath: string, deps: RunDeps): Promise<RunResult> 
 	return new RunFsm(teamPath, deps).run();
 }
 
+/** Die Schwärzung des Lauf-Zustands warf (fail-closed); es wurde nichts geschrieben. */
+class RedactionFailed extends Error {
+	constructor(reason: string) { super(`Lauf-Zustand nicht schwärzbar: ${reason}`); }
+}
+
 class RunFsm {
 	private readonly state: RunState;
 	private readonly denylist: string[];
@@ -98,6 +103,17 @@ class RunFsm {
 	}
 
 	async run(): Promise<RunResult> {
+		try {
+			return await this.runPhases();
+		} catch (e) {
+			// Die Schwärzung wirft fail-closed (Zirkel, BigInt, kein JSON-Abbild): dann ist nichts
+			// geschrieben worden, und der Lauf endet als Fehler, ohne erneut persist() zu rufen.
+			if (e instanceof RedactionFailed) return this.finishUnredactable(e);
+			throw e;
+		}
+	}
+
+	private async runPhases(): Promise<RunResult> {
 		const refusal = await this.preflight();
 		if (refusal !== null) return this.finishRefused(refusal);
 
@@ -426,6 +442,19 @@ class RunFsm {
 		return result;
 	}
 
+	/** Der Lauf-Zustand ließ sich nicht schwärzen. run.md und state.json bleiben, wie sie waren
+	 *  (nie ungeschwärzt geschrieben); der Lauf endet als `failed` mit `io`. Kein persist(). */
+	private async finishUnredactable(e: RedactionFailed): Promise<RunResult> {
+		this.state.status = 'failed';
+		this.state.errorKind = 'io';
+		this.state.endedAt = this.deps.clock.now();
+		await this.releaseLock();
+		console.error(`vault-crews: ${e.message}`);
+		const result = this.result();
+		this.deps.reporter.emit({ type: 'runFinished', result });
+		return result;
+	}
+
 	private finalStatus(): RunStatus {
 		if (this.aborted) return 'aborted';
 		if (this.stopped) return 'failed';
@@ -571,7 +600,13 @@ class RunFsm {
 		// der zurückgegebene RunResult stammen aus diesem Objekt. Fehlerkörper sind der
 		// wahrscheinliche Weg, auf dem ein Schlüssel in den (gesyncten) Vault gerät —
 		// manche Gateways spiegeln den Authorization-Header in ihrer 401-Antwort.
-		Object.assign(this.state, redactRunState(this.state, this.deps.settings.endpoints));
+		let redacted: RunState;
+		try {
+			redacted = redactKeysInValue(this.state, this.deps.settings.endpoints.map((e) => e.apiKey));
+		} catch (e) {
+			throw new RedactionFailed(errMsg(e));
+		}
+		Object.assign(this.state, redacted);
 		await this.writeFile(`${dir}/run.md`, buildRunMd(this.state));
 		await this.writeFile(`${dir}/state.json`, buildStateJson(this.state));
 	}

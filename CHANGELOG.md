@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Masking of API keys in run logs now comes from the shared code-kit module `redact` (code-kit 0.18.0).** Visible differences: if one of your keys is the beginning of another, the longer one is now masked completely (before, the rest of it stayed readable in `run.md`); a key is masked in one pass over the text, so a mask can no longer be hit by a later key.
+- **A run whose state cannot be masked now ends as failed (`io`) and writes nothing.** Before, such a state (a circular reference, a value without JSON form) would have escaped the run as an unhandled error and left the run lock set; now the lock is released, `run.md` and `state.json` are left as they were, and you get one notice.
+
 ## [0.14.0] — 2026-10-09
 
 ### Changed

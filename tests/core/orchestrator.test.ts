@@ -1,5 +1,5 @@
 // tests/core/orchestrator.test.ts
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { executeRun, type RunDeps } from '../../src/core/orchestrator';
 import { LlmCallError } from '../../src/core/ports';
 import type { LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, RunEvent } from '../../src/core/ports';
@@ -12,6 +12,22 @@ import { FakeSnapshotStore, FinalizeFailsSnapshotStore } from '../helpers/fake-s
 import { ScriptLlmClient, type ScriptedCall } from '../helpers/script-llm';
 import { fakeRequestPort, type FakeRequestPort } from '../helpers/fake-request-port';
 import { DEFAULT_REQUEST_SETTINGS } from '../../src/vendor/kit/sampling-profiles';
+
+// Schalter für den fail-closed-Wurf der Kit-Schwärzung (siehe Test „Schwärzung wirft“).
+const redactSwitch = vi.hoisted(() => ({ throwAfter: null as number | null, calls: 0 }));
+vi.mock('../../src/vendor/kit/redact', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../../src/vendor/kit/redact')>();
+  return {
+    ...orig,
+    redactKeysInValue: ((...args: Parameters<typeof orig.redactKeysInValue>) => {
+      redactSwitch.calls++;
+      if (redactSwitch.throwAfter !== null && redactSwitch.calls > redactSwitch.throwAfter) {
+        throw new TypeError('redactKeysInValue: the value has no JSON form');
+      }
+      return orig.redactKeysInValue(...args);
+    }) as typeof orig.redactKeysInValue,
+  };
+});
 
 const START_MS = 1_700_000_000_000;
 
@@ -536,6 +552,34 @@ describe('executeRun — Sperrliste und Schluessel-Redaction', () => {
     expect(runMd).not.toContain('sk-geheim-1234567890');
     expect(runMd).toContain('••••');
   });
+});
+
+describe('executeRun — Schwärzung wirft (fail-closed)', () => {
+  it.each([[0, 'beim Öffnen des Laufs'], [1, 'nach dem ersten Task']])(
+    'wirft die Schwärzung %i Aufrufe nach dem Start (%s) → Lauf endet failed/io, genau ein runFinished, danach wird nichts mehr geschrieben',
+    async (throwAfter) => {
+      redactSwitch.calls = 0;
+      redactSwitch.throwAfter = throwAfter;
+      try {
+        const h = await harness();
+        const result = await executeRun(h.teamPath, h.deps);
+
+        expect(result.status).toBe('failed');
+        expect(result.errorKind).toBe('io');
+        expect(h.reporter.events.filter((e) => e.type === 'runFinished')).toHaveLength(1);
+        // kein persist() nach dem Wurf: genau so viele Aufrufe wie bis zum Wurf
+        expect(redactSwitch.calls).toBe(throwAfter + 1);
+        // der Lock ist frei
+        const lock = JSON.parse(await h.vault.read('_crews/runs/run-lock.json')) as { active: boolean };
+        expect(lock.active).toBe(false);
+        // nichts Ungeschwärztes im Vault: ein erstes run.md existiert nur, wenn der Wurf später kam
+        const runMd = `_crews/runs/${result.runId}/run.md`;
+        if (throwAfter === 0) expect(await h.vault.exists(runMd)).toBe(false);
+      } finally {
+        redactSwitch.throwAfter = null;
+      }
+    },
+  );
 });
 
 describe('executeRun — endpoint failover + preflight crash-safety (review C1)', () => {
