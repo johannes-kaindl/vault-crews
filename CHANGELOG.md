@@ -9,6 +9,8 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - **Undo snapshots are now thinned by age instead of counted.** "Undo history depth" (default 15) now applies to the current day; snapshots of older days keep one per day for a week, then one per week (four weeks) and one per month (six months), and anything older is deleted. The oldest and the newest snapshot of a day always stay. **After the update, the first finished run applies this to your existing snapshots:** someone who ran daily and had 15 snapshots keeps about two of those from days 8 to 15. Rotation comes from the shared code-kit module `rotation` (code-kit 0.20.0).
+- **Masking of secrets in notes catches more `Bearer` tokens (code-kit 0.21.0).** Tokens of eight characters or more are masked, regardless of case and including `=` in the token; plain prose such as "Bearer authentication" in a note is therefore sent to the model as `Bearer [redacted-token]` and restored in the answer.
+- Kit 0.53.0 / code-kit 0.21.0.
 
 ## [0.15.0] — 2026-10-10
 
