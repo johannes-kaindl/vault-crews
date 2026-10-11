@@ -2,13 +2,10 @@
  *  Extraktion ist tolerant (letzter Fence, Repair-Pass), Validierung ist hart (Schema,
  *  Quellbindung, Slug-Wertemengen). extractJson/findBalanced basieren auf dem geborgenen
  *  Plan-Entwurf (Workflow-Fragment G3). */
+import { stripThinkBlocks } from '../vendor/kit/think-splitter';
 import type { LlmMessage } from './ports';
 import type { SchemaDef } from './schemas';
 import type { Action, CollectedFile, SlugTableData } from './types';
-
-function stripThink(s: string): string {
-	return s.replace(/<think>[\s\S]*?<\/think>/g, '');
-}
 
 function normalizeQuotes(s: string): string {
 	return s.replace(/[“”„]/g, '"').replace(/[‘’‚]/g, "'");
@@ -60,7 +57,7 @@ function parseCandidate(candidate: string): { ok: true; json: unknown } | { ok: 
 }
 
 export function extractJson(raw: string): { ok: true; json: unknown } | { ok: false; error: string } {
-	const text = stripThink(raw);
+	const text = stripThinkBlocks(raw);
 
 	// 1. Letzter ```json-Fence — Reasoning-Modelle zitieren in der Präambel gern das Beispiel.
 	const fences = [...text.matchAll(/```json\s*([\s\S]*?)```/g)];
@@ -83,7 +80,7 @@ export function extractJson(raw: string): { ok: true; json: unknown } | { ok: fa
  *  SchemaDef.outputFormat in schemas.ts). Kann nicht fehlschlagen (anders als extractJson) —
  *  im schlimmsten Fall liefert es einen leeren String, den schema.validate zurückweist. */
 export function extractText(raw: string): string {
-	const stripped = stripThink(raw).trim();
+	const stripped = stripThinkBlocks(raw).trim();
 	const fenceMatch = /^```(?:markdown|md)?\s*\n?([\s\S]*?)\n?```$/.exec(stripped);
 	return (fenceMatch ? fenceMatch[1] : stripped)?.trim() ?? '';
 }

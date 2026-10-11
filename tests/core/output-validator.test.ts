@@ -146,3 +146,18 @@ describe('buildRepairPrompt', () => {
 		expect(msgs[1]?.content).toContain('System-Prompt geforderten Format');
 	});
 });
+
+describe('Think-Blöcke entfernen: linear in der Eingabelänge (Welle 17)', () => {
+	const timed = (f: () => unknown): number => { const t = performance.now(); f(); return performance.now() - t; };
+
+	it('50 000 offene <think> ohne Schluss brauchen keine Sekunde (vorher 2,6 s, quadratisch)', () => {
+		const raw = '<think>'.repeat(50_000);
+		expect(timed(() => extractText(raw))).toBeLessThan(500);
+		expect(timed(() => extractJson(raw))).toBeLessThan(500);
+	});
+
+	it('Paare fallen weiterhin weg, ein offenes Ende bleibt stehen', () => {
+		expect(extractText('<think>a</think>Hallo<think>b</think> Welt')).toBe('Hallo Welt');
+		expect(extractText('Text <think>offen')).toBe('Text <think>offen');
+	});
+});
