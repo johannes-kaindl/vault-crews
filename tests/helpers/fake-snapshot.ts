@@ -25,7 +25,7 @@ export class FakeSnapshotStore implements SnapshotStore {
 		this.manifests.set(runId, m);
 	}
 
-	async finalize(runId: string, postHashes: Record<string, string>, _keepLast: number): Promise<void> {
+	async finalize(runId: string, postHashes: Record<string, string>, _keepLast: number, _now: number): Promise<void> {
 		this.log.push(`finalize:${runId}`);
 		this.finalized.push(runId);
 		const m = this.manifests.get(runId);
@@ -45,7 +45,7 @@ export class FakeSnapshotStore implements SnapshotStore {
  *  den bereits angewandten Vault-Writes (Finalize-Resilienz: der Lauf bleibt sicher
  *  geloggt, die Wirkung ist im Vault). */
 export class FinalizeFailsSnapshotStore extends FakeSnapshotStore {
-	override async finalize(runId: string, _postHashes: Record<string, string>, _keepLast: number): Promise<void> {
+	override async finalize(runId: string, _postHashes: Record<string, string>, _keepLast: number, _now: number): Promise<void> {
 		this.log.push(`finalize:reject:${runId}`);
 		throw new Error('snapshot finalize failed: adapter write rejected');
 	}

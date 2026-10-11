@@ -119,8 +119,8 @@ export interface SnapshotStore {
 	/** Pre-Image erfassen; first-write-wins (no-op, wenn Pfad im Lauf schon erfasst).
 	 *  Persistiert Blob + Manifest write-ahead. */
 	capture(runId: string, teamId: string, createdAt: number, path: string, existedBefore: boolean, preContent: string | null): Promise<void>;
-	/** Post-Run-Hashes nachtragen + Retention auf keepLast Läufe prunen. */
-	finalize(runId: string, postHashes: Record<string, string>, keepLast: number): Promise<void>;
+	/** Post-Run-Hashes nachtragen + Retention nach Kit-GFS (keepLast = Tiefe für den laufenden Tag) prunen. */
+	finalize(runId: string, postHashes: Record<string, string>, keepLast: number, now: number): Promise<void>;
 	load(runId: string): Promise<SnapshotManifest | null>;
 	readBlob(runId: string, blob: string): Promise<string>;
 	discard(runId: string): Promise<void>;

@@ -4,6 +4,7 @@
  *  neu geschrieben (crash-sicher). Keine Shell-/Node-Dateisystem-Zugriffe — reine Obsidian-API. */
 import type { App } from 'obsidian';
 import { fnv1a } from '../core/collectors';
+import { DEFAULT_GFS_POLICY, selectGfsRetention, type GfsEntry } from '../vendor/kit/rotation';
 import type { SnapshotManifest, SnapshotStore } from '../core/ports';
 
 export class AdapterSnapshotStore implements SnapshotStore {
@@ -32,7 +33,7 @@ export class AdapterSnapshotStore implements SnapshotStore {
 		await this.adapter.write(this.manifestPath(runId), JSON.stringify(manifest, null, 2));
 	}
 
-	async finalize(runId: string, postHashes: Record<string, string>, keepLast: number): Promise<void> {
+	async finalize(runId: string, postHashes: Record<string, string>, keepLast: number, now: number): Promise<void> {
 		const manifest = await this.load(runId);
 		if (manifest !== null) {
 			for (const e of manifest.entries) {
@@ -41,7 +42,7 @@ export class AdapterSnapshotStore implements SnapshotStore {
 			}
 			await this.adapter.write(this.manifestPath(runId), JSON.stringify(manifest, null, 2));
 		}
-		await this.prune(keepLast);
+		await this.prune(keepLast, now);
 	}
 
 	async load(runId: string): Promise<SnapshotManifest | null> {
@@ -73,9 +74,16 @@ export class AdapterSnapshotStore implements SnapshotStore {
 		}
 	}
 
-	private async prune(keepLast: number): Promise<void> {
-		const ids = (await this.list()).sort(); // runId ist zeitpräfixiert → lexikografisch = chronologisch
-		const drop = ids.slice(0, Math.max(0, ids.length - keepLast));
+	/** Aufbewahrung nach Kit-GFS: `keepLast` gilt für den laufenden Tag, ältere Stände laufen je Tag/Woche/Monat
+	 *  aus. Die Zeit ist `manifest.createdAt` (runId trägt Lokalzeit ohne Sekunden, nicht den Kit-Zeitstempel);
+	 *  ohne lesbare Zeit bleibt der Stand erhalten. */
+	private async prune(keepLast: number, now: number): Promise<void> {
+		const entries: GfsEntry[] = [];
+		for (const name of await this.list()) {
+			const time = (await this.load(name))?.createdAt;
+			if (typeof time === 'number' && Number.isFinite(time)) entries.push({ name, time });
+		}
+		const { drop } = selectGfsRetention(entries, now, { policy: { ...DEFAULT_GFS_POLICY, today: keepLast }, keepNewest: true });
 		for (const id of drop) await this.discard(id);
 	}
 

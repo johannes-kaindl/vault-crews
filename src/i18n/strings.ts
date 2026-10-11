@@ -107,7 +107,7 @@ export const EN: Record<string, string> = {
     "Plugin-wide maximum runtime for a single run. The run is aborted once this is exceeded, regardless of the team file.",
   "settings.safety.undoHistoryDepth.name": "Undo history depth",
   "settings.safety.undoHistoryDepth.desc":
-    "How many recent runs keep an undo snapshot. Older snapshots are pruned automatically. Snapshots live in a hidden plugin folder, not in your notes.",
+    "How many runs of the current day keep an undo snapshot. Older days thin out automatically: one snapshot per day for a week, then per week and per month, and after six months none. Snapshots live in a hidden plugin folder, not in your notes.",
 
   // --- Settings — Advanced -------------------------------------------------
   "settings.advanced.heading": "Advanced",
@@ -386,7 +386,7 @@ export const DE: Record<string, string> = {
     "Plugin-weite Höchstlaufzeit für einen einzelnen Lauf. Der Lauf wird abgebrochen, sobald sie überschritten ist — unabhängig von der Team-Datei.",
   "settings.safety.undoHistoryDepth.name": "Undo-Verlauf-Tiefe",
   "settings.safety.undoHistoryDepth.desc":
-    "Wie viele der letzten Läufe einen Undo-Snapshot behalten. Ältere werden automatisch geprunt. Snapshots liegen in einem versteckten Plugin-Ordner, nicht in deinen Notizen.",
+    "Wie viele Läufe des heutigen Tages einen Undo-Snapshot behalten. Ältere Tage dünnen automatisch aus: eine Sicherung je Tag eine Woche lang, danach je Woche und je Monat, nach sechs Monaten keine mehr. Snapshots liegen in einem versteckten Plugin-Ordner, nicht in deinen Notizen.",
 
   // --- Settings — Advanced -------------------------------------------------
   "settings.advanced.heading": "Erweitert",

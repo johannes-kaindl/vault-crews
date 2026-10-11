@@ -542,9 +542,12 @@ export class SettingsTab extends PluginSettingTab {
         listModels: (): Promise<string[]> => this.host.listModels(cfg),
       }),
       // Dieses Plugin hat KEIN globales Modell — das Modell gehört zum Endpunkt, der es
-      // meldet. Der Callback ist im Kit-Vertrag Pflicht; er zu erfüllen heißt hier, den
-      // leeren String zu liefern. Genau diese Reibung ist der Beleg für den Kit-Todo
-      // „globales Modellfeld terminieren" (obsidian-kit-Cockpit, 2026-08-14).
+      // meldet. `globalModel` ist im Kit-Vertrag optional (seit obsidian-kit 0.29.0); wir
+      // geben es nur an, damit die Zeilenauswahl eine Leer-Option bekommt: eine Zeile ohne
+      // Modell ist hier gültig (das `model:` des Agenten greift, `resolveTaskModel`), und
+      // ohne die Option ließe sich ein gewähltes Modell nicht zurücknehmen. Der Rückgabewert
+      // wird nirgends angezeigt — die Option heißt „— kein Modell gewählt —"
+      // (`emptyModelLabel`), nicht „globales Modell".
       globalModel: () => "",
       save: () => this.host.saveSettings(),
       reconnect: async () => {

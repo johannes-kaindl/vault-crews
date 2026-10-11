@@ -419,7 +419,7 @@ class RunFsm {
 				try { postHashes[p] = fnv1a(await this.deps.vault.read(p)); } catch { /* seither entfernt */ }
 			}
 			try {
-				await this.deps.snapshot.finalize(this.state.runId, postHashes, this.deps.settings.undoHistoryDepth);
+				await this.deps.snapshot.finalize(this.state.runId, postHashes, this.deps.settings.undoHistoryDepth, this.deps.clock.now());
 			} catch (e) {
 				// Snapshot-Finalize ist nachgelagert; Wirkung ist im Vault. Protokollieren, nicht crashen.
 				if (this.state.errorKind === null) { this.state.errorKind = 'io'; }

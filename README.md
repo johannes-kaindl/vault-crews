@@ -148,7 +148,7 @@ Writing your own teams and agents is plain Markdown in the vault — see
 | **Hide crew folder in the file explorer** | off | Purely cosmetic: the crew root disappears from the explorer, its notes stay in the vault |
 | **Max writes per run** | 10 | Plugin-wide cap; a team's own `max_writes` can only be lower |
 | **Wall-clock limit** | 10 minutes | Aborts a runaway run, leaving its partial writes snapshotted and undoable |
-| **Undo history depth** | 15 | How many run snapshots are kept before the oldest are pruned |
+| **Undo history depth** | 15 | How many run snapshots of the current day are kept. Older days thin out: one snapshot per day for a week, then per week (4 weeks) and per month (6 months), none after that |
 | **Call timeout** | 300 s | Hard limit per model call — generous, because just-in-time model loading takes a while |
 | **Stall timeout** | 60 s | Aborts if no new token arrives; only checked after the first data chunk, so loading is never mistaken for a stall |
 | **Verbose logging** | off | Reserved — the setting persists but nothing reads it yet (see V1 limitations) |

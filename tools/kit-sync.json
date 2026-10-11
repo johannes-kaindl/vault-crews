@@ -33,6 +33,7 @@
         "model-list-cache",
         "reasoning",
         "redact",
+        "rotation",
         "sampling-profiles",
         "secrets",
         "settings",

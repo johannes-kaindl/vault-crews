@@ -62,18 +62,59 @@ describe('AdapterSnapshotStore', () => {
 
 	it('finalize trägt postHashes nach', async () => {
 		await store.capture('R1', 'team', 100, 'a.md', true, 'alt\n');
-		await store.finalize('R1', { 'a.md': fnv1a('neu\n') }, 15);
+		await store.finalize('R1', { 'a.md': fnv1a('neu\n') }, 15, Date.now());
 		const m = await store.load('R1');
 		expect(m!.entries[0]!.postHash).toBe(fnv1a('neu\n'));
 	});
 
-	it('finalize pruned auf keepLast Läufe (ältere runIds werden verworfen)', async () => {
-		for (const id of ['2026-07-01-0900-t', '2026-07-02-0900-t', '2026-07-03-0900-t']) {
-			await store.capture(id, 't', 0, 'a.md', true, 'x\n');
-		}
-		await store.finalize('2026-07-03-0900-t', {}, 2);
+	/** Lokalzeit wie formatRunId: YYYY-MM-DD-HHMM-<team>; createdAt = derselbe Zeitpunkt. */
+	const runAt = (y: number, mo: number, d: number, h = 9, mi = 0): { id: string; at: number } => {
+		const at = new Date(y, mo - 1, d, h, mi).getTime();
+		const pad = (n: number): string => String(n).padStart(2, '0');
+		return { id: `${y}-${pad(mo)}-${pad(d)}-${pad(h)}${pad(mi)}-t`, at };
+	};
+	const seed = async (runs: { id: string; at: number }[]): Promise<void> => {
+		for (const r of runs) await store.capture(r.id, 't', r.at, 'a.md', true, 'x\n');
+	};
+
+	it('finalize: gestrige Stände fallen nach GFS (nicht nach Zahl)', async () => {
+		// 30 Läufe heute, 5 Wochen alte Stände: Tiefe 2 gilt nur für den laufenden Tag.
+		const now = new Date(2026, 9, 11, 12, 0).getTime();
+		const old = [runAt(2026, 8, 3), runAt(2026, 8, 4), runAt(2026, 8, 5)]; // > 4 Wochen her → fällt (Monatsfenster behält den ältesten je Monat)
+		const today = [runAt(2026, 10, 11, 8), runAt(2026, 10, 11, 9), runAt(2026, 10, 11, 10), runAt(2026, 10, 11, 11)];
+		await seed([...old, ...today]);
+		await store.finalize(today[3]!.id, {}, 2, now);
 		const ids = (await store.list()).sort();
-		expect(ids).toEqual(['2026-07-02-0900-t', '2026-07-03-0900-t']);
+		// heute: die 2 neuesten plus der älteste des Tages (Tagesfenster); August: nur der älteste je Monat; der Rest fällt
+		expect(ids).toEqual([old[0]!.id, today[0]!.id, today[2]!.id, today[3]!.id]);
+	});
+
+	it('finalize: keepNewest schützt den frischen Lauf auch bei Tiefe 0-artigem Fenster', async () => {
+		const now = new Date(2026, 9, 11, 12, 0).getTime();
+		const r = runAt(2026, 10, 11, 11);
+		await seed([r]);
+		await store.finalize(r.id, {}, 1, now);
+		expect(await store.list()).toEqual([r.id]);
+	});
+
+	it('finalize: Altbestand 15 Stände über 15 Tage — Überlebende exakt (sieben Tage je Tag, davor je Woche/Monat)', async () => {
+		const now = new Date(2026, 9, 15, 12, 0).getTime();
+		const runs = Array.from({ length: 15 }, (_, i) => runAt(2026, 10, i + 1)); // 1.–15. Oktober
+		await seed(runs);
+		await store.finalize(runs[14]!.id, {}, 15, now);
+		const ids = (await store.list()).sort();
+		// 9.–15. (days=7) bleiben je Tag; davor je ISO-Woche der älteste (KW ab Mo 28.9.: der 1.; ab Mo 5.10.: der 5.); der Monat Oktober trägt den 1.
+		const expected = [1, 5, 9, 10, 11, 12, 13, 14, 15].map((d) => runs[d - 1]!.id);
+		expect(ids).toEqual(expected);
+	});
+
+	it('finalize: unbekannte Zeit bleibt erhalten', async () => {
+		const now = new Date(2026, 9, 11, 12, 0).getTime();
+		await store.capture('R1', 't', Number.NaN, 'a.md', true, 'x\n');
+		const r = runAt(2026, 10, 11, 11);
+		await seed([r]);
+		await store.finalize(r.id, {}, 1, now);
+		expect((await store.list()).sort()).toEqual([r.id, 'R1']);
 	});
 
 	it('discard entfernt einen Snapshot; load liefert danach null', async () => {
