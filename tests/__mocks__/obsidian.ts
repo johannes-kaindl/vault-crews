@@ -11,6 +11,12 @@
 // ---------------------------------------------------------------------------
 // Internal spy helper (replaces vitest's `vi.fn` so this file stays dep-free).
 // ---------------------------------------------------------------------------
+/** CSSStyleSheet gibt es in der Node-Umgebung nicht — der Stub haelt den zuletzt gesetzten Text. */
+class MockSheet {
+  css = "";
+  replaceSync(css: string): void { this.css = css; }
+}
+
 export interface MockFn {
   (...args: any[]): any;
   mock: { calls: any[][]; results: any[] };
@@ -695,7 +701,7 @@ export function makeFakeApp(): any {
     workspace: {
       getActiveFile: fn().mockReturnValue(null),
       getActiveViewOfType: fn().mockReturnValue(null),
-      rootSplit: { doc: { adoptedStyleSheets: [] as unknown[] } },
+      rootSplit: { doc: { adoptedStyleSheets: [] as unknown[], defaultView: { CSSStyleSheet: MockSheet } } },
       getLeavesOfType: fn().mockReturnValue([]),
       getRightLeaf: fn().mockReturnValue({ setViewState: fn() }),
       getLeftLeaf: fn().mockReturnValue({ setViewState: fn() }),

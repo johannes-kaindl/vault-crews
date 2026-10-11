@@ -48,7 +48,8 @@
       "from": "src/pure",
       "modules": [
         "endpoint-source",
-        "endpoint-secret-hook"
+        "endpoint-secret-hook",
+        "folder-hide"
       ],
       "rewrite": [
         [
@@ -91,6 +92,7 @@
         "model-picker",
         "settings_walker",
         "folder-suggest",
+        "folder-hide",
         "stream-area",
         "endpoint-source",
         "help-setting",

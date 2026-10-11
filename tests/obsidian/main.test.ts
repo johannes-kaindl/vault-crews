@@ -35,14 +35,10 @@ function okResult(): RunResult {
   return { runId: "r1", status: "ok", undoable: false, writes: 0, durationS: 0, errorTask: null, errorKind: null, alwaysOnThinker: false };
 }
 
-/** CSSStyleSheet gibt es in der Node-Umgebung nicht — der Stub haelt den zuletzt gesetzten Text. */
-class FakeSheet {
-  css = "";
-  replaceSync(css: string): void { this.css = css; }
-}
+/** Das Blatt, das der Mock-Realm (`rootSplit.doc.defaultView.CSSStyleSheet`) erzeugt. */
+interface FakeSheet { css: string }
 
 beforeEach(() => {
-  vi.stubGlobal("CSSStyleSheet", FakeSheet);
   setLang("en");
   Notice.instances.length = 0;
   vi.mocked(executeRun).mockReset();

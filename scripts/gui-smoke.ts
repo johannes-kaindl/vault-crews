@@ -755,6 +755,46 @@ async function w8Ausblenden(cdp: Cdp): Promise<void> {
     `);
     if (dom === "kein-Explorer-Knoten") skipped("Welle 8 — Crew-Ordner im Explorer tatsächlich unsichtbar", "Datei-Explorer nicht offen/Ordner nicht gerendert");
     else record("Welle 8 — Crew-Ordner im Explorer tatsächlich unsichtbar", dom === "none", `display: ${dom}`);
+    // Pop-out (Kit `folder-hide`): das aktive Dokument ist NICHT das Hauptfenster; die Regel muss
+    // trotzdem im Hauptfenster stehen und darf im Pop-out nichts hinterlassen. Danach Neuladen bei
+    // aktivem Pop-out (die Bauart, an der slide-deck 0.4.0 mit NotAllowedError nicht mehr lud).
+    const po = await cdp.evaluate<boolean>(`
+      const leaf = app.workspace.openPopoutLeaf();
+      await new Promise((r) => setTimeout(r, 1200));
+      leaf.view.containerEl.ownerDocument.defaultView.focus();
+      await new Promise((r) => setTimeout(r, 500));
+      window.__vcSmokePopout = leaf;
+      return leaf.view.containerEl.ownerDocument !== app.workspace.rootSplit.doc;`);
+    try {
+      if (!po) {
+        skipped("Welle 18 — Pop-out aktiv: Regel im Hauptfenster, nicht im Pop-out", "Pop-out-Fenster ließ sich nicht öffnen — nichts gemessen");
+      } else {
+        const popBlätter = `return window.__vcSmokePopout.view.containerEl.ownerDocument.adoptedStyleSheets.length;`;
+        const vorherPop = await cdp.evaluate<number>(popBlätter);
+        await cdp.evaluate(`${PLUGIN}.settings.hideCrewFolder = false; await ${PLUGIN}.saveSettings(); ${PLUGIN}.settings.hideCrewFolder = true; await ${PLUGIN}.saveSettings(); return true;`);
+        const imHaupt = await blatt();
+        const nachherPop = await cdp.evaluate<number>(popBlätter);
+        record("Welle 18 — Pop-out aktiv: Regel im Hauptfenster, nicht im Pop-out", imHaupt === 1 && nachherPop === vorherPop,
+          `Hauptfenster-Blätter mit Regel ${imHaupt}, Blätter im Pop-out ${vorherPop} → ${nachherPop}`);
+        const geladen = await cdp.evaluate<string>(`
+          try {
+            await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
+            await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
+            await new Promise((r) => setTimeout(r, 1500));
+            return app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}] ? "ok" : "Plugin nach enablePlugin nicht geladen";
+          } catch (e) { return String(e); }`);
+        const nachLaden = await pollUntil<boolean>(cdp, `
+          const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+          if (!p) return null;
+          const n = app.workspace.rootSplit.doc.adoptedStyleSheets
+            .filter((s) => [...s.cssRules].some((r) => r.cssText.includes(${JSON.stringify(`data-path="${root}"`)}))).length;
+          return n === 1 ? true : null;`, 6000, 300);
+        record("Welle 18 — Laden bei aktivem Pop-out: Regel steht im Hauptfenster", geladen === "ok" && nachLaden !== null,
+          geladen !== "ok" ? geladen : nachLaden !== null ? "Regel im Hauptfenster" : "Regel nach dem Laden nicht da");
+      }
+    } finally {
+      await cdp.evaluate(`try { window.__vcSmokePopout?.detach(); } catch {} delete window.__vcSmokePopout; return true;`).catch(() => undefined);
+    }
     await cdp.evaluate(`${PLUGIN}.settings.hideCrewFolder = false; await ${PLUGIN}.saveSettings(); return true;`);
     record("Welle 8 — Ausblenden wieder aus: Regelsatz weg (Gegenprobe)", (await blatt()) === 0, `Stylesheets mit Regel: ${await blatt()}`);
   } finally {
