@@ -24,7 +24,7 @@ Die V1-Design-Grundlagen liegen nicht mehr im Repo: Specs und Pläne liegen im V
 - **Gate (vor jedem Commit grün):** `npm run gate` = lint + typecheck + test + check:pure.
   Exit-Code prüfen, nicht grep-Ausgabe (grep maskiert Fehlschläge).
 - **Tests:** Vitest node-env; Obsidian-Mock via vitest `resolve.alias` →
-  `tests/__mocks__/obsidian.ts`. TDD: erst fehlschlagender Test.
+  `tests/__mocks__/obsidian.ts` (Re-Export des gevendorten Kit-Mocks `tests/vendor/kit/obsidian-mock.ts`; ein Test, der `app.secretStorage` nicht haben soll, löscht es in seinem Plugin-Fake). TDD: erst fehlschlagender Test.
 - **Commit style:** Conventional Commits + Trailer
   `Co-Authored-By: <Modell> <noreply@anthropic.com>`.
 - **Deploy:** `npm run deploy` (Copy nach `$OBSIDIAN_PLUGIN_DIR`), nie Symlink/BRAT als Primärweg.

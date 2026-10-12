@@ -29,11 +29,11 @@ import {
 import { migrateEndpointSettings } from "./core/endpoint-settings";
 import { classifyEndpointStatus, type EndpointStatus, type ProbeInput } from "./vendor/kit/endpoint_diagnostics";
 import { mergeSettings } from "./vendor/kit/settings";
+import { sanitizeChoice } from "./vendor/kit/endpoint-source";
 import { registerI18n } from "./i18n/strings";
 import {
   DEFAULT_SETTINGS,
   SettingsTab,
-  sanitizeChoice,
   type PluginSettings,
   type SettingsHost,
 } from "./obsidian/settings";

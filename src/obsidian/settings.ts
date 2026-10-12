@@ -47,16 +47,6 @@ export interface PluginSettings {
   verboseLogging: boolean;
 }
 
-/** `choice` kommt aus einer handeditierbaren data.json: nur zwei Textfelder duerfen durch. */
-export function sanitizeChoice(raw: unknown): EndpointChoice {
-  if (raw === null || typeof raw !== "object") return {};
-  const { endpointId, model } = raw as Record<string, unknown>;
-  return {
-    ...(typeof endpointId === "string" && endpointId !== "" ? { endpointId } : {}),
-    ...(typeof model === "string" && model !== "" ? { model } : {}),
-  };
-}
-
 export const DEFAULT_SETTINGS: PluginSettings = {
   endpoints: [{ url: "http://localhost:1234/v1" }],
   deniedEndpoints: ["http://localhost:8080", "http://127.0.0.1:8080"],

@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Kit pins raised to obsidian-kit 0.57.0 / code-kit 0.24.0. The stored endpoint choice in `data.json` is cleaned by the kit's shared `sanitizeChoice` instead of a local copy (identical result: only non-empty strings survive), so nothing changes for you.
+- The plugin's test double for the Obsidian API is now the kit's shared mock (tests only; no effect on the plugin).
+
 ## [0.17.0] — 2026-10-12
 
 ### Changed
