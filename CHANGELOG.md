@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-10-12
+
 ### Added
 
 - **The panel's tab bar is the Kit's hub (obsidian-kit `hub`).** "Crews" and "History" now show an icon next to the label, carry the full tab semantics (screen readers announce a tab list, the active tab is marked), and can be reached with the keyboard: Left/Right arrow keys move between the tabs, Home/End jump to the first/last one (Tab enters the bar once; the other tabs are skipped). The bar wraps to a second line in a narrow sidebar instead of cutting a label off. The title and the status line with the one Cancel button stay where they were (title on top, status line at the bottom, for both tabs); the tab that is not shown is no longer drawn behind the scenes.
