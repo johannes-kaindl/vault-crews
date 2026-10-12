@@ -35,7 +35,26 @@ export class InMemoryVaultPort implements VaultPort {
 	}
 	async create(path: string, content: string): Promise<void> {
 		if (this.files.has(path)) throw new Error(`exists: ${path}`);
+		this.assertParentFolder(path);
 		this.files.set(path, content);
+	}
+
+	/** Opt-in, ab hier gilt wie in Obsidians `vault.create`: ein Elternordner muss als Ordner EXISTIEREN, sonst wirft
+	 *  `create` (ENOENT). Die Map kennt Ordner sonst nur implizit — genau das verbarg den Fehler „erster Lauf ohne
+	 *  `runs/`-Ordner" (Welle 20). Vorhandene Dateien machen ihre Ordner zu echten Ordnern; `mkdir` legt weitere an. */
+	requireExistingFolders(): void {
+		this.folders = new Set();
+		for (const path of this.files.keys()) this.addFolders(path.split('/').slice(0, -1).join('/'));
+	}
+	private folders: Set<string> | null = null;
+	private addFolders(dir: string): void {
+		const parts = dir.split('/').filter((p) => p !== '');
+		for (let i = 1; i <= parts.length; i++) this.folders?.add(parts.slice(0, i).join('/'));
+	}
+	private assertParentFolder(path: string): void {
+		if (this.folders === null) return;
+		const dir = path.split('/').slice(0, -1).join('/');
+		if (dir !== '' && !this.folders.has(dir)) throw new Error(`ENOENT: Ordner existiert nicht: ${dir}`);
 	}
 	async modify(path: string, content: string): Promise<void> {
 		if (isDotfilePath(path)) throw new Error(`vault-crews: Datei nicht gefunden: ${path}`);
@@ -47,8 +66,9 @@ export class InMemoryVaultPort implements VaultPort {
 	async exists(path: string): Promise<boolean> {
 		return this.files.has(path);
 	}
-	async mkdir(_path: string): Promise<void> {
-		// Ordner sind in der Map implizit.
+	async mkdir(path: string): Promise<void> {
+		// Ordner sind in der Map implizit — außer nach `requireExistingFolders()`.
+		this.addFolders(path);
 	}
 	async patchFrontmatter(path: string, set: Record<string, FmValue>, remove: string[]): Promise<void> {
 		const raw = await this.read(path);

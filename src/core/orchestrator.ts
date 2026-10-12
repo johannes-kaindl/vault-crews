@@ -218,6 +218,10 @@ class RunFsm {
 			if (await this.isLockHeld(path)) return { kind: 'io', message: 'Ein anderer Lauf ist aktiv (Run-Lock)' };
 			await this.deps.vault.modify(path, this.lockContent());
 		} else {
+			// `vault.create` legt keinen Ordner an: in einem Vault, in dem die Crews von Hand angelegt wurden, fehlt
+			// `<crewRoot>/runs/` noch (nur „Install example crews“ erzeugt ihn) — der erste Lauf endete sonst mit io.
+			// `mkdir` ist idempotent und rekursiv (VaultPort).
+			await this.deps.vault.mkdir(path.slice(0, path.lastIndexOf('/')));
 			await this.deps.vault.create(path, this.lockContent());
 		}
 		return null;

@@ -554,6 +554,31 @@ describe('executeRun — Sperrliste und Schluessel-Redaction', () => {
   });
 });
 
+describe('executeRun — erster Lauf in einem Vault ohne Lauf-Ordner (Welle 20)', () => {
+  it('legt `<crewRoot>/runs/` selbst an: ohne den Ordner scheiterte der erste Lauf mit io (von Hand angelegte Crews)', async () => {
+    const h = await harness();
+    // Wie Obsidian: create wirft, wenn der Elternordner fehlt. Es gibt `_crews/teams`, `_crews/agents`, `10_Aufgaben` — aber kein `_crews/runs`.
+    h.vault.requireExistingFolders();
+    expect(await h.vault.exists('_crews/runs/run-lock.json')).toBe(false);
+
+    const result = await executeRun(h.teamPath, h.deps);
+
+    expect(result.errorKind).toBeNull();
+    expect(result.status).toBe('ok');
+    expect(await h.vault.exists(`_crews/runs/${result.runId}/run.md`)).toBe(true);
+    const lock = JSON.parse(await h.vault.read('_crews/runs/run-lock.json')) as { active: boolean };
+    expect(lock.active).toBe(false);
+  });
+
+  it('der Ordner darf schon da sein (mkdir ist idempotent): zweiter Lauf hintereinander', async () => {
+    const h = await harness({ llm: new ScriptLlmClient([{ content: TRIAGE_OK }, { content: TRIAGE_OK }]) });
+    h.vault.requireExistingFolders();
+    const a = await executeRun(h.teamPath, h.deps);
+    const b = await executeRun(h.teamPath, h.deps);
+    expect([a.status, b.status]).toEqual(['ok', 'ok']);
+  });
+});
+
 describe('executeRun — Schwärzung wirft (fail-closed)', () => {
   it.each([[0, 'beim Öffnen des Laufs'], [1, 'nach dem ersten Task']])(
     'wirft die Schwärzung %i Aufrufe nach dem Start (%s) → Lauf endet failed/io, genau ein runFinished, danach wird nichts mehr geschrieben',

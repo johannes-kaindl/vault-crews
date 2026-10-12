@@ -11,6 +11,10 @@ All notable changes to this project are documented here. The format follows
 - **The panel's tab bar is the Kit's hub (obsidian-kit `hub`).** "Crews" and "History" now show an icon next to the label, carry the full tab semantics (screen readers announce a tab list, the active tab is marked), and can be reached with the keyboard: Left/Right arrow keys move between the tabs, Home/End jump to the first/last one (Tab enters the bar once; the other tabs are skipped). The bar wraps to a second line in a narrow sidebar instead of cutting a label off. The title and the status line with the one Cancel button stay where they were (title on top, status line at the bottom, for both tabs); the tab that is not shown is no longer drawn behind the scenes.
 - **The "Thinking … N tokens" counter is back in the reasoning block of the live view.** While a model thinks, the heading of the folded reasoning shows the running token count again (it went missing when the live view moved to the Kit's stream area in 0.10.0).
 
+### Fixed
+
+- **The first run in a vault without a run folder no longer stops with a file error.** It affected crews created by hand: only "Install example crews" created the `runs/` folder under the crew folder, so the first run of a hand-made crew ended with "A file operation failed unexpectedly" before the model was called. The plugin now creates the folder itself.
+
 ### Changed
 
 - Tests only: the run-time limits on `extractJson`/`extractText` (a fixed 500 ms) are replaced by the Kit's linearity probe (growth from 1 000 to 50 000), so a busy machine can no longer fail them.
