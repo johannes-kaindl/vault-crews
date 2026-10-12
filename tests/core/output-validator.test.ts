@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildRepairPrompt, extractJson, extractText, validateOutput } from '../../src/core/output-validator';
+import { pruefeLinear } from '../vendor/kit/linear-probe';
 import { BUILTIN_SCHEMAS } from '../../src/core/schemas';
 import type { CollectedFile, SlugTableData } from '../../src/core/types';
 
@@ -76,24 +77,23 @@ describe('extractJson: Verhalten aus dem Kit-Modul llm-json (Welle 18)', () => {
 });
 
 describe('extractJson: linear bei entarteten Antworten (Welle 18, Messung statt Annahme)', () => {
-	const timed = (f: () => unknown): number => { const t = performance.now(); f(); return performance.now() - t; };
-	const wachstum = (bau: (n: number) => string): number => {
-		const klein = Math.max(timed(() => extractJson(bau(10_000))), 1);
-		const gross = timed(() => extractJson(bau(50_000)));
-		return gross / klein;
-	};
-
+	// Linearitätsprobe (Kit `pruefeLinear`: n = 1 000 / 10 000 / 50 000, Quotient statt Wanduhr-Grenze),
+	// damit zwölf parallele Sessions den Test nicht kippen (Welle 20).
 	it('Escape frisst die Anführungszeichen: \\"[ × n', () => {
-		expect(timed(() => extractJson('\\"['.repeat(40_000)))).toBeLessThan(500);
+		const r = pruefeLinear(extractJson, '\\"[');
+		expect(r.linear, r.message).toBe(true);
 	});
 	it('verschachtelt und nie JSON: [ × n + x + ] × n', () => {
-		expect(timed(() => extractJson('['.repeat(20_000) + 'x' + ']'.repeat(20_000)))).toBeLessThan(500);
+		const r = pruefeLinear(extractJson, (n: number) => '['.repeat(n) + 'x' + ']'.repeat(n));
+		expect(r.linear, r.message).toBe(true);
 	});
 	it('viele kleine Klammerpaare ohne JSON: {] × n', () => {
-		expect(wachstum((n) => '{]'.repeat(n))).toBeLessThan(12);
+		const r = pruefeLinear(extractJson, '{]');
+		expect(r.linear, r.message).toBe(true);
 	});
 	it('ein nie geschlossener Fence: ```json × n', () => {
-		expect(timed(() => extractJson('```json\n{"a":1'.repeat(30_000)))).toBeLessThan(500);
+		const r = pruefeLinear(extractJson, '```json\n{"a":1');
+		expect(r.linear, r.message).toBe(true);
 	});
 });
 
@@ -201,12 +201,11 @@ describe('buildRepairPrompt', () => {
 });
 
 describe('Think-Blöcke entfernen: linear in der Eingabelänge (Welle 17)', () => {
-	const timed = (f: () => unknown): number => { const t = performance.now(); f(); return performance.now() - t; };
-
-	it('50 000 offene <think> ohne Schluss brauchen keine Sekunde (vorher 2,6 s, quadratisch)', () => {
-		const raw = '<think>'.repeat(50_000);
-		expect(timed(() => extractText(raw))).toBeLessThan(500);
-		expect(timed(() => extractJson(raw))).toBeLessThan(500);
+	it('offene <think> ohne Schluss wachsen linear (vorher 2,6 s bei 50 000, quadratisch)', () => {
+		for (const f of [extractText, extractJson]) {
+			const r = pruefeLinear(f, '<think>');
+			expect(r.linear, r.message).toBe(true);
+		}
 	});
 
 	it('Paare fallen weiterhin weg, ein offenes Ende bleibt stehen', () => {

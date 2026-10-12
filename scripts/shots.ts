@@ -162,13 +162,15 @@ async function panelBox(cdp: Cdp): Promise<Rect | null> {
   const rahmen = await boxOf(cdp, ".workspace-split.mod-right-split", 0);
   if (!rahmen) return null;
   const unterkante = await cdp.evaluate<number | null>(`
-    const panel = [...document.querySelectorAll(".vault-crews-panel")]
+    // Unterkante am INHALT des aktiven Hub-Panels, nicht am letzten Kind von .vault-crews-panel:
+    // der Hub-Root füllt die Leaf-Höhe (flex: 1), das Panel wäre sonst immer fensterhoch.
+    const inhalt = [...document.querySelectorAll(".vault-crews-panel .okit-hub-panel:not(.is-hidden) .vault-crews-content")]
       .filter((e) => e.getBoundingClientRect().width > 1)[0];
-    if (!panel) return null;
-    // Das LETZTE sichtbare Kind entscheidet, nicht die Hoehe des Panels.
-    const kinder = [...panel.children].filter((e) => e.getBoundingClientRect().height > 0);
+    if (!inhalt) return null;
+    // Das LETZTE sichtbare Kind entscheidet, nicht die Hoehe des Containers.
+    const kinder = [...inhalt.children].filter((e) => e.getBoundingClientRect().height > 0);
     const letztes = kinder[kinder.length - 1];
-    return letztes ? letztes.getBoundingClientRect().bottom : null;
+    return letztes ? letztes.getBoundingClientRect().bottom : inhalt.getBoundingClientRect().bottom;
   `);
   if (unterkante === null) return rahmen;
   const hoehe = Math.max(160, Math.min(rahmen.height, unterkante - rahmen.y + PADDING));
@@ -184,11 +186,11 @@ async function stromLaeuft(cdp: Cdp, mindestZeichen: number): Promise<boolean> {
     // <details>, und zugeklappt hat sein Inhalt die Breite 0. Ein Sichtbarkeitsfilter
     // (der anderswo richtig ist) zaehlt ihn dann als nicht vorhanden — der Poll wartete
     // auf Text, der die ganze Zeit da war.
-    const d = document.querySelector("details.vault-crews-think");
+    const d = document.querySelector(".okit-stream-reasoning");
     if (d) d.open = true;
-    // Die echten Klassen aus panel.ts — geraten hatte ich .vault-crews-stream, das es
-    // nicht gibt; der Punkt wartete dann auf einen Gegenstand, den es nie gab.
-    const teile = [...document.querySelectorAll(".vault-crews-live-content, .vault-crews-live-think")];
+    // Die Klassen des Kit-Stream-Bereichs (buildStreamArea); die frueheren
+    // .vault-crews-live-* und details.vault-crews-think gibt es seit 6173b64 nicht mehr.
+    const teile = [...document.querySelectorAll(".okit-stream-tail, .okit-stream-reasoning pre")];
     const laenge = teile.reduce((n, e) => n + e.textContent.trim().length, 0);
     return laenge > ${mindestZeichen};
   `, 180_000, 400);
@@ -406,7 +408,7 @@ const SHOTS: Shot[] = [
     async run(cdp) {
       if (!(await panelOeffnen(cdp))) return null;
       const gewechselt = await cdp.evaluate<boolean>(`
-        const tabs = [...document.querySelectorAll(".vault-crews-tabs button, .vault-crews-tab")]
+        const tabs = [...document.querySelectorAll(".vault-crews-panel .okit-hub-tab")]
           .filter((e) => e.getBoundingClientRect().width > 1);
         if (tabs.length < 2) return false;
         tabs[tabs.length - 1].click();

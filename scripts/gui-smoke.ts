@@ -46,6 +46,7 @@ const args = parseArgs(process.argv.slice(2));
 const PORT = Number(args.value("port") ?? "");
 const VAULT = args.has("vault") ? (args.value("vault") ?? "") : undefined;
 const KEEP = args.has("keep");
+const OHNE_MODELL = args.has("ohne-modell");
 
 // --- Prüfpunkte --------------------------------------------------------------
 
@@ -586,6 +587,43 @@ async function panelMessungen(cdp: Cdp): Promise<void> {
   record("Panel — Inhalt ist gerendert, bevor gemessen wird", inhaltDa,
     inhaltDa ? "Team-Liste oder Empty-State steht" : "weder Liste noch Empty-State nach 6s");
 
+  // Hub-Tab-Leiste (Kit `buildHubInto`, seit Welle 20): Gegenstand ist die Leiste selbst, nicht der Inhalt.
+  // Der Text der Beschriftung ist sprachabhängig, deshalb Anzahl, Rolle und Icon statt Wortlaut.
+  const hub = await cdp.evaluate<{ tabs: number; rollen: boolean; icons: boolean; labels: string[]; erster: string | null }>(`
+    const tabs = [...${PANEL}.querySelectorAll(".okit-hub-tab")];
+    return {
+      tabs: tabs.length,
+      rollen: tabs.length > 0 && tabs.every((b) => b.getAttribute("role") === "tab")
+        && ${PANEL}.querySelectorAll('[role="tablist"]').length === 1,
+      icons: tabs.length > 0 && tabs.every((b) => (b.querySelector(".okit-hub-tab-icon")?.innerHTML ?? "").length > 0),
+      labels: tabs.map((b) => b.querySelector(".okit-hub-tab-label")?.textContent ?? ""),
+      erster: tabs[0]?.getAttribute("aria-selected") ?? null,
+    };
+  `);
+  record("Panel — Hub-Leiste: zwei Tabs mit gerendertem Icon, ARIA-Rollen, erster Tab aktiv",
+    hub.tabs === 2 && hub.rollen && hub.icons && hub.erster === "true" && hub.labels.every((l) => l.length > 0),
+    `Tabs ${hub.tabs} · Rollen ${hub.rollen} · Icons ${hub.icons} · Labels ${JSON.stringify(hub.labels)} · aria-selected[0] ${String(hub.erster)}`);
+
+  const wechsel = await cdp.evaluate<{ verlauf: boolean; crewsLeer: boolean; zurueck: boolean }>(`
+    const tabs = [...${PANEL}.querySelectorAll(".okit-hub-tab")];
+    const warte = (ms) => new Promise((r) => setTimeout(r, ms));
+    const panel = (id) => ${PANEL}.querySelector('.okit-hub-panel[data-tab="' + id + '"]');
+    tabs[1]?.click(); await warte(500);
+    const verlauf = Boolean(panel("history")?.querySelector(".vault-crews-empty, .vault-crews-summary, .vault-crews-history-list"))
+      && !panel("history")?.classList.contains("is-hidden") && panel("crews")?.classList.contains("is-hidden") === true;
+    const crewsLeer = (panel("crews")?.children.length ?? -1) === 0;
+    tabs[0]?.click(); await warte(500);
+    const zurueck = Boolean(panel("crews")?.querySelector(".vault-crews-team-list, .vault-crews-empty"))
+      && panel("history")?.classList.contains("is-hidden") === true;
+    return { verlauf, crewsLeer, zurueck };
+  `);
+  record("Panel — Wechsel auf den Verlauf zeichnet ihn, der inaktive Tab ist leer, zurück zeichnet die Crews neu",
+    wechsel.verlauf && wechsel.crewsLeer && wechsel.zurueck,
+    `Verlauf gezeichnet ${wechsel.verlauf} · Crews-Panel leer ${wechsel.crewsLeer} · Crews wieder da ${wechsel.zurueck}`);
+  // Der Abbrechen-Knopf existiert nur während eines Laufs; ohne Modell-Server gibt es hier keinen.
+  unmeasured("Panel — Abbrechen-Knopf liegt während eines Laufs im Leaf-Rechteck",
+    "kein Lauf ohne Modell-Server (wird in B1 gegen den zentralen Stub gemessen)");
+
   // Ausgangslage: ohne Anlass kein Hinweis. Ohne diese Messung wäre ein Hinweis, der
   // IMMER steht, von einem korrekt erschienenen nicht zu unterscheiden.
   const vorher = await cdp.evaluate<boolean>(`return Boolean(${PANEL}.querySelector(".vault-crews-stray"));`);
@@ -940,7 +978,9 @@ async function w11ChatClient(cdp: Cdp): Promise<void> {
     `return { endpoints: JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints)), call: ${PLUGIN}.settings.callTimeoutS, stall: ${PLUGIN}.settings.stallTimeoutS };`);
   try {
     // (1) echtes Modell — nicht awaiten (Cdp.send bricht nach 30 s ab, ein JIT-Laden dauert länger)
-    await cdp.evaluate(`
+    // `--ohne-modell`: kein POST an :1234 (Wellen-Regel „kein Lauf lädt oder rechnet ein Modell“) → nichts gemessen.
+    if (OHNE_MODELL) unmeasured(P_STREAM, "--ohne-modell (LM-Regel der Welle 20)");
+    else await cdp.evaluate(`
       window.__vcW11 = { done: false };
       (async () => {
         try {
@@ -958,9 +998,10 @@ async function w11ChatClient(cdp: Cdp): Promise<void> {
       })();
       return true;
     `);
-    const got = await pollUntil<{ done: boolean; skip?: string; model?: string; calls?: number; text?: string; content?: string; finish?: string }>(
+    const got = OHNE_MODELL ? null : await pollUntil<{ done: boolean; skip?: string; model?: string; calls?: number; text?: string; content?: string; finish?: string }>(
       cdp, `return window.__vcW11?.done ? window.__vcW11 : null;`, 240_000, 1_000).catch(() => null);
-    if (!got || got.skip) {
+    if (OHNE_MODELL) { /* oben bereits als nichts gemessen geführt */ }
+    else if (!got || got.skip) {
       unmeasured(P_STREAM, got?.skip ?? "keine Antwort in 240 s");
     } else {
       record(P_STREAM,

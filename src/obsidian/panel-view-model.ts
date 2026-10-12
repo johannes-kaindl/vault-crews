@@ -145,8 +145,6 @@ export function markAborting(state: RunState): RunState {
 
 // ── ViewModel: State → deklarative Render-Beschreibung ────────────────────────
 
-export interface TabVM { id: NavState; label: string; active: boolean; }
-
 export interface TeamRowVM {
   id: string;
   name: string;
@@ -185,8 +183,6 @@ export type BodyVM =
 export interface StatusLineVM { text: string; abortLabel: string; aborting: boolean; }
 
 export interface PanelViewModel {
-  title: string;
-  tabs: TabVM[];
   body: BodyVM;
   statusLine: StatusLineVM | null;
 }
@@ -216,15 +212,10 @@ export interface PanelInputs {
 export function buildPanelViewModel(inputs: PanelInputs): PanelViewModel {
   const { navState, runState, teams, latest, nowMs, strayCount } = inputs;
   return {
-    title: t("panel.title"),
-    tabs: [
-      { id: "crews", label: t("panel.tab.crews"), active: navState === "crews" },
-      { id: "history", label: t("panel.tab.history"), active: navState === "history" },
-    ],
     body: navState === "history"
       ? buildHistoryBody(teams, latest, nowMs)
       : buildCrewsBody(runState, teams, nowMs, strayCount),
-    statusLine: runState.kind === "running" ? buildStatusLine(runState) : null,
+    statusLine: buildStatusLineVM(runState),
   };
 }
 
@@ -286,6 +277,11 @@ function buildHistoryBody(teams: TeamInfo[], latest: RunSummary | null, nowMs: n
     crewsHeading: t("panel.history.crewsHeading"),
     crews,
   };
+}
+
+/** Statuszeile nur während eines Laufs — sie hängt nicht am Tab, deshalb eigener Einstieg für die View. */
+export function buildStatusLineVM(runState: RunState): StatusLineVM | null {
+  return runState.kind === "running" ? buildStatusLine(runState) : null;
 }
 
 function buildStatusLine(s: RunningState): StatusLineVM {

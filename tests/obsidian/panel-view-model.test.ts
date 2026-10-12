@@ -125,9 +125,10 @@ const teams: TeamInfo[] = [
 ];
 
 describe("buildPanelViewModel — tabs & navigation", () => {
-  it("marks the active tab from navState", () => {
-    const vm = buildPanelViewModel({ navState: "history", runState: { kind: "idle" }, teams, latest: null, nowMs: 1000 , strayCount: 0 });
-    expect(vm.tabs.map((t) => [t.id, t.active])).toEqual([["crews", false], ["history", true]]);
+  it("picks the body from navState (the tab bar itself is the Kit hub)", () => {
+    const crews = buildPanelViewModel({ navState: "crews", runState: { kind: "idle" }, teams, latest: null, nowMs: 1000, strayCount: 0 });
+    const history = buildPanelViewModel({ navState: "history", runState: { kind: "idle" }, teams, latest: null, nowMs: 1000, strayCount: 0 });
+    expect([crews.body.kind, history.body.kind]).toEqual(["crewsIdle", "history"]);
   });
 
   it("shows no status line unless a run is active", () => {

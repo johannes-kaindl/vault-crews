@@ -1,18 +1,21 @@
 // Run-Panel (Spec §6.2 + UI-STANDARD §4): ein einziger View mit interner
-// Tab-Navigation (Kopf → Tab-Leiste → Content → optionale Statuszeile). Die View hält
-// nur zwei orthogonale Zustände — navState (welcher Tab, überlebt Re-Render) und
-// runState (aus Orchestrator-Events) — und rendert das von `buildPanelViewModel`
-// gelieferte, deklarative ViewModel via createEl. ALLE Entscheidungslogik lebt in der
+// Tab-Navigation (Titel → Hub-Tab-Leiste mit Panels → optionale Statuszeile). Die Tab-Leiste
+// ist der Kit-Hub (`buildHubInto`); die View hält runState (aus Orchestrator-Events), den
+// aktiven Tab liest sie vom Hub-Steuerkanal. Jedes Hub-Panel rendert das von
+// `buildPanelViewModel` gelieferte, deklarative ViewModel via createEl — in `onShow`, und
+// bei jedem Event nur für den aktiven Tab. Titel und Statuszeile (der EINZIGE Abbrechen-
+// Knopf) liegen außerhalb des Hub-Roots und gelten für alle Tabs. ALLE Entscheidungslogik lebt in der
 // puren panel-view-model.ts (node-testbar); dieses Modul trifft keine Entscheidung.
 // DOM ausschließlich über createEl/createDiv/createSpan — nie HTML-String-Zuweisung.
 import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
 import { t } from "../vendor/kit/i18n";
+import { buildHubInto, type HubController, type HubPanel } from "../vendor/kit-obsidian/hub";
 import { buildStreamArea, type StreamArea } from "../vendor/kit-obsidian/stream-area";
 import type { RunEvent } from "../core/ports";
 import type { ErrorKind, RunStatus } from "../core/types";
 import {
-  buildPanelViewModel, markAborting, reduceRun,
-  type BodyVM, type NavState, type PanelViewModel, type RunState,
+  buildPanelViewModel, buildStatusLineVM, markAborting, reduceRun,
+  type BodyVM, type NavState, type RunState,
   type RunSummary, type StatusLineVM, type SummaryVM,
 } from "./panel-view-model";
 
@@ -46,15 +49,21 @@ export interface PanelHost {
   getStrayCrewCount(): number;
 }
 
+const TAB_ICON: Record<NavState, string> = { crews: "users", history: "history" };
+
 export class RunPanelView extends ItemView {
-  private navState: NavState = "crews";
   private runState: RunState = { kind: "idle" };
+  // Der Hub kennt den aktiven Tab; `lastTab` hält nur den Standard-Tab für einen Neuaufbau der View.
+  private hub: HubController<NavState> | null = null;
+  private lastTab: NavState = "crews";
+  private statusHost: HTMLElement | null = null;
   // Referenz auf den Streaming-Antwortbereich (buildStreamArea) für den Token-Fast-Path
-  // (handleEvent): nur gültig zwischen zwei vollen Renders, siehe reset in renderViewModel.
+  // (handleEvent): nur gültig, solange das Crews-Panel gezeichnet ist (onShow setzt, onHide und
+  // jedes Neuzeichnen räumen sie ab).
   private streamArea: StreamArea | null = null;
   // Aufklapp-Zustand des <think>-Bereichs: gehört zur Navigation, nicht zum Lauf — er muss
-  // vollen Re-Render überleben (wie navState), sonst schnappt der Bereich beim ersten
-  // Content-Token zu, also genau während man den Gedankengang mitliest.
+  // vollen Re-Render überleben, sonst schnappt der Bereich beim ersten Content-Token zu,
+  // also genau während man den Gedankengang mitliest.
   private thinkOpen = false;
 
   constructor(leaf: WorkspaceLeaf, private readonly host: PanelHost) {
@@ -66,15 +75,18 @@ export class RunPanelView extends ItemView {
   getIcon(): string { return "list-checks"; }
 
   async onOpen(): Promise<void> {
-    this.render();
+    this.build();
   }
   async onClose(): Promise<void> {
+    this.hub?.destroy();
+    this.hub = null;
     this.contentEl.empty();
   }
 
   /** Treibt runState ausschließlich aus Orchestrator-Events (main.ts verdrahtet
-   *  RunReporter.emit → handleEvent). Jedes Event rendert vollständig neu (DOM = reine
-   *  Funktion des Zustands), analog zu SettingsTab.display(). */
+   *  RunReporter.emit → handleEvent). Jedes Event zeichnet den aktiven Tab und die
+   *  Statuszeile vollständig neu (DOM = reine Funktion des Zustands), analog zu
+   *  SettingsTab.display(). */
   handleEvent(e: RunEvent): void {
     this.runState = reduceRun(this.runState, e);
     if (e.type === "token" && this.tryFastPathToken(e)) return;
@@ -85,11 +97,13 @@ export class RunPanelView extends ItemView {
    *  `runState.streamText`/`thinkText` sind vom Reducer bereits auf MAX_LIVE_CHARS
    *  gekappt (Tail behalten) — der Fast-Path übernimmt nur, prüft nicht selbst nach.
    *  Der Gedankenblock entsteht dabei lazy (buildStreamArea legt ihn beim ersten
-   *  `setReasoning`-Aufruf an), ein Fallback auf den vollen Render ist dafür nicht nötig. */
+   *  `setReasoning`-Aufruf an), ein Fallback auf den vollen Render ist dafür nicht nötig.
+   *  Die `<summary>`-Zeile des Blocks zeigt den Live-Zähler („Denkt … N Token“). */
   private tryFastPathToken(e: Extract<RunEvent, { type: "token" }>): boolean {
-    if (this.navState !== "crews" || this.runState.kind !== "running" || this.streamArea === null) return false;
+    if (this.hub?.currentTab() !== "crews" || this.runState.kind !== "running" || this.streamArea === null) return false;
     if (e.isThink) {
       this.streamArea.setReasoning(this.runState.thinkText);
+      this.streamArea.setReasoningSummary(t("panel.thinking", this.runState.thinkCount));
     } else {
       this.streamArea.setTail(this.runState.streamText);
     }
@@ -98,50 +112,80 @@ export class RunPanelView extends ItemView {
   }
 
   /** Neu zeichnen, ohne dass sich der Lauf-Zustand geaendert hat — fuer Aenderungen, die
-   *  von aussen kommen (eine Crew-Datei wird angelegt, umbenannt, geloescht). Der navState
-   *  und der Aufklapp-Zustand ueberleben, weil beide Felder der View sind. */
+   *  von aussen kommen (eine Crew-Datei wird angelegt, umbenannt, geloescht). Der aktive
+   *  Tab und der Aufklapp-Zustand ueberleben, weil sie vom Hub bzw. der View gehalten werden. */
   refreshFromVault(): void {
     this.render();
   }
 
   private render(): void {
+    if (this.hub === null) { this.build(); return; }
+    this.hub.refreshActive();
+    this.renderStatus();
+  }
+
+  /** Baut Titel, Hub und Statuszeilen-Platz neu auf (erster Aufruf, `onOpen`). */
+  private build(): void {
+    this.hub?.destroy();
+    this.hub = null;
+    this.streamArea = null;
+    const root = this.contentEl;
+    root.empty();
+    root.addClass("vault-crews-panel");
+    root.createEl("h2", { cls: "vault-crews-title", text: t("panel.title") });
+    const hubRoot = root.createDiv({ cls: "vault-crews-hub" });
+    this.statusHost = root.createDiv({ cls: "vault-crews-statusline-host" });
+    // Der erste `onShow` läuft noch in `buildHubInto`, also bevor `this.hub` gesetzt ist: er
+    // rendert sein eigenes Panel (`id`) und fragt den Hub nicht nach dem aktiven Tab.
+    this.hub = buildHubInto(hubRoot, [this.makePanel("crews"), this.makePanel("history")], this.lastTab);
+    this.renderStatus();
+  }
+
+  private makePanel(id: NavState): HubPanel<NavState> {
+    let container: HTMLElement | null = null;
+    return {
+      id,
+      get label(): string { return t(`panel.tab.${id}`); },
+      icon: TAB_ICON[id],
+      mount: (el: HTMLElement) => { container = el; },
+      onShow: () => {
+        this.lastTab = id;
+        if (container) this.renderTab(container, id);
+      },
+      // Inaktive Panels bleiben gemountet, aber leer: so hängt keine veraltete streamArea-Referenz
+      // an einem versteckten Knoten, und der nächste onShow zeichnet frisch.
+      onHide: () => {
+        container?.empty();
+        if (id === "crews") this.streamArea = null;
+      },
+      destroy: () => {},
+    };
+  }
+
+  // ── Reine Übersetzung ViewModel → DOM (keine Entscheidungslogik) ────────────
+
+  private renderTab(container: HTMLElement, id: NavState): void {
     const vm = buildPanelViewModel({
-      navState: this.navState,
+      navState: id,
       runState: this.runState,
       teams: this.host.getTeams(),
       latest: this.host.getLastRunSummary(),
       nowMs: Date.now(),
       strayCount: this.host.getStrayCrewCount(),
     });
-    this.renderViewModel(vm);
+    container.empty();
+    // container.empty() wirft den bisherigen Streaming-Antwortbereich weg — die Referenz muss
+    // bei jedem Neuzeichnen des Crews-Tabs zurückgesetzt werden, sonst zeigt der Fast-Path auf
+    // einen toten Node.
+    if (id === "crews") this.streamArea = null;
+    this.renderBody(container.createDiv({ cls: "vault-crews-content" }), vm.body);
   }
 
-  // ── Reine Übersetzung ViewModel → DOM (keine Entscheidungslogik) ────────────
-
-  private renderViewModel(vm: PanelViewModel): void {
-    const root = this.contentEl;
-    root.empty();
-    // root.empty() wirft den bisherigen Streaming-Antwortbereich weg — die Referenz muss
-    // bei jedem vollen Render zurückgesetzt werden, sonst zeigt der Fast-Path auf einen
-    // toten Node.
-    this.streamArea = null;
-    root.addClass("vault-crews-panel");
-
-    root.createEl("h2", { cls: "vault-crews-title", text: vm.title });
-
-    const tabs = root.createDiv({ cls: "vault-crews-tabs" });
-    for (const tab of vm.tabs) {
-      const btn = tabs.createEl("button", {
-        cls: tab.active ? "vault-crews-tab is-active" : "vault-crews-tab",
-        text: tab.label,
-      });
-      if (!tab.active) btn.addEventListener("click", () => { this.navState = tab.id; this.render(); });
-    }
-
-    const content = root.createDiv({ cls: "vault-crews-content" });
-    this.renderBody(content, vm.body);
-
-    if (vm.statusLine !== null) this.renderStatusLine(root, vm.statusLine);
+  private renderStatus(): void {
+    if (!this.statusHost) return;
+    this.statusHost.empty();
+    const line = buildStatusLineVM(this.runState);
+    if (line !== null) this.renderStatusLine(this.statusHost, line);
   }
 
   private renderBody(root: HTMLElement, body: BodyVM): void {
@@ -256,7 +300,7 @@ export class RunPanelView extends ItemView {
     nextRow.createSpan({ cls: "vault-crews-next-action-text", text: s.nextActionText });
   }
 
-  /** Persistente Statuszeile am Panel-Boden (nur während eines Laufs): trägt den
+  /** Persistente Statuszeile am Panel-Boden, außerhalb des Hub-Roots (nur während eines Laufs): trägt den
    *  EINZIGEN Abbrechen-Button (Spec §6.2), aus jedem Tab erreichbar. */
   private renderStatusLine(root: HTMLElement, s: StatusLineVM): void {
     const bar = root.createDiv({ cls: "vault-crews-statusline" });

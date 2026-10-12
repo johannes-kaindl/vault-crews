@@ -48,6 +48,18 @@ function findAll(el: HTMLElement, pred: (e: HTMLElement) => boolean, out: HTMLEl
 }
 const buttons = (el: HTMLElement, text: string): HTMLElement[] =>
   findAll(el, (e) => e.tagName === "BUTTON" && e.textContent === text);
+/** Tab-Knopf des Kit-Hubs mit gegebenem Label (`okit-hub-tab`, ARIA-Rolle `tab`). */
+const hubTab = (view: RunPanelView, label: string): HTMLElement => {
+  const [tab] = findAll(view.contentEl, (e) => e.hasClass("okit-hub-tab") && e.textContent === label);
+  if (!tab) throw new Error(`kein Hub-Tab „${label}"`);
+  return tab;
+};
+/** Container eines Tabs (`role=tabpanel`, `data-tab`) — Text-Assertions scopen darauf. */
+const hubPanel = (view: RunPanelView, id: string): HTMLElement => {
+  const [panel] = findAll(view.contentEl, (e) => e.hasClass("okit-hub-panel") && e.getAttribute("data-tab") === id);
+  if (!panel) throw new Error(`kein Hub-Panel „${id}"`);
+  return panel;
+};
 /** Erstes Element mit gegebener Klasse (Ersatz für querySelector, das der Mock nicht hat). */
 const byClass = (el: HTMLElement, cls: string): HTMLElement | undefined =>
   findAll(el, (e) => e.hasClass(cls))[0];
@@ -75,11 +87,15 @@ describe("RunPanelView — identity & shell", () => {
     expect(view.getIcon().length).toBeGreaterThan(0);
   });
 
-  it("renders a Crews and a History tab", async () => {
+  it("renders a Crews and a History tab as Kit hub tabs (tablist/tab roles, icon + label)", async () => {
     const view = new RunPanelView(makeLeaf(), makeHost());
     await view.onOpen();
-    const tabs = findAll(view.contentEl, (e) => e.hasClass("vault-crews-tab"));
+    const tabs = findAll(view.contentEl, (e) => e.hasClass("okit-hub-tab"));
     expect(tabs.map((t) => t.textContent)).toEqual(["Crews", "History"]);
+    expect(tabs.map((t) => t.getAttribute("role"))).toEqual(["tab", "tab"]);
+    expect(tabs.map((t) => t.getAttribute("aria-selected"))).toEqual(["true", "false"]);
+    expect(findAll(view.contentEl, (e) => e.hasClass("okit-hub-tab-icon"))).toHaveLength(2);
+    expect(findAll(view.contentEl, (e) => e.getAttribute("role") === "tablist")).toHaveLength(1);
   });
 });
 
@@ -267,11 +283,13 @@ describe("RunPanelView — history tab", () => {
     const view = new RunPanelView(makeLeaf(), host);
     await view.onOpen();
 
-    const [historyTab] = findAll(view.contentEl, (e) => e.hasClass("vault-crews-tab") && e.textContent === "History");
-    (historyTab as unknown as HTMLElement).click();
+    // Vor dem Wechsel zeichnet die Crews-Liste „Task triage“ — der History-Container ist leer,
+    // sonst bliebe der Text-Test auch bei leerem Verlauf grün.
+    expect(hubPanel(view, "history").textContent).toBe("");
+    hubTab(view, "History").click();
 
-    expect(view.contentEl.textContent).toContain("Task triage");
-    expect(buttons(view.contentEl, "Undo")).toHaveLength(1); // undoable → Rückgängig-Button
+    expect(hubPanel(view, "history").textContent).toContain("Task triage");
+    expect(buttons(hubPanel(view, "history"), "Undo")).toHaveLength(1); // undoable → Rückgängig-Button
 
     const [row] = findAll(view.contentEl, (e) => e.hasClass("vault-crews-history-row"));
     row?.click();
@@ -282,9 +300,40 @@ describe("RunPanelView — history tab", () => {
     const host = makeHost({ getTeams: vi.fn().mockReturnValue([]), getLastRunSummary: vi.fn().mockReturnValue(null) });
     const view = new RunPanelView(makeLeaf(), host);
     await view.onOpen();
-    const [historyTab] = findAll(view.contentEl, (e) => e.hasClass("vault-crews-tab") && e.textContent === "History");
-    (historyTab as unknown as HTMLElement).click();
-    expect(view.contentEl.textContent).toContain("No runs yet");
+    hubTab(view, "History").click();
+    expect(hubPanel(view, "history").textContent).toContain("No runs yet");
+  });
+
+  it("the status line sits outside the hub and stays put when switching tabs", async () => {
+    const host = makeHost({ getTeams: vi.fn().mockReturnValue(teams) });
+    const view = new RunPanelView(makeLeaf(), host);
+    await view.onOpen();
+    view.handleEvent({ type: "runStarted", runId: "r1", teamId: "task-triage" });
+    view.handleEvent({ type: "taskStarted", taskId: "collect", index: 1, total: 2 });
+
+    const hubRoot = byClass(view.contentEl, "okit-hub-root") as HTMLElement;
+    const cancelOutside = (): HTMLElement[] =>
+      findAll(view.contentEl, (e) => e.hasClass("vault-crews-cancel")).filter((c) => findAll(hubRoot, (e) => e === c).length === 0);
+    expect(cancelOutside()).toHaveLength(1);
+
+    hubTab(view, "History").click();
+    expect(cancelOutside()).toHaveLength(1);
+    expect(hubPanel(view, "crews").textContent).toBe(""); // inaktiv: leer
+    hubTab(view, "Crews").click();
+    expect(cancelOutside()).toHaveLength(1);
+    expect(byClass(view.contentEl, "okit-stream")).toBeDefined(); // Crews-Panel zeichnet den Lauf wieder
+  });
+
+  it("events while History is active do not draw the Crews panel (and the fast path stays off)", async () => {
+    const host = makeHost({ getTeams: vi.fn().mockReturnValue(teams), getLastRunSummary: vi.fn().mockReturnValue(latest) });
+    const view = new RunPanelView(makeLeaf(), host);
+    await view.onOpen();
+    hubTab(view, "History").click();
+    view.handleEvent({ type: "runStarted", runId: "r1", teamId: "task-triage" });
+    view.handleEvent({ type: "taskStarted", taskId: "a", index: 1, total: 1 });
+    view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "hi" });
+    expect(hubPanel(view, "crews").textContent).toBe("");
+    expect(hubPanel(view, "history").textContent).toContain("Task triage");
   });
 });
 
@@ -320,6 +369,23 @@ describe("RunPanelView — live streaming (content + think, buildStreamArea)", (
     expect(byClass(view.contentEl, "okit-stream-tail")?.textContent).toContain("body");
     const reasoning = byClass(view.contentEl, "okit-stream-reasoning");
     expect(findAll(reasoning as HTMLElement, (e) => e.tagName === "PRE")[0]?.textContent).toContain("th1th2");
+  });
+
+  it("the reasoning summary line carries the live token counter (setReasoningSummary in the fast path)", () => {
+    const view = makeView();
+    view.handleEvent({ type: "runStarted", runId: "r1", teamId: "t" });
+    view.handleEvent({ type: "taskStarted", taskId: "a", index: 1, total: 1 });
+    const summaryText = (): string | undefined =>
+      findAll(view.contentEl, (e) => e.tagName === "SUMMARY")[0]?.textContent;
+
+    view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "a" });
+    expect(summaryText()).toBe("Thinking… 1 tokens");
+    view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "b" });
+    view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "c" });
+    expect(summaryText()).toBe("Thinking… 3 tokens");
+    // Content-Token fasst die Zeile nicht an
+    view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "x" });
+    expect(summaryText()).toBe("Thinking… 3 tokens");
   });
 
   it("the reasoning block stays open across the next full re-render once the user opened it (Verhaltenswechsel: bleibt WÄHREND des Streams offen, buildStreamArea steuert per Property statt Attribut)", () => {

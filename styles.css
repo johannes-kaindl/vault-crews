@@ -11,33 +11,66 @@
   margin: 0 0 var(--size-4-2) 0;
 }
 
-/* ── Tab-Leiste (Segment-Navigation, §4 Kopf) ──────────────────────────────── */
-
-.vault-crews-tabs {
+/* ── Tab-Leiste (obsidian-kit Hub, Präfix okit-hub-) ───────────────────────────
+ * Übernommen aus HUB_CSS in src/vendor/kit-obsidian/hub.ts (wortgleich, der Test
+ * tests/vendor/kit-css.test.ts misst die Kopie). Beim Re-Vendoring mitziehen. */
+/* Hub-Tab-Leiste (obsidian-kit: buildHubInto). Die vier nummerierten Zutaten gehören
+   zusammen — jede einzeln ist wirkungslos, s. Modulkopf von src/obsidian/hub.ts. */
+.okit-hub-root { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.okit-hub-tabs {
   display: flex;
-  gap: var(--size-4-1);
+  flex-wrap: wrap;                 /* (1) erlaubt die zweite Zeile */
+  gap: var(--size-2-1);
+  flex: 0 0 auto;
   border-bottom: 1px solid var(--background-modifier-border);
-  margin-bottom: var(--size-4-3);
 }
-
-.vault-crews-tab {
-  padding: var(--size-4-1) var(--size-4-2);
+/* box-shadow: none nimmt dem nativen <button> nur seinen Ruhe-Schatten. Obsidians
+   Fokusring bleibt: button:focus-visible { box-shadow: 0 0 0 3px … } hat mit (0,1,1) die
+   höhere Spezifität als .okit-hub-tab (0,1,0) — geprüft in Obsidians app.css. */
+.okit-hub-tab {
+  display: flex;
+  flex: 1 1 auto;                  /* (2) Basis = Inhaltsbreite, sonst bricht nichts um */
+  min-width: 0;                    /* (3) hebt min-width:auto auf, sonst sprengt ein langes Label die Zeile */
+  align-items: center;
+  justify-content: center;
+  gap: var(--size-4-1);
+  padding: var(--size-2-3) var(--size-4-2);
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
   border-radius: 0;
   box-shadow: none;
   color: var(--text-muted);
-  font-size: var(--font-ui-small);
   cursor: pointer;
 }
-.vault-crews-tab:hover {
-  color: var(--text-normal);
-  background: var(--background-modifier-hover);
+.okit-hub-tab-label {              /* (4) ohne eigenes Label-Element kann nichts ellipsieren */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.vault-crews-tab.is-active {
-  color: var(--text-accent);
-  border-bottom-color: var(--interactive-accent);
+.okit-hub-tab-icon { display: inline-flex; flex: 0 0 auto; }
+.okit-hub-tab:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+.okit-hub-tab.is-active { color: var(--text-normal); border-bottom-color: var(--interactive-accent); }
+.okit-hub-content { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; }
+.okit-hub-panel { height: 100%; overflow: auto; }
+.okit-hub-panel.is-hidden { display: none; }
+
+/* Panel-Rahmen: Titel oben, Hub füllt den Rest, die Statuszeile mit dem einzigen
+   Abbrechen-Knopf bleibt unten und für alle Tabs gemeinsam (liegt außerhalb des Hub-Roots). */
+.vault-crews-panel {
+  display: flex;
+  flex-direction: column;
+}
+.vault-crews-panel > .vault-crews-hub {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+.vault-crews-panel > .vault-crews-statusline-host {
+  flex: 0 0 auto;
+}
+.vault-crews-panel .okit-hub-content {
+  padding-top: var(--size-4-3);
 }
 
 /* ── Content-Container ─────────────────────────────────────────────────────── */

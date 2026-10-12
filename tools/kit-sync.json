@@ -97,6 +97,7 @@
         "stream-area",
         "endpoint-source",
         "help-setting",
+        "hub",
         "clipboard",
         "collapsible",
         "request-section",
@@ -137,6 +138,7 @@
       "from": "src/testing",
       "modules": [
         "kit-css",
+        "linear-probe",
         "obsidian-mock",
         "window-timers"
       ]

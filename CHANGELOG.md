@@ -6,8 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **The panel's tab bar is the Kit's hub (obsidian-kit `hub`).** "Crews" and "History" now show an icon next to the label, carry the full tab semantics (screen readers announce a tab list, the active tab is marked), and can be reached with the keyboard: Left/Right arrow keys move between the tabs, Home/End jump to the first/last one (Tab enters the bar once; the other tabs are skipped). The bar wraps to a second line in a narrow sidebar instead of cutting a label off. The title and the status line with the one Cancel button stay where they were (title on top, status line at the bottom, for both tabs); the tab that is not shown is no longer drawn behind the scenes.
+- **The "Thinking … N tokens" counter is back in the reasoning block of the live view.** While a model thinks, the heading of the folded reasoning shows the running token count again (it went missing when the live view moved to the Kit's stream area in 0.10.0).
+
 ### Changed
 
+- Tests only: the run-time limits on `extractJson`/`extractText` (a fixed 500 ms) are replaced by the Kit's linearity probe (growth from 1 000 to 50 000), so a busy machine can no longer fail them.
 - Kit pins raised to obsidian-kit 0.57.0 / code-kit 0.24.0. The stored endpoint choice in `data.json` is cleaned by the kit's shared `sanitizeChoice` instead of a local copy (identical result: only non-empty strings survive), so nothing changes for you.
 - The plugin's test double for the Obsidian API is now the kit's shared mock (tests only; no effect on the plugin).
 
