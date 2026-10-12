@@ -1,4 +1,4 @@
-// vendored from code-kit@0.23.0, src/ts/pure/llm-json.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.24.0, src/ts/pure/llm-json.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // Origin: four plugin copies (Welle 18, analysis K9, measured 2026-10-12): obsidian-transmute `core/llm/response.ts:65-95`
 // (`stripFence`, `firstJsonObject`; 2026-07-25), koda-agent `core/agent/text-fallback.ts:6-35` (a line-for-line copy of
 // transmute), 3d-codeblocks `core/shapes/protocol.ts:52-120` (`balancedEnd`, `extractJson` with several candidates,
