@@ -26,11 +26,11 @@ import { setLang } from "../../src/vendor/kit/i18n";
 import {
   DEFAULT_SETTINGS,
   SettingsTab,
-  sanitizeChoice,
   type PluginSettings,
   type SettingsHost,
 } from "../../src/obsidian/settings";
 import type { EndpointStatus } from "../../src/vendor/kit/endpoint_diagnostics";
+import { sanitizeChoice } from "../../src/vendor/kit/endpoint-source";
 import { createRequestSession } from "../../src/vendor/kit-obsidian/request-session";
 
 const OK_STATUS: EndpointStatus = { reachable: true, kind: "ok", klartext: "Connected" };
@@ -66,7 +66,12 @@ function makeFakeHost(overrides: Partial<SettingsHost> = {}): SettingsHost {
 /** Minimaler Plugin-Fake: SettingsTab liest nach `super(plugin.app, plugin)` nie wieder
  *  von `plugin` selbst (nur `this.app`, gesetzt von PluginSettingTab, und `this.host`). */
 function makeFakePlugin(): Plugin {
-  return { app: makeFakeApp() } as unknown as Plugin;
+  const app = makeFakeApp();
+  // Das Kit-Mock traegt `secretStorage` im Default; die Hand-Kopie hatte keins. Mit Schluesselbund
+  // migriert das Plugin `apiKey` nach `secretId` — diese Tests messen die Verdrahtung des Editors
+  // ohne Schluesselbund, also fehlt er hier wie vorher.
+  delete (app as { secretStorage?: unknown }).secretStorage;
+  return { app } as unknown as Plugin;
 }
 
 /** Fängt jeden addButton()-Klick-Handler in Erstellungsreihenfolge ab. */
