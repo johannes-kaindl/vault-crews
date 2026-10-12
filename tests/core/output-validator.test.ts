@@ -44,6 +44,59 @@ describe('extractJson (Korpus kaputter Modell-Outputs)', () => {
 	});
 });
 
+describe('extractJson: Verhalten aus dem Kit-Modul llm-json (Welle 18)', () => {
+	const obj = '{"items":[]}';
+
+	it('ein offenes <think> verwirft den Rest — ein JSON dahinter zählt nicht mehr (bewusste Änderung)', () => {
+		const r = extractJson(`<think>ich überlege\n${obj}`);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.error).toContain('no JSON');
+	});
+	it('ein geschlossenes <think> davor stört nicht', () => {
+		expect(extractJson(`<think>x</think>${obj}`).ok).toBe(true);
+	});
+	it('Prosa mit Klammern vor dem JSON wird übersprungen', () => {
+		const r = extractJson(`Siehe [Quelle] und {nicht json}: ${obj}`);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.json).toEqual({ items: [] });
+	});
+	it('ein Fence auf einer Zeile ist kein Block; das JSON wird im Gesamttext gefunden', () => {
+		const r = extractJson('```json ' + obj + '```');
+		expect(r.ok).toBe(true);
+	});
+	it('mit mehreren json-Fences gilt der letzte', () => {
+		const r = extractJson('```json\n{"items":[1]}\n```\nText\n```json\n{"items":[2]}\n```');
+		expect(r.ok && (r.json as { items: number[] }).items[0]).toBe(2);
+	});
+	it('ungültiges JSON im Fence meldet den Parserfehler', () => {
+		const r = extractJson('```json\n{"a": nope}\n```');
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.error).toMatch(/^invalid JSON: /);
+	});
+});
+
+describe('extractJson: linear bei entarteten Antworten (Welle 18, Messung statt Annahme)', () => {
+	const timed = (f: () => unknown): number => { const t = performance.now(); f(); return performance.now() - t; };
+	const wachstum = (bau: (n: number) => string): number => {
+		const klein = Math.max(timed(() => extractJson(bau(10_000))), 1);
+		const gross = timed(() => extractJson(bau(50_000)));
+		return gross / klein;
+	};
+
+	it('Escape frisst die Anführungszeichen: \\"[ × n', () => {
+		expect(timed(() => extractJson('\\"['.repeat(40_000)))).toBeLessThan(500);
+	});
+	it('verschachtelt und nie JSON: [ × n + x + ] × n', () => {
+		expect(timed(() => extractJson('['.repeat(20_000) + 'x' + ']'.repeat(20_000)))).toBeLessThan(500);
+	});
+	it('viele kleine Klammerpaare ohne JSON: {] × n', () => {
+		expect(wachstum((n) => '{]'.repeat(n))).toBeLessThan(12);
+	});
+	it('ein nie geschlossener Fence: ```json × n', () => {
+		expect(timed(() => extractJson('```json\n{"a":1'.repeat(30_000)))).toBeLessThan(500);
+	});
+});
+
 describe('validateOutput mit triage-v1', () => {
 	it('happy path: extrahiert, validiert, mappt Slugs zurück, erzeugt Aktionen', () => {
 		const r = validateOutput(fixture('preamble-with-example.txt'), triage, sources, slugTables, null);

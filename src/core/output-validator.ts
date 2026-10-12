@@ -1,77 +1,23 @@
 /** Constrain-then-verify, Stufe 1 (Spec §3.4): Jede LLM-Ausgabe ist feindlicher Input.
  *  Extraktion ist tolerant (letzter Fence, Repair-Pass), Validierung ist hart (Schema,
- *  Quellbindung, Slug-Wertemengen). extractJson/findBalanced basieren auf dem geborgenen
- *  Plan-Entwurf (Workflow-Fragment G3). */
+ *  Quellbindung, Slug-Wertemengen). Die JSON-Suche liefert das Kit-Modul `llm-json`. */
+import { extractJsonCandidates } from '../vendor/kit/llm-json';
 import { stripThinkBlocks } from '../vendor/kit/think-splitter';
 import type { LlmMessage } from './ports';
 import type { SchemaDef } from './schemas';
 import type { Action, CollectedFile, SlugTableData } from './types';
 
-function normalizeQuotes(s: string): string {
-	return s.replace(/[“”„]/g, '"').replace(/[‘’‚]/g, "'");
-}
-
-function findBalanced(s: string): { start: number; end: number } | 'truncated' | null {
-	let start = -1;
-	let depth = 0;
-	let inString = false;
-	let escaped = false;
-	for (let i = 0; i < s.length; i++) {
-		const c = s.charAt(i);
-		if (start === -1) {
-			if (c === '{' || c === '[') {
-				start = i;
-				depth = 1;
-			}
-			continue;
-		}
-		if (inString) {
-			if (escaped) escaped = false;
-			else if (c === '\\') escaped = true;
-			else if (c === '"') inString = false;
-			continue;
-		}
-		if (c === '"') inString = true;
-		else if (c === '{' || c === '[') depth++;
-		else if (c === '}' || c === ']') {
-			depth--;
-			if (depth === 0) return { start, end: i };
-		}
-	}
-	return start === -1 ? null : 'truncated';
-}
-
-function parseCandidate(candidate: string): { ok: true; json: unknown } | { ok: false; error: string } {
-	try {
-		return { ok: true, json: JSON.parse(candidate) as unknown };
-	} catch {
-		// Repair-Pass unten.
-	}
-	const repaired = normalizeQuotes(candidate).replace(/,\s*([}\]])/g, '$1');
-	try {
-		return { ok: true, json: JSON.parse(repaired) as unknown };
-	} catch (e) {
-		if (findBalanced(repaired) === 'truncated') return { ok: false, error: 'output truncated' };
-		return { ok: false, error: `invalid JSON: ${(e as Error).message}` };
-	}
-}
-
 export function extractJson(raw: string): { ok: true; json: unknown } | { ok: false; error: string } {
-	const text = stripThinkBlocks(raw);
-
-	// 1. Letzter ```json-Fence — Reasoning-Modelle zitieren in der Präambel gern das Beispiel.
-	const fences = [...text.matchAll(/```json\s*([\s\S]*?)```/g)];
-	const lastFence = fences[fences.length - 1];
-	if (lastFence !== undefined) {
-		return parseCandidate((lastFence[1] ?? '').trim());
-	}
-
-	// 2. Erste balancierte {...}/[...]-Struktur; Scan auf quote-normalisiertem Text
-	//    (Ersetzung ist 1:1, Indizes bleiben gültig).
-	const span = findBalanced(normalizeQuotes(text));
-	if (span === 'truncated') return { ok: false, error: 'output truncated' };
-	if (span === null) return { ok: false, error: 'no JSON structure found in output' };
-	return parseCandidate(text.slice(span.start, span.end + 1));
+	// Konstanten-Wahl für vault-crews (Kit `llm-json`, code-kit 0.23.0): der LETZTE ```json-Fence —
+	// Reasoning-Modelle zitieren in der Präambel gern das Beispiel — und der Repair-Pass für
+	// typografische Anführungszeichen und Komma vor der Klammer. Beides ist Pflicht: mit dem
+	// Kit-Default kippen drei der sechs Korpus-Fixtures. Ein offenes <think> verwirft den Rest
+	// (Kit-Default, Entscheidung Johannes 2026-10-12): seine Klammern stammen aus dem Denken.
+	const r = extractJsonCandidates(raw, { fence: 'last', fenceTag: 'json', repair: true });
+	if (r.ok) return { ok: true, json: r.values[0] };
+	if (r.reason === 'truncated') return { ok: false, error: 'output truncated' };
+	if (r.reason === 'no-json') return { ok: false, error: 'no JSON structure found in output' };
+	return { ok: false, error: `invalid JSON: ${r.error ?? 'unbekannt'}` };
 }
 
 /** Extrahiert rohen Text für 'text'-Schemata (briefing-v1): think-strippen, optional EINEN
