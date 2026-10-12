@@ -53,12 +53,103 @@ const OHNE_MODELL = args.has("ohne-modell");
 // Bilanz in vier Zuständen (grün · rot · übersprungen · nichts gemessen), Exit 1 bei Rot ODER
 // nichts gemessen (Modul `tools/obsidian-cdp/bilanz.ts`, CORE-TEST-19). Die Aufrufstellen behalten
 // ihre Form: `record(name, passed, detail)`, `skipped(name, grund)` und neu `unmeasured(name, grund)`.
-const bilanz = createBilanz();
-const record = (name: string, passed: boolean, detail: string): void => bilanz.record(name, passed, detail);
+// Soll-Liste (der Nenner): ein Punkt, der nie aufgezeichnet wird, zählt als „nichts gemessen“. Sie wird
+// statisch gegen alle `record`/`unmeasured`/`skipped`-Namen dieser Datei geprüft: ein Name außerhalb der Liste
+// bricht den Typecheck (Union), ein Name in der Liste ohne Aufrufstelle fiele als „nichts gemessen“ auf.
+const P_STREAM = "Welle 11 — echtes Modell: die Antwort kommt gestreamt und vollständig";
+const P_FALLBACK = "Welle 11 — Server ohne CORS: der Lauf bekommt seine Antwort über den Fallback ohne Stream";
+const P_TIMEOUT = "Welle 11 — Server schweigt von Anfang an: harter Gesamt-Timer meldet timeout";
+const P_STALL = "Welle 11 — Server bricht nach dem ersten Chunk ab: Stall-Detektor meldet stalled";
+const N1_PUNKT = "N1 Abschnitt Request ist vorhanden, klappt auf und zeigt die Felder";
+const PUNKTE = [
+  "Alte Endpunkt-Liste wird zu genau einem Eintrag",
+  "Das alte globale Modell landet in der Zeile und geht nicht verloren",
+  "Das globale Modellfeld existiert nicht mehr",
+  "Die übrigen Einstellungen überstehen die Migration",
+  "Ein kaputtes data.json-Feld reisst den Plugin-Start nicht mit",
+  "Einstellungs-Tab öffnet",
+  "Endpunkt-Zeile zeichnet ein URL-Feld",
+  "Endpunkt-Zeile zeichnet ein Schlüsselfeld",
+  "Endpunkt-Zeile zeichnet ein Modellfeld",
+  "Die Sperrliste ist ein mehrzeiliges Textfeld",
+  "Kein roher Übersetzungs-Schlüssel im Tab",
+  "Kein globales Feld „Standardmodell\" mehr",
+  "Schlüssel führt zum Drittanbieter-Hinweis",
+  "Deklarative API vorhanden",
+  "Tab liefert Definitionen und der Host uebernimmt sie",
+  "keine versteckten und keine stummen Zeilen",
+  "Hilfe-Zeile ist das erste Element und die erste Zeile im Tab",
+  "Einstellungen erscheinen in Obsidians Einstellungs-Suche",
+  "Fallback-Pfad (< 1.13) zeichnet dieselbe Struktur",
+  "Panel — Abschnitt lief bis zum Ende",
+  "Panel — crewRoot ist bespielbar",
+  "Panel — öffnet auf den eigenen Befehl",
+  "Panel — Inhalt ist gerendert, bevor gemessen wird",
+  "Panel — Hub-Leiste: zwei Tabs mit gerendertem Icon, ARIA-Rollen, erster Tab aktiv",
+  "Panel — Wechsel auf den Verlauf zeichnet ihn, der inaktive Tab ist leer, zurück zeichnet die Crews neu",
+  "Panel — Abbrechen-Knopf liegt während eines Laufs im Leaf-Rechteck",
+  "Panel — kein Streuner-Hinweis ohne Anlass",
+  "Panel — verirrte Crew-Datei wird benannt, ohne das Panel neu zu öffnen",
+  "Panel — ungültige Crew trägt ein Warndreieck mit Fehlertext",
+  "Panel — die ungültige Crew bleibt startbar",
+  "Panel — der Hinweis verschwindet wieder (Gegenprobe)",
+  "Welle 8 — Abschnitt lief bis zum Ende",
+  "Welle 8 — Knopf „Beispiel-Crews installieren“ ist da",
+  "Welle 8 — der Settings-Knopf installiert die Beispiel-Crews",
+  "Welle 8 — kein Verweis mehr auf die Befehlspalette",
+  "Welle 8 — Ausblenden aus: kein Regelsatz für den Crew-Ordner",
+  "Welle 8 — Ausblenden an: Regelsatz für den Crew-Ordner steht",
+  "Welle 8 — Crew-Ordner im Explorer tatsächlich unsichtbar",
+  "Welle 18 — Pop-out aktiv: Regel im Hauptfenster, nicht im Pop-out",
+  "Welle 18 — Laden bei aktivem Pop-out: Regel steht im Hauptfenster",
+  "Welle 8 — Ausblenden wieder aus: Regelsatz weg (Gegenprobe)",
+  "Welle 8 — Lauf bekommt den Manager-Endpunkt samt Schlüssel und Modell",
+  "Welle 8 — Einstellungen zeigen bei Manager den Manager-Baustein",
+  "Welle 8 — ohne Manager gilt wieder die lokale Liste (Gegenprobe)",
+  "Welle 8 — ohne Manager kein Manager-Baustein in den Einstellungen",
+  "Welle 8 — Lauf mit leerem Collector endet",
+  "Welle 8 — der leere Collector ist als Ursache im Ergebnis",
+  "Welle 8 — kein Modellaufruf auf leerem Kontext",
+  "Welle 8 — Notice nennt „0 Notizen“ und die Quelle statt „0 Dateien“",
+  "Welle 8 — Notice trägt den Link zum Protokoll",
+  "Welle 8 — Klick auf den Link öffnet run.md dieses Laufs",
+  "Welle 8 — run.md nennt Quelle und übersprungenen Task",
+  "Welle 8 — Ergebnis-Karte nennt die leere Quelle",
+  "Welle 8 — Crew-Zeile im Panel nennt die leere Quelle",
+  P_STREAM,
+  P_FALLBACK,
+  P_TIMEOUT,
+  P_STALL,
+  "N2-1 Body am Draht trägt Profilwerte (qwen3.8, Modus structured)",
+  "N2-2 Überschreibung des Plugins ändert den Body (Gegenprobe zu N2-1)",
+  "N2-3 Persona schlägt Überschreibung und Profil (Temperatur 0.4 statt 0.3, Budget 1500)",
+  "N2-4 thinking: on in der Persona sendet die Stufe medium und hebt das Budget (Reserve der Familie)",
+  "N2-5 Die Sitzung zeigt, was wirklich gesendet wurde (letzte Anfrage = Body des vierten Laufs)",
+  "N1-2 „Letzte Anfrage“ trägt die Anfrage aus N2 (Tab liest die Sitzung beim Öffnen neu)",
+  "N1-3 Der Persona-Hinweis steht im Abschnitt",
+  "N1-4 Überschreiben und Zurücksetzen nacheinander: Abschnitt bleibt offen, Wert wird gespeichert und wieder gelöscht",
+  "Welle 14 — Abschnitt lief bis zum Ende",
+  "Welle 15 — Schlüsselbund: nach dem Auflösen steht kein Schlüssel mehr in data.json",
+  "Welle 15 — Schlüsselbund: der Schlüssel liegt im Schlüsselbund",
+  "Welle 15 — Schlüsselbund: der Lauf bekommt den Schlüssel von dort (nur im Speicher)",
+  "Welle 15 — Schwärzung: PEM und Bearer-Token gehen nicht im Klartext an den Server",
+  "Welle 15 — Wiederherstellung (JSON-Schema): die Notiz trägt PEM und Token im Original, kein Platzhalter",
+  "Welle 15 — Wiederherstellung (Markdown-Schema): das PEM kommt im Wortlaut des Prompts zurück, nicht ein zweites Mal maskiert",
+  "Welle 15 — 401-Body: der Schlüssel wird in run.md und state.json maskiert",
+  "Welle 15 — der Schlüssel kommt aus dem Schlüsselbund an den Draht (Authorization-Kopf)",
+  "Welle 15 — Abschnitt lief bis zum Ende",
+  "Keine liegen gebliebene Rettungskopie aus einem abgebrochenen Vorlauf",
+  N1_PUNKT,
+] as const;
+type Punktname = (typeof PUNKTE)[number];
+const bilanz = createBilanz({ punkte: PUNKTE });
+const record = (name: Punktname, passed: boolean, detail: string): void => bilanz.record(name, passed, detail);
 /** Der Punkt ist nicht anwendbar (z. B. ein echter Manager ist geladen) — mit Grund, aber nichts gemessen. */
-const skipped = (name: string, reason: string): void => bilanz.skipped(name, reason);
+const skipped = (name: Punktname, reason: string): void => bilanz.skipped(name, reason);
 /** Der Gegenstand des Punkts wurde nicht erreicht (Vorbedingung fehlt) — „nichts gemessen", nie grün. */
-const unmeasured = (name: string, reason: string): void => bilanz.unmeasured(name, reason);
+const unmeasured = (name: Punktname, reason: string): void => bilanz.unmeasured(name, reason);
+/** Eine Vorbedingung gilt für eine ganze Gruppe von Punkten: alle als nicht anwendbar führen. */
+const alleUebersprungen = (namen: readonly Punktname[], reason: string): void => { for (const n of namen) skipped(n, reason); };
 
 /** Verletzte Umgebungsbedingung (Klasse `Vorbedingung` des Moduls `bilanz`) — KEIN Befund am Prüfling.
  *
@@ -220,7 +311,7 @@ async function abschnittEinstellungen(cdp: Cdp): Promise<void> {
     };
   `);
   if (!felder) {
-    skipped("Endpunkt-Zeile zeichnet URL, Schlüssel und Modell", "Tab-Inhalt nicht gefunden");
+    unmeasured("Endpunkt-Zeile zeichnet ein URL-Feld", "Tab-Inhalt nicht gefunden (gilt auch für Schlüssel-, Modellfeld, Sperrliste)");
     return;
   }
   record(
@@ -340,7 +431,7 @@ async function abschnittDeklarativ(cdp: Cdp): Promise<void> {
 
   const ui = await einstellungenOeffnen(cdp);
   if (!ui) {
-    skipped("Deklarative API", "Einstellungen-Tab nicht zu oeffnen");
+    unmeasured("Deklarative API vorhanden", "Einstellungen-Tab nicht zu oeffnen (gilt für alle Punkte dieses Abschnitts)");
     return;
   }
 
@@ -383,8 +474,15 @@ async function abschnittDeklarativ(cdp: Cdp): Promise<void> {
     await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
     return;
   }
+  record("Deklarative API vorhanden", true, "getSettingDefinitions() liefert Definitionen");
   if (!defs.hatUpdate) {
-    skipped("Deklarative API", "Obsidian ohne native 1.13-Settings-API (nur Fallback-Pfad)");
+    alleUebersprungen([
+      "Tab liefert Definitionen und der Host uebernimmt sie",
+      "keine versteckten und keine stummen Zeilen",
+      "Hilfe-Zeile ist das erste Element und die erste Zeile im Tab",
+      "Einstellungen erscheinen in Obsidians Einstellungs-Suche",
+      "Fallback-Pfad (< 1.13) zeichnet dieselbe Struktur",
+    ], "Obsidian ohne native 1.13-Settings-API (nur Fallback-Pfad)");
     await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
     return;
   }
@@ -530,6 +628,7 @@ const PANEL = `document.querySelector('.workspace-leaf-content[data-type="vault-
 async function abschnittPanel(cdp: Cdp): Promise<void> {
   try {
     await panelMessungen(cdp);
+    record("Panel — Abschnitt lief bis zum Ende", true, "kein Abbruch");
   } catch (e) {
     // Gemessen 2026-09-02: ein Absturz mitten im Abschnitt liess drei Pruefpunkte weg, und
     // die Schlusszeile meldete trotzdem „20/20 gemessene Pruefpunkte gruen". Nicht erreicht
@@ -544,8 +643,8 @@ async function panelMessungen(cdp: Cdp): Promise<void> {
     `return app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.crewRoot;`,
   );
   if (!root) {
-    skipped("Panel — verirrte Crew-Datei", "crewRoot nicht lesbar");
-    skipped("Panel — Warndreieck an ungültiger Crew", "crewRoot nicht lesbar");
+    unmeasured("Panel — verirrte Crew-Datei wird benannt, ohne das Panel neu zu öffnen", "crewRoot nicht lesbar");
+    unmeasured("Panel — ungültige Crew trägt ein Warndreieck mit Fehlertext", "crewRoot nicht lesbar");
     return;
   }
   const verirrt = `${root}/zz-smoke-verirrt.md`;
@@ -567,6 +666,7 @@ async function panelMessungen(cdp: Cdp): Promise<void> {
     record("Panel — crewRoot ist bespielbar", false, `crewRoot „${root}": ${ordnerDa}`);
     return;
   }
+  record("Panel — crewRoot ist bespielbar", true, `crewRoot „${root}"`);
 
   await cdp.evaluate(`await app.commands.executeCommandById("${PLUGIN_ID}:open-crews-panel"); return true;`);
   // KEIN skipped() hier: ein Panel, das auf seinen eigenen Befehl nicht aufgeht, ist ein
@@ -577,6 +677,7 @@ async function panelMessungen(cdp: Cdp): Promise<void> {
     record("Panel — öffnet auf den eigenen Befehl", false, "Panel-Blatt erschien nicht");
     return;
   }
+  record("Panel — öffnet auf den eigenen Befehl", true, "Panel-Blatt erschien");
 
   // Vor der Abwesenheits-Messung warten, bis der Panel-INHALT steht. Sonst misst der
   // Prüfpunkt unten nur, dass noch nichts gerendert ist — eine Abwesenheit ist erst dann
@@ -704,6 +805,7 @@ async function abschnittWelle8(cdp: Cdp): Promise<void> {
     await w8Manager(cdp);
     await w8LeererCollector(cdp);
     await w11ChatClient(cdp);
+    record("Welle 8 — Abschnitt lief bis zum Ende", true, "kein Abbruch");
   } catch (e) {
     record("Welle 8 — Abschnitt lief bis zum Ende", false, `abgebrochen: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -720,7 +822,7 @@ async function w8Beispielknopf(cdp: Cdp): Promise<void> {
   try {
     await clearNotices(cdp);
     const { ui } = await einstellungenText(cdp);
-    if (!ui) { skipped("Welle 8 — Beispiel-Knopf in den Einstellungen", "Tab nicht greifbar"); return; }
+    if (!ui) { unmeasured("Welle 8 — Knopf „Beispiel-Crews installieren“ ist da", "Tab nicht greifbar (gilt auch für die zwei Folgepunkte)"); return; }
     const geklickt = await ui.evaluate<boolean>(`
       const wurzel = document.querySelector(".modal.mod-settings .vertical-tab-content") || document.querySelector(".vertical-tab-content");
       const knopf = [...(wurzel?.querySelectorAll("button") ?? [])].find((b) => /beispiel-crews installieren|install example crews/i.test(b.textContent ?? ""));
@@ -822,7 +924,12 @@ async function w8Ausblenden(cdp: Cdp): Promise<void> {
 async function w8Manager(cdp: Cdp): Promise<void> {
   const echt = await cdp.evaluate<boolean>(`return Boolean(app.plugins.plugins["llm-endpoint-manager"]);`);
   if (echt) {
-    skipped("Welle 8 — Manager-Baustein (Fake-Manager)", "ein echter llm-endpoint-manager ist geladen — nicht überschrieben");
+    alleUebersprungen([
+      "Welle 8 — Lauf bekommt den Manager-Endpunkt samt Schlüssel und Modell",
+      "Welle 8 — Einstellungen zeigen bei Manager den Manager-Baustein",
+      "Welle 8 — ohne Manager gilt wieder die lokale Liste (Gegenprobe)",
+      "Welle 8 — ohne Manager kein Manager-Baustein in den Einstellungen",
+    ], "ein echter llm-endpoint-manager ist geladen — nicht überschrieben");
     return;
   }
   try {
@@ -970,10 +1077,6 @@ async function w8LeererCollector(cdp: Cdp): Promise<void> {
  *  lokalen Fake-Server und brauchen kein Modell. Vorher UND nachher gefahren: der Umbau darf keinen
  *  der vier verändern (Baseline-Regel). */
 async function w11ChatClient(cdp: Cdp): Promise<void> {
-  const P_STREAM = "Welle 11 — echtes Modell: die Antwort kommt gestreamt und vollständig";
-  const P_FALLBACK = "Welle 11 — Server ohne CORS: der Lauf bekommt seine Antwort über den Fallback ohne Stream";
-  const P_TIMEOUT = "Welle 11 — Server schweigt von Anfang an: harter Gesamt-Timer meldet timeout";
-  const P_STALL = "Welle 11 — Server bricht nach dem ersten Chunk ab: Stall-Detektor meldet stalled";
   const saved = await cdp.evaluate<{ endpoints: unknown; call: number; stall: number }>(
     `return { endpoints: JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints)), call: ${PLUGIN}.settings.callTimeoutS, stall: ${PLUGIN}.settings.stallTimeoutS };`);
   try {
@@ -1213,9 +1316,8 @@ async function w14Body(cdp: Cdp): Promise<void> {
  *  Sitzung neu liest: „Letzte Anfrage" steht da), dann zwei Bearbeitungen hintereinander (Überschreiben, Zurücksetzen):
  *  der Abschnitt darf dazwischen nicht zuklappen. Zwei Sprachen, deshalb Muster und `data-field` statt Literale. */
 async function w14Abschnitt(cdp: Cdp): Promise<void> {
-  const name = "N1 Abschnitt Request";
   const ui = await einstellungenOeffnen(cdp);
-  if (!ui) { unmeasured(name, "kein Einstellungen-Fenster am Port"); return; }
+  if (!ui) { unmeasured(N1_PUNKT, "kein Einstellungen-Fenster am Port (gilt auch für N1-2 bis N1-4)"); return; }
   const kopf = `
     const wurzel = document.querySelector(".modal.mod-settings") ?? document.body;
     const kopf = [...wurzel.querySelectorAll(".okit-collapsible-header")].find((h) => /^(Request|Anfrage)$/.test(h.textContent.trim()));
@@ -1227,7 +1329,7 @@ async function w14Abschnitt(cdp: Cdp): Promise<void> {
       if (koerper.classList.contains("is-collapsed")) kopf.click();
       await new Promise((r) => setTimeout(r, 400));
       return { gefunden: true, offen: !koerper.classList.contains("is-collapsed") };`);
-    if (!offen.gefunden) { record(`${name} ist vorhanden und aufklappbar`, false, "Kopf „Request/Anfrage“ fehlt in den Einstellungen"); return; }
+    if (!offen.gefunden) { record(N1_PUNKT, false, "Kopf „Request/Anfrage“ fehlt in den Einstellungen"); return; }
     const inhalt = await ui.evaluate<{ felder: string[]; letzte: string | null; hinweis: boolean }>(`
       ${kopf}
       return {
@@ -1236,7 +1338,7 @@ async function w14Abschnitt(cdp: Cdp): Promise<void> {
         hinweis: /temperature|max_tokens|thinking/.test(koerper.parentElement?.textContent ?? ""),
       };`);
     const fehlt = ["temperature", "top_p", "max_tokens"].filter((f) => !inhalt.felder.includes(f));
-    record(`${name} ist vorhanden, klappt auf und zeigt die Felder`, offen.offen && fehlt.length === 0,
+    record(N1_PUNKT, offen.offen && fehlt.length === 0,
       fehlt.length === 0 ? `${inhalt.felder.length} Felder (${inhalt.felder.join(", ")})` : `fehlt: ${fehlt.join(", ")}`);
     record("N1-2 „Letzte Anfrage“ trägt die Anfrage aus N2 (Tab liest die Sitzung beim Öffnen neu)",
       inhalt.letzte !== null && inhalt.letzte.includes('"temperature"') && inhalt.letzte.includes('"max_tokens"'),
@@ -1286,6 +1388,7 @@ async function abschnittWelle14(cdp: Cdp): Promise<void> {
   try {
     await w14Body(cdp);
     await w14Abschnitt(cdp);
+    record("Welle 14 — Abschnitt lief bis zum Ende", true, "kein Abbruch");
   } catch (e) {
     record("Welle 14 — Abschnitt lief bis zum Ende", false, `abgebrochen: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -1350,7 +1453,7 @@ async function w15Schluesselbund(cdp: Cdp, dataPfad: string): Promise<void> {
       await ${PLUGIN}.saveSettings();
       return true;`);
     const klartextDa = readFileSync(dataPfad, "utf8").includes(W15_KEY);
-    if (!klartextDa) { skipped("Welle 15 — Schlüsselbund: Klartext-Schlüssel wandert aus data.json", "Vorbedingung (Klartext in data.json) nicht herzustellen"); return; }
+    if (!klartextDa) { unmeasured("Welle 15 — Schlüsselbund: nach dem Auflösen steht kein Schlüssel mehr in data.json", "Vorbedingung (Klartext in data.json) nicht herzustellen (gilt auch für die zwei Folgepunkte)"); return; }
     const eps = await cdp.evaluate<Array<{ apiKey?: string }>>(`
       const r = await ${PLUGIN}.effectiveEndpoints();
       await new Promise((ok) => setTimeout(ok, 800));
@@ -1520,6 +1623,7 @@ async function abschnittWelle15(cdp: Cdp, dataPfad: string): Promise<void> {
   try {
     await w15Schluesselbund(cdp, dataPfad);
     await w15Laeufe(cdp);
+    record("Welle 15 — Abschnitt lief bis zum Ende", true, "kein Abbruch");
   } catch (e) {
     record("Welle 15 — Abschnitt lief bis zum Ende", false, `abgebrochen: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -1646,7 +1750,13 @@ async function main(): Promise<void> {
     if (vorwert) {
       await abschnittMigration(cdp, dataPfad);
     } else {
-      skipped("Migration der data.json", "keine data.json vorhanden");
+      alleUebersprungen([
+        "Alte Endpunkt-Liste wird zu genau einem Eintrag",
+        "Das alte globale Modell landet in der Zeile und geht nicht verloren",
+        "Das globale Modellfeld existiert nicht mehr",
+        "Die übrigen Einstellungen überstehen die Migration",
+        "Ein kaputtes data.json-Feld reisst den Plugin-Start nicht mit",
+      ], "keine data.json vorhanden");
     }
 
     // Ab hier gegen den ECHTEN Stand messen, nicht gegen die Migrations-Fixtur.
