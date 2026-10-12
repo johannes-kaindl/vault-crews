@@ -1,5 +1,5 @@
 import { PluginSettingTab, Setting, type Plugin, type SettingDefinitionItem } from "obsidian";
-import { t } from "../vendor/kit/i18n";
+import { getLang, t } from "../vendor/kit/i18n";
 import { ENDPOINT_PRESETS, type EndpointStatus } from "../vendor/kit/endpoint_diagnostics";
 import { parseEndpointList } from "../vendor/kit/endpoint";
 import type { EndpointConfig } from "../vendor/kit/endpoint_config";
@@ -14,7 +14,7 @@ import { buildEndpointSourceSection } from "../vendor/kit-obsidian/endpoint-sour
 import { buildEndpointList, type EndpointListStrings } from "../vendor/kit-obsidian/endpoint-list";
 import { githubHelpUrls, helpSettingDefinition } from "../vendor/kit-obsidian/help-setting";
 import { installTabRefreshOnOpen, renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "../vendor/kit-obsidian/settings_walker";
-import { statusKindKey, warnRuleKey } from "./endpoint-labels";
+import { LLM_CONNECTION_STRINGS_DE, LLM_CONNECTION_STRINGS_EN } from "../vendor/kit-obsidian/llm-connection-strings";
 
 /**
  * User-facing Plugin-Settings (Sekunden/Minuten, nicht ms). Die Umrechnung in
@@ -96,8 +96,11 @@ export interface SettingsHost {
   installExamples(): void;
 }
 
-/** Der Textbaustein-Satz, den der Kit-Editor bekommt — das Kit formuliert nicht. */
+/** Der Textbaustein-Satz, den der Kit-Editor bekommt. Statustexte, Eingabe-Hinweise, die Leer-Option
+ *  „Server wählt“ und die Kontextlänge formuliert das Kit (obsidian-kit 0.56.0, EN/DE); der Rest ist
+ *  plugin-eigener Wortlaut. */
 function endpointStrings(): EndpointListStrings {
+  const kit = (getLang() === "de" ? LLM_CONNECTION_STRINGS_DE : LLM_CONNECTION_STRINGS_EN).endpointList;
   return {
     addPlaceholder: t("settings.connection.endpoints.add"),
     apiKeyPlaceholder: t("settings.connection.apiKey.placeholder"),
@@ -106,10 +109,8 @@ function endpointStrings(): EndpointListStrings {
     ariaAdd: t("settings.connection.aria.add"),
     ariaApiKey: (url) => t("settings.connection.aria.apiKey", url),
     ariaModel: (url) => t("settings.connection.aria.model", url),
-    // Kein globales Modell in diesem Plugin: die Leer-Option heißt hier schlicht
-    // „nichts gewählt". Der Parameter bleibt Teil des Kit-Vertrags (s. Kit-Todo
-    // „globales Modellfeld terminieren") und wird bewusst ignoriert.
-    emptyModelLabel: () => t("settings.connection.model.unset"),
+    emptyModel: kit.emptyModel,
+    contextText: (ctx) => kit.contextText?.(ctx) ?? "",
     modelHint: (key) =>
       key === "unreachable"
         ? t("settings.connection.model.hint.unreachable")
@@ -122,7 +123,7 @@ function endpointStrings(): EndpointListStrings {
     remove: t("settings.connection.remove"),
     thirdParty: t("settings.connection.thirdParty"),
     probing: t("settings.connection.probing"),
-    statusTooltip: (status) => t(statusKindKey(status.kind)),
+    statusTooltip: (status) => kit.statusTooltip(status),
     role: (role) =>
       role.kind === "active"
         ? t("settings.connection.role.active")
@@ -131,7 +132,7 @@ function endpointStrings(): EndpointListStrings {
           : role.kind === "skipped-model"
             ? t("settings.connection.role.modelMismatch")
             : t("settings.connection.role.standby", String(role.position)),
-    warnings: (ws) => ws.map((w) => t(warnRuleKey(w.rule))).join(" · "),
+    warnings: (ws) => kit.warnings(ws),
     presetTooltip: (preset) => t("settings.connection.presetAdd", preset.url),
     presetLabel: (preset) => t("settings.connection.presetAdd", preset.label),
     checkConnection: t("settings.connection.probe"),
@@ -541,14 +542,6 @@ export class SettingsTab extends PluginSettingTab {
         probe: (): Promise<EndpointStatus> => this.host.probeEndpoint(cfg),
         listModels: (): Promise<string[]> => this.host.listModels(cfg),
       }),
-      // Dieses Plugin hat KEIN globales Modell — das Modell gehört zum Endpunkt, der es
-      // meldet. `globalModel` ist im Kit-Vertrag optional (seit obsidian-kit 0.29.0); wir
-      // geben es nur an, damit die Zeilenauswahl eine Leer-Option bekommt: eine Zeile ohne
-      // Modell ist hier gültig (das `model:` des Agenten greift, `resolveTaskModel`), und
-      // ohne die Option ließe sich ein gewähltes Modell nicht zurücknehmen. Der Rückgabewert
-      // wird nirgends angezeigt — die Option heißt „— kein Modell gewählt —"
-      // (`emptyModelLabel`), nicht „globales Modell".
-      globalModel: () => "",
       save: () => this.host.saveSettings(),
       reconnect: async () => {
         this.activeUrl = await this.host.resolveActive();

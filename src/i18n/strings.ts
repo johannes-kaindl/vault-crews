@@ -44,7 +44,6 @@ export const EN: Record<string, string> = {
   "settings.connection.aria.add": "Add endpoint URL",
   "settings.connection.aria.apiKey": "API key for {0}",
   "settings.connection.aria.model": "Model for {0}",
-  "settings.connection.model.unset": "— no model chosen —",
   "settings.connection.model.hint.unreachable": "Endpoint unreachable — showing the last known value.",
   "settings.connection.model.hint.noList": "This endpoint does not report a model list — type the model id.",
   "settings.connection.model.saved": "(saved)",
@@ -73,18 +72,6 @@ export const EN: Record<string, string> = {
   "settings.connection.capabilities.vision.likely": "Images: likely (guessed from the name)",
 
   // --- Settings — Endpoint status & input warnings (kind/rule → localized text) -----
-  "settings.endpoint.status.ok": "Connected",
-  "settings.endpoint.status.refused": "Connection refused — server not running or wrong port.",
-  "settings.endpoint.status.unknown-host": "Unknown host — typo in the address?",
-  "settings.endpoint.status.timeout": "Timed out — network unreachable (wrong network / VPN off?).",
-  "settings.endpoint.status.not-an-llm-api":
-    "Responds, but is not an OpenAI-compatible endpoint — wrong path/service?",
-  "settings.endpoint.status.unauthorized": "Access denied — API key missing or invalid.",
-  "settings.endpoint.status.unknown": "Not reachable.",
-  "settings.endpoint.warn.scheme": "Address needs http:// or https://",
-  "settings.endpoint.warn.malformed": "Address is not a valid URL",
-  "settings.endpoint.warn.port": "Local LLM servers almost always need a port (e.g. :1234)",
-  "settings.endpoint.warn.placeholder-ip": "Looks like an example/placeholder address",
 
   // --- Settings — Crews ---------------------------------------------------
   "settings.crews.heading": "Crews",
@@ -323,7 +310,6 @@ export const DE: Record<string, string> = {
   "settings.connection.aria.add": "Endpunkt-URL hinzufügen",
   "settings.connection.aria.apiKey": "API-Schlüssel für {0}",
   "settings.connection.aria.model": "Modell für {0}",
-  "settings.connection.model.unset": "— kein Modell gewählt —",
   "settings.connection.model.hint.unreachable": "Endpunkt nicht erreichbar — zuletzt bekannter Wert.",
   "settings.connection.model.hint.noList": "Dieser Endpunkt meldet keine Modell-Liste — Modell-Id eintragen.",
   "settings.connection.model.saved": "(gespeichert)",
@@ -352,18 +338,6 @@ export const DE: Record<string, string> = {
   "settings.connection.capabilities.vision.likely": "Bilder: wahrscheinlich (aus dem Namen geraten)",
 
   // --- Settings — Endpunkt-Status & Eingabe-Warnungen (kind/rule → lokalisiert) -----
-  "settings.endpoint.status.ok": "Verbunden",
-  "settings.endpoint.status.refused": "Verbindung abgelehnt — Server läuft nicht oder Port falsch.",
-  "settings.endpoint.status.unknown-host": "Hostname unbekannt — Tippfehler in der Adresse?",
-  "settings.endpoint.status.timeout": "Zeitüberschreitung — Netz nicht erreichbar (falsches Netz / VPN aus?).",
-  "settings.endpoint.status.not-an-llm-api":
-    "Antwortet, ist aber kein OpenAI-kompatibler Endpunkt — falscher Pfad/Dienst?",
-  "settings.endpoint.status.unauthorized": "Zugriff verweigert — Schlüssel fehlt oder ist ungültig.",
-  "settings.endpoint.status.unknown": "Nicht erreichbar.",
-  "settings.endpoint.warn.scheme": "Adresse braucht http:// oder https://",
-  "settings.endpoint.warn.malformed": "Adresse ist keine gültige URL",
-  "settings.endpoint.warn.port": "Lokale LLM-Server brauchen fast immer einen Port (z. B. :1234)",
-  "settings.endpoint.warn.placeholder-ip": "Sieht aus wie eine Beispiel-/Platzhalter-Adresse",
 
   // --- Settings — Crews ---------------------------------------------------
   "settings.crews.heading": "Crews",

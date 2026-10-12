@@ -1,10 +1,10 @@
 {
   "sources": {
     "obsidian-kit": {
-      "ref": "0.53.0"
+      "ref": "0.56.0"
     },
     "code-kit": {
-      "ref": "0.21.1"
+      "ref": "0.23.0"
     }
   },
   "targets": [
@@ -102,6 +102,8 @@
         "request-session",
         "backend-probe",
         "endpoint-secrets",
+        "endpoint-status-text",
+        "llm-connection-strings",
         "secrets",
         "shortcuts-bridge"
       ],
