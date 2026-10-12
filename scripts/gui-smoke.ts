@@ -26,10 +26,13 @@
  * OBSIDIAN_PLUGIN_DIR="$STAGING_VAULTS_DIR/vault-crews/.obsidian/plugins/vault-crews" npm run deploy
  * python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label vault-crews --intent "GUI-Smoke" --exclusive focus --port <port> --ttl 300
  * /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=<port> &
- * npm run smoke:gui -- --vault vault-crews --port <port> [--keep]
+ * npm run smoke:gui -- --vault vault-crews --port <port> [--keep] [--ohne-modell]
  * python3 ~/.claude/hooks/obsidian-cdp-lock.py release
  * ```
  *
+ * `--ohne-modell` lässt den Punkt „echtes Modell“ (w11, POST an :1234) aus und führt ihn als nichts gemessen (Wellen-Regel:
+ * kein Lauf schickt eine Anfrage an LM Studio/Ollama). `--keep` lässt `data.json.smoke-rettung` liegen — vor dem nächsten Lauf löschen,
+ * sonst meldet „Keine liegen gebliebene Rettungskopie“ rot.
  * Je Messlauf ein frischer Prozess; der erste Lauf nach einer Profilanlage ist ein Aufwaermlauf.
  * Exit 0 gruen/uebersprungen, 1 bei Rot oder „nichts gemessen", 2 bei Abbruch.
  */
