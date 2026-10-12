@@ -132,6 +132,7 @@ Dateien werden von einem zweiten Lauf nie überschrieben — bearbeite sie danac
 3. **Das Crews-Panel öffnen** (Ribbon-Icon oder **Open crews panel**). Es listet die
    gefundenen Teams und zeigt während eines Laufs die aktuelle Aufgabe samt laufender
    Token-Zahlen.
+   - Das Panel hat zwei Tabs, **Crews** und **Verlauf**. Anklicken, oder die Tab-Leiste fokussieren und mit den Pfeiltasten Links/Rechts wechseln (Pos1/Ende springen zum ersten/letzten Tab). Während eines Laufs bleibt die Statuszeile mit dem einen **Cancel**-Knopf unten stehen, egal welcher Tab offen ist.
 4. **Einen Lauf starten** mit **Run crew…** und der Auswahl eines Teams, oder über den
    team-eigenen Befehl **Run crew: &lt;Name&gt;**, den jedes Team unter seinem eigenen
    Namen registriert.

@@ -120,6 +120,7 @@ overwritten by a second run — edit them freely afterwards.
    with the four example teams, their agents, and the `runs.base` dashboard.
 3. **Open the crews panel** (ribbon icon or **Open crews panel**). It lists the teams it
    found and, during a run, the current task with live token counts.
+   - The panel has two tabs, **Crews** and **History**. Click one, or focus the tab bar and use the Left/Right arrow keys (Home/End jump to the first/last tab). During a run, the status line with the one **Cancel** button stays at the bottom, whichever tab is open.
 4. **Start a run** with **Run crew…** and pick a team, or use the per-team command
    **Run crew: &lt;name&gt;** that every team registers under its own name.
 5. **Watch it work.** The panel shows each task's status (waiting, running, ok, failed,

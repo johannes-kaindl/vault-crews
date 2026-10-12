@@ -42,9 +42,12 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { argv, cwd, env, exit } from "node:process";
 
+import { startLlmStub, type LlmStub } from "../../tools/obsidian-cdp/llm-stub.js";
+
 import {
   attachTo,
   Cdp,
+  clearNotices,
   closeExtraLeaves,
   openExisting,
   pollUntil,
@@ -66,7 +69,8 @@ import { buildVault, stagingVaultDir } from "../../tools/obsidian-cdp/vault.js";
 const PLUGIN_ID = "vault-crews";
 const REPO_NAME = "vault-crews";
 const VIEW_TYPE = "vault-crews-panel";
-const OUT_DIR = "docs/images";
+// `SHOTS_OUT` lenkt die Aufnahme in einen Arbeitsordner um (Bilder erst ansehen, dann nach docs/images kopieren).
+const OUT_DIR = env.SHOTS_OUT ?? "docs/images";
 const CAPTURE_WIDTH = 1200;
 const THUMB_WIDTH = 380;
 const PADDING = 10;
@@ -75,6 +79,33 @@ const FENSTER_HOEHE = 900;
 /** Muss im Endpunkt antworten und denken können — sonst bleibt der „Thinking"-Bereich
  *  leer und `hero.png` zeigt nicht das, was der Vertrag zusagt. */
 const MODELL_STANDARD = "qwen/qwen3.6-35b-a3b";
+/** Die Lauf-Bilder laufen gegen den zentralen LLM-Stub (`tools/obsidian-cdp/llm-stub.ts`), nicht gegen ein geladenes
+ *  Modell: derselbe Strom bei jeder Aufnahme, kein JIT-Laden, keine Abhängigkeit von LM Studio. Inhalt: ein Denkblock, der
+ *  zu den vier Fixture-Notizen passt, und ein Digest, den der Orchestrator als gültige `section.write`-Antwort annimmt
+ *  (reiner Text, höchstens 700 Zeichen, drei Sätze). Takt und Länge sind so gewählt, dass das Bild MITTEN im Strom entsteht. */
+const DENKEN = [
+  "The four notes are about one thing: the move off the old scheduler.",
+  "Migration plan says twelve jobs run on the new one since Monday, nothing failed, but the retry config was copied over verbatim.",
+  "Vendor call warns that retry storms show up in the second week, and recommends two schedulers in parallel for a billing cycle.",
+  "Retry behaviour is the concrete risk: five attempts, no jitter, and the new scheduler starts everything at the top of the hour.",
+  "Storage costs are a side question: the old one wrote the export archive twice, and nobody knows if the new one does.",
+  "Recurring topic first, then what changed, then what is open. Three sentences, plain prose.",
+].join("\n");
+const DIGEST = "The week is about the move off the old scheduler. "
+  + "Twelve jobs have run on the new one since Monday without failures, but the retry settings still come from the old setup and the vendor expects retry storms in the second week. "
+  + "Still open: the retry settings before the second batch moves, the window of the nightly export, and whether the duplicate export archive can be dropped.";
+let STUB: LlmStub | null = null;
+const endpunkt = (): { url: string; model: string }[] => [{ url: STUB ? STUB.urlV1 : "http://localhost:1234", model: MODELL }];
+
+/** Wartet, bis ein laufender Lauf zu Ende ist (Ergebnis gesetzt, Ein-Lauf-Sperre frei). */
+async function laufEnde(cdp: Cdp, timeoutMs = 90_000): Promise<boolean> {
+  const fertig = await pollUntil<boolean>(cdp, `
+    const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+    return p && p.runActive === false && Object.keys(p.lastRuns ?? {}).length > 0 ? true : null;
+  `, timeoutMs, 500);
+  return Boolean(fertig);
+}
+
 const TEAM_NOTIZ = "_crews/teams/reading-digest.md";
 /** Ausgangsstand der Zielnotiz — identisch mit dem Fixture. Steht hier und nicht nur in
  *  der Datei, weil der Shot sie VOR dem Lauf zurueckschreiben muss. */
@@ -200,6 +231,8 @@ async function stromLaeuft(cdp: Cdp, mindestZeichen: number): Promise<boolean> {
 /** Den ersten Lauf der Fixture-Crew starten. Gibt false zurück, wenn kein Endpunkt
  *  antwortet — dann fehlen die Lauf-Bilder, und das ist eine Aussage, kein Fehler. */
 async function laufStarten(cdp: Cdp): Promise<boolean> {
+  // Der Fixture-Vault hat bewusst keinen Ordner `_crews/runs`: der erste Lauf legt ihn selbst an (Gegenprobe zum
+  // Fix 407558c — vorher endete dieser Lauf mit einem io-Fehler, und das Rezept musste den Ordner vorab anlegen).
   const erreichbar = await cdp.evaluate<boolean>(`
     const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
     try {
@@ -228,9 +261,7 @@ const SHOTS: Shot[] = [
     name: "hero.png",
     klasse: "hero",
     async run(cdp) {
-      await setPluginSetting(cdp, PLUGIN_ID, "endpoints", [
-        { url: "http://localhost:1234", model: MODELL },
-      ]);
+      await setPluginSetting(cdp, PLUGIN_ID, "endpoints", endpunkt());
       // Nach dem Setzen den Weg gehen, den auch der Nutzer geht: die Einstellung allein
       // stellt den Zustand nicht her, das Plugin baut seinen Client beim Lauf neu.
       // Reste frueherer, abgebrochener Laeufe abraeumen: sonst begruesst das Bild den
@@ -270,7 +301,7 @@ const SHOTS: Shot[] = [
         return null;
       }
       await cdp.evaluate(`
-        const d = document.querySelector("details.vault-crews-think");
+        const d = document.querySelector(".okit-stream-reasoning");
         if (d) d.open = true;
         return true;
       `);
@@ -406,7 +437,35 @@ const SHOTS: Shot[] = [
     name: "history-undo.png",
     klasse: "feature",
     async run(cdp) {
+      await setPluginSetting(cdp, PLUGIN_ID, "endpoints", endpunkt());
+      // Immer ein eigener, frischer Lauf: ein Lauf aus dem Hero-Bild wurde beim Beenden des Stubs mitten im Strom
+      // abgebrochen und stünde als „Failed" im Verlauf. Ohne geschriebene Datei gäbe es keinen Rückgängig-Knopf.
+      await cdp.evaluate(`
+        const f = app.vault.getAbstractFileByPath("Notes/Weekly overview.md");
+        if (f) await app.vault.modify(f, ${JSON.stringify(ZIELNOTIZ)});
+        const runs = app.vault.getAbstractFileByPath("_crews/runs");
+        if (runs && runs.children) for (const kind of [...runs.children]) await app.fileManager.trashFile(kind);
+        return true;
+      `);
+      if (!(await panelOeffnen(cdp, true))) return null;
+      if (!(await laufStarten(cdp))) return null;
+      if (!(await laufEnde(cdp))) {
+        console.log("      · der Lauf endete nicht in 90 s");
+        return null;
+      }
+      const status = await cdp.evaluate<string>(`
+        const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
+        return Object.values(p.lastRuns ?? {}).map((r) => r.status).join(",");
+      `);
+      if (status !== "ok") {
+        console.log(`      · der Lauf endete mit „${status}" statt ok — Verlauf-Bild entfällt`);
+        return null;
+      }
+      // Die Toasts des Laufs („run completed", Hinweise zum Modell) gehören nicht ins Bild: sie liegen über dem Panel.
+      await clearNotices(cdp);
+      await new Promise((r) => setTimeout(r, 600));
       if (!(await panelOeffnen(cdp))) return null;
+      await clearNotices(cdp);
       const gewechselt = await cdp.evaluate<boolean>(`
         const tabs = [...document.querySelectorAll(".vault-crews-panel .okit-hub-tab")]
           .filter((e) => e.getBoundingClientRect().width > 1);
@@ -496,6 +555,16 @@ async function main(): Promise<void> {
 
   await setWindowSize(cdp, FENSTER_BREITE, FENSTER_HOEHE);
 
+  // Der Stub läuft nur für die Lauf-Bilder; Einstellungs- und Datei-Bilder brauchen ihn nicht.
+  const braucht = (n: string): boolean => n === "hero.png" || n === "history-undo.png" || n === "run-log.png";
+  if ((ONLY ? [ONLY] : SHOTS.map((x) => x.name)).some(braucht)) {
+    STUB = await startLlmStub({
+      models: [MODELL], takt: 90, laenge: 6, nachlaufMs: 400,
+      standard: { reasoning: DENKEN, text: DIGEST },
+    });
+    console.log(`  LLM-Stub: ${STUB.urlV1} (Modell ${MODELL})`);
+  }
+
   const geplant = ONLY ? SHOTS.filter((s) => s.name === ONLY) : SHOTS;
   if (geplant.length === 0) {
     console.error(`Kein Bild namens „${ONLY}" im Vertrag.`);
@@ -530,6 +599,7 @@ async function main(): Promise<void> {
     console.log("Fehlt ein Bild dauerhaft, gehoert es MIT BEGRUENDUNG in den Vertrag —");
     console.log("nicht stillschweigend gestrichen.");
   }
+  await STUB?.stop();
   cdp.close();
 }
 

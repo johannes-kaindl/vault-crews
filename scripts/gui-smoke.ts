@@ -34,10 +34,10 @@
  * Exit 0 gruen/uebersprungen, 1 bei Rot oder „nichts gemessen", 2 bei Abbruch.
  */
 
-import { createServer, type Server } from "node:http";
 import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { attachTo, bereiteInstanzVor, Cdp, clearNotices, notices, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
+import { attachTo, bereiteInstanzVor, Cdp, entferneFakeManager, installFakeManager, clearNotices, notices, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
 import { createBilanz, parseArgs, runDriver, Vorbedingung } from "../../tools/obsidian-cdp/bilanz.js";
+import { startLlmStub, type LlmStub } from "../../tools/obsidian-cdp/llm-stub.js";
 import { capture } from "../../tools/obsidian-cdp/shot.js";
 
 const PLUGIN_ID = "vault-crews";
@@ -60,6 +60,9 @@ const P_STREAM = "Welle 11 — echtes Modell: die Antwort kommt gestreamt und vo
 const P_FALLBACK = "Welle 11 — Server ohne CORS: der Lauf bekommt seine Antwort über den Fallback ohne Stream";
 const P_TIMEOUT = "Welle 11 — Server schweigt von Anfang an: harter Gesamt-Timer meldet timeout";
 const P_STALL = "Welle 11 — Server bricht nach dem ersten Chunk ab: Stall-Detektor meldet stalled";
+const P_FOLGE = "Welle 20 — Folge-Regel: Hochscrollen mitten im Strom wird respektiert";
+const P_KONTROLLE = "Welle 20 — Folge-Regel (Kontrolle): ohne Störung folgt der Strom dem Ende";
+const P_DENKBLOCK = "Welle 20 — Denkblock live: der Denktext wächst während des Stroms, die Zusammenfassung zählt mit";
 const N1_PUNKT = "N1 Abschnitt Request ist vorhanden, klappt auf und zeigt die Felder";
 const PUNKTE = [
   "Alte Endpunkt-Liste wird zu genau einem Eintrag",
@@ -88,6 +91,10 @@ const PUNKTE = [
   "Panel — Hub-Leiste: zwei Tabs mit gerendertem Icon, ARIA-Rollen, erster Tab aktiv",
   "Panel — Wechsel auf den Verlauf zeichnet ihn, der inaktive Tab ist leer, zurück zeichnet die Crews neu",
   "Panel — Abbrechen-Knopf liegt während eines Laufs im Leaf-Rechteck",
+  P_FOLGE,
+  P_KONTROLLE,
+  P_DENKBLOCK,
+  "Welle 20 — Abschnitt lief bis zum Ende",
   "Panel — kein Streuner-Hinweis ohne Anlass",
   "Panel — verirrte Crew-Datei wird benannt, ohne das Panel neu zu öffnen",
   "Panel — ungültige Crew trägt ein Warndreieck mit Fehlertext",
@@ -721,9 +728,7 @@ async function panelMessungen(cdp: Cdp): Promise<void> {
   record("Panel — Wechsel auf den Verlauf zeichnet ihn, der inaktive Tab ist leer, zurück zeichnet die Crews neu",
     wechsel.verlauf && wechsel.crewsLeer && wechsel.zurueck,
     `Verlauf gezeichnet ${wechsel.verlauf} · Crews-Panel leer ${wechsel.crewsLeer} · Crews wieder da ${wechsel.zurueck}`);
-  // Der Abbrechen-Knopf existiert nur während eines Laufs; ohne Modell-Server gibt es hier keinen.
-  unmeasured("Panel — Abbrechen-Knopf liegt während eines Laufs im Leaf-Rechteck",
-    "kein Lauf ohne Modell-Server (wird in B1 gegen den zentralen Stub gemessen)");
+  // Der Abbrechen-Knopf existiert nur während eines Laufs: er wird in `w20Strom` gemessen (Lauf gegen den zentralen Stub).
 
   // Ausgangslage: ohne Anlass kein Hinweis. Ohne diese Messung wäre ein Hinweis, der
   // IMMER steht, von einem korrekt erschienenen nicht zu unterscheiden.
@@ -922,27 +927,22 @@ async function w8Ausblenden(cdp: Cdp): Promise<void> {
 /** Punkt 5: mit einem (Fake-)Manager zeigen die Einstellungen den Manager-Baustein, und der Lauf
  *  bekommt dessen Endpunkt samt Modell; ohne ihn kehrt die lokale Liste zurueck. */
 async function w8Manager(cdp: Cdp): Promise<void> {
-  const echt = await cdp.evaluate<boolean>(`return Boolean(app.plugins.plugins["llm-endpoint-manager"]);`);
-  if (echt) {
+  // Der zentrale Fake-Manager (tools/obsidian-cdp/fake-manager.ts): sichert den vorgefundenen Slot und stellt ihn am
+  // Ende wieder her; `bestehend: "abbrechen"` lässt einen echten Manager unberührt (vorher eine eigene Prüfung).
+  const r = await installFakeManager(cdp, {
+    endpunkte: [{ id: "fake", label: "Fake-Gateway", url: "http://127.0.0.1:59999/v1", models: ["fake-modell"], apiKey: "sk-smoke" }],
+    bestehend: "abbrechen",
+  });
+  if (!r.installiert) {
     alleUebersprungen([
       "Welle 8 — Lauf bekommt den Manager-Endpunkt samt Schlüssel und Modell",
       "Welle 8 — Einstellungen zeigen bei Manager den Manager-Baustein",
       "Welle 8 — ohne Manager gilt wieder die lokale Liste (Gegenprobe)",
       "Welle 8 — ohne Manager kein Manager-Baustein in den Einstellungen",
-    ], "ein echter llm-endpoint-manager ist geladen — nicht überschrieben");
+    ], r.grund ?? "ein echter llm-endpoint-manager ist geladen — nicht überschrieben");
     return;
   }
   try {
-    await cdp.evaluate(`
-      const ep = { id: "fake", label: "Fake-Gateway", config: { url: "http://127.0.0.1:59999/v1", apiKey: "sk-smoke" }, defaultModel: "fake-modell" };
-      app.plugins.plugins["llm-endpoint-manager"] = { api: {
-        version: 1,
-        list: () => [{ id: "fake", label: "Fake-Gateway", url: ep.config.url, provider: "openai", capabilities: ["chat"], enabled: true, hasSecret: true, defaultModel: "fake-modell" }],
-        get: () => null, resolve: async () => ep, materialize: async () => ep, models: async () => ["fake-modell"],
-        importEndpoints: async () => ({ added: [], merged: [], skipped: [] }), on: () => () => {},
-      } };
-      return true;
-    `);
     const aufgeloest = await cdp.evaluate<string>(`return JSON.stringify(await ${PLUGIN}.effectiveEndpoints());`);
     const erwartet = JSON.stringify([{ url: "http://127.0.0.1:59999/v1", apiKey: "sk-smoke", model: "fake-modell" }]);
     record("Welle 8 — Lauf bekommt den Manager-Endpunkt samt Schlüssel und Modell", aufgeloest === erwartet, aufgeloest.replace(/sk-smoke/, "sk-…"));
@@ -952,14 +952,16 @@ async function w8Manager(cdp: Cdp): Promise<void> {
     record("Welle 8 — Einstellungen zeigen bei Manager den Manager-Baustein", zeigtBaustein, zeigtBaustein ? "Hinweis „Endpunkte kommen vom …“ sichtbar" : "Hinweis fehlt");
     await cdp.evaluate(`app.setting.close(); return true;`);
 
-    await cdp.evaluate(`delete app.plugins.plugins["llm-endpoint-manager"]; return true;`);
+    await entferneFakeManager(cdp);
     const lokal = await cdp.evaluate<string>(`return JSON.stringify(await ${PLUGIN}.effectiveEndpoints()) === JSON.stringify(${PLUGIN}.settings.endpoints) ? "gleich" : "abweichend";`);
     record("Welle 8 — ohne Manager gilt wieder die lokale Liste (Gegenprobe)", lokal === "gleich", lokal);
     const ohne = await einstellungenText(cdp);
     const baustein = /kommen vom LLM Endpoint Manager|come from the LLM Endpoint Manager/i.test(ohne.text);
     record("Welle 8 — ohne Manager kein Manager-Baustein in den Einstellungen", !baustein, baustein ? "Hinweis steht noch" : "Hinweis weg, lokale Liste da");
   } finally {
-    await cdp.evaluate(`delete app.plugins.plugins["llm-endpoint-manager"]; app.setting.close(); return true;`).catch(() => undefined);
+    // Abbau auch auf dem Abbruchpfad: der gesicherte Slot kommt zurück, ein eigener Fake wird nie stehen gelassen.
+    await entferneFakeManager(cdp).catch(() => undefined);
+    await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
   }
 }
 
@@ -969,21 +971,11 @@ async function w8LeererCollector(cdp: Cdp): Promise<void> {
   const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
   const id = "zz-smoke-leer";
   const ordner = "zz-smoke-leerer-ordner";
-  let chatCalls = 0;
-  const posts: string[] = [];
-  const server: Server = createServer((req, res) => {
-    if (req.method === "POST") {
-      posts.push(req.url ?? "");
-      if (/chat\/completions/.test(req.url ?? "")) chatCalls++;
-    }
-    res.setHeader("access-control-allow-origin", "*");
-    if (req.url?.startsWith("/v1/models")) {
-      res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify({ object: "list", data: [{ id: "fake-modell", object: "model" }] }));
-    } else { res.statusCode = 404; res.end("{}"); }
-  });
-  await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
-  const port = (server.address() as { port: number }).port;
+  // Zentraler Stub (strenge Pfade, LM-Studio-404): `GET /v1/models` kennt ein Modell, jeder Chat-Aufruf steht im Zähler.
+  const stub = await startLlmStub({ models: ["fake-modell"] });
+  const port = stub.port;
+  const chatCalls = (): number => stub.zaehler().chat;
+  const posts = (): string[] => stub.anfragen().filter((x) => x.methode === "POST").map((x) => x.url);
   const team = ["---", "crew-kind: team", "name: ZZ Smoke leer", "version: 1", "description: Smoke", "trigger: manual",
     "limits:", "  max_writes: 1", "write_scope:", `  - "${ordner}/**/*.md"`, "tasks:",
     "  - id: collect", "    kind: collector", "    collector: vault.list", "    params:", `      folder: ${ordner}`,
@@ -1019,7 +1011,7 @@ async function w8LeererCollector(cdp: Cdp): Promise<void> {
     runDir = `${root}/runs/${info.runId}`;
     record("Welle 8 — der leere Collector ist als Ursache im Ergebnis", info.emptyCollector === ordner && info.writes === 0,
       `emptyCollector=${info.emptyCollector}, writes=${info.writes}, status=${info.status}`);
-    record("Welle 8 — kein Modellaufruf auf leerem Kontext", chatCalls === 0, `Chat-Aufrufe am Fake-Server: ${chatCalls} (POSTs insgesamt: ${posts.join(", ") || "keine"})`);
+    record("Welle 8 — kein Modellaufruf auf leerem Kontext", chatCalls() === 0, `Chat-Aufrufe am Fake-Server: ${chatCalls()} (POSTs insgesamt: ${posts().join(", ") || "keine"})`);
 
     const hinweis = await notices(cdp);
     const nennt = new RegExp(`${ordner}`).test(hinweis) && /0 passende Notizen|0 matching notes/.test(hinweis);
@@ -1056,7 +1048,7 @@ async function w8LeererCollector(cdp: Cdp): Promise<void> {
     record("Welle 8 — Crew-Zeile im Panel nennt die leere Quelle", zeileNennt, zeileNennt ? "Statuszeile enthält die Quelle" : zeile.slice(0, 160).replace(/\n/g, " "));
     if (dir && zeileNennt) writeFileSync(`${dir}/lauf-zeile.png`, await capture(cdp));
   } finally {
-    server.close();
+    await stub.stop();
     await cdp.evaluate(`
       for (const p of [${JSON.stringify(teamPfad)}, ${JSON.stringify(agentPfad)}, ${JSON.stringify(runDir)}]) {
         if (!p) continue;
@@ -1112,34 +1104,12 @@ async function w11ChatClient(cdp: Cdp): Promise<void> {
         `Modell ${String(got.model)} · ${String(got.calls)} Token-Aufrufe · finish=${String(got.finish)} · „${(got.content ?? "").slice(0, 50)}"`);
     }
 
-    // (2)–(4) Fake-Server ohne bzw. mit CORS
-    const seen: { url: string; stream?: unknown }[] = [];
-    let modus: "fallback" | "schweigen" | "stall" = "fallback";
-    const server: Server = createServer((req, res) => {
-      let raw = "";
-      req.on("data", (c) => { raw += String(c); });
-      req.on("end", () => {
-        if (modus === "fallback") {
-          // bewusst KEINE CORS-Kopfzeilen: der XHR des Renderers (Origin app://obsidian.md) scheitert, requestUrl nicht
-          if (req.method === "POST" && /chat\/completions/.test(req.url ?? "")) {
-            let stream: unknown; try { stream = (JSON.parse(raw) as { stream?: unknown }).stream; } catch { /* egal */ }
-            seen.push({ url: req.url ?? "", stream });
-            res.setHeader("content-type", "application/json");
-            res.end(JSON.stringify({ model: "fake-modell", choices: [{ message: { content: "Fallback-Antwort" }, finish_reason: "stop" }] }));
-          } else { res.statusCode = 404; res.end("{}"); }
-          return;
-        }
-        res.setHeader("access-control-allow-origin", "*");
-        res.setHeader("access-control-allow-headers", "*");
-        if (req.method === "OPTIONS") { res.statusCode = 204; res.end(); return; }
-        res.writeHead(200, { "content-type": "text/event-stream" });
-        if (modus === "stall") res.write('data: {"choices":[{"delta":{"content":"Anfang"}}]}\n\n');
-        // sonst: Kopf raus, danach Stille — der Server hält die Verbindung offen, bis der Client geht
-        res.flushHeaders();
-      });
-    });
-    await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
-    const port = (server.address() as { port: number }).port;
+    // (2)–(4) zentraler Stub. „Fallback“ ist ein Server OHNE CORS (`cors: false`: der Preflight bekommt 404, der XHR des
+    // Renderers scheitert, `requestUrl` nicht); „schweigen“ und „stall“ sind Server mit CORS, die Antwort kommt aus dem Rückruf.
+    const stub = await startLlmStub({ models: ["fake-modell"], cors: false, standard: "Fallback-Antwort" });
+    const port = stub.port;
+    const seen = (): { url: string; stream?: unknown }[] => stub.anfragen().filter((x) => x.route === "chat")
+      .map((x) => ({ url: x.url, stream: (x.json as { stream?: unknown } | null)?.stream }));
     const versuch = (): Promise<{ ok: boolean; kind?: string; content?: string; finish?: string; ms: number; firstMs?: number; err?: string }> => cdp.evaluate(`
       ${PLUGIN}.settings.endpoints = [{ url: "http://127.0.0.1:${port}/v1", model: "fake-modell" }];
       ${PLUGIN}.settings.callTimeoutS = 3; ${PLUGIN}.settings.stallTimeoutS = 2;
@@ -1152,19 +1122,18 @@ async function w11ChatClient(cdp: Cdp): Promise<void> {
       } catch (e) { return { ok: false, kind: e?.kind, err: String(e?.message ?? e).slice(0, 120), ms: Date.now() - t0, firstMs }; }
     `);
     try {
-      modus = "fallback";
+      stub.konfiguriere({ cors: false }); stub.setzeAntwort(undefined);
       const f = await versuch();
-      record(P_FALLBACK, f.ok && f.content === "Fallback-Antwort" && seen.length >= 1 && seen[0]!.stream === false,
-        f.ok ? `Antwort „${String(f.content)}" · Fake-Server sah stream=${String(seen[0]?.stream)}` : `Fehler: ${String(f.err)}`);
-      modus = "schweigen";
+      record(P_FALLBACK, f.ok && f.content === "Fallback-Antwort" && seen().length >= 1 && seen()[0]!.stream === false,
+        f.ok ? `Antwort „${String(f.content)}" · Fake-Server sah stream=${String(seen()[0]?.stream)}` : `Fehler: ${String(f.err)}`);
+      stub.konfiguriere({ cors: true }); stub.setzeAntwort(() => ({ stille: true }));
       const t = await versuch();
       record(P_TIMEOUT, !t.ok && t.kind === "timeout" && t.ms >= 2500 && t.ms < 8000, `kind=${String(t.kind)} nach ${t.ms} ms (Soll 3000)`);
-      modus = "stall";
+      stub.setzeAntwort(() => ({ stuecke: ["Anfang"], haengtNach: 1 }));
       const st = await versuch();
       record(P_STALL, !st.ok && st.kind === "stalled" && st.ms >= 1500 && st.ms < 8000, `kind=${String(st.kind)} nach ${st.ms} ms, erster Chunk nach ${String(st.firstMs)} ms (Soll: Stall 2000 ms nach dem Chunk)`);
     } finally {
-      server.closeAllConnections?.();
-      server.close();
+      await stub.stop();
     }
   } finally {
     await cdp.evaluate(`
@@ -1184,33 +1153,13 @@ async function w14Body(cdp: Cdp): Promise<void> {
   const modell = "qwen/qwen3.8-27b";
   const id = "zz-w14";
   const ordner = "zz-w14-ordner";
-  const bodies: Array<Record<string, unknown>> = [];
-  // CORS wie ein echter LM Studio: der Stream-Weg (XHR) läuft im Renderer und braucht Preflight und Kopfzeilen —
-  // ohne sie weicht der Client auf den Fallback ohne Stream aus (`stream:false`), und der Punkt misst den Ausweichweg.
-  const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "GET, POST, OPTIONS" };
-  const server: Server = createServer((req, res) => {
-    if (req.method === "OPTIONS") { res.writeHead(204, cors); res.end(); return; }
-    if (req.method === "GET" && req.url?.startsWith("/v1/models")) {
-      res.writeHead(200, { "content-type": "application/json", ...cors });
-      res.end(JSON.stringify({ object: "list", data: [{ id: modell, object: "model" }] }));
-      return;
-    }
-    if (req.method === "POST" && /chat\/completions/.test(req.url ?? "")) {
-      let raw = "";
-      req.on("data", (c) => { raw += String(c); });
-      req.on("end", () => {
-        try { bodies.push(JSON.parse(raw) as Record<string, unknown>); } catch { bodies.push({ _unparseable: raw }); }
-        res.writeHead(200, { "content-type": "text/event-stream", ...cors });
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: '{"items":[]}' } }] })}\n\n`);
-        res.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
-        res.end("data: [DONE]\n\n");
-      });
-      return;
-    }
-    res.writeHead(404, cors); res.end("{}");
-  });
-  await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
-  const port = (server.address() as { port: number }).port;
+  // Zentraler Stub mit CORS (Default an): der Stream-Weg (XHR) läuft im Renderer und braucht Preflight und Kopfzeilen —
+  // ohne sie weicht der Client auf den Fallback ohne Stream (`stream:false`) aus, und der Punkt misst den Ausweichweg.
+  const stub = await startLlmStub({ models: [modell], standard: '{"items":[]}' });
+  const port = stub.port;
+  /** Die Bodies aller Chat-Anfragen am Draht, in der Reihenfolge ihres Eintreffens. */
+  const bodies = (): Array<Record<string, unknown>> => stub.anfragen().filter((x) => x.route === "chat")
+    .map((x) => (x.json as Record<string, unknown> | null) ?? { _unparseable: x.body });
   const team = ["---", "crew-kind: team", "name: ZZ W14", "version: 1", "description: Smoke", "trigger: manual",
     "limits:", "  max_writes: 1", "write_scope:", `  - "${ordner}/**/*.md"`, "tasks:",
     "  - id: collect", "    kind: collector", "    collector: vault.list", "    params:", `      folder: ${ordner}`,
@@ -1225,7 +1174,7 @@ async function w14Body(cdp: Cdp): Promise<void> {
   let runDir = "";
   /** Ein Lauf mit gegebener Persona und (optional) Überschreibung des Plugins; liefert den ERSTEN Body dieses Laufs. */
   const fahre = async (agentZeilen: string[], ueberschreibung: number | null): Promise<Record<string, unknown> | undefined> => {
-    const vorher = bodies.length;
+    const vorher = bodies().length;
     await cdp.evaluate(`await app.vault.adapter.write(${JSON.stringify(agentPfad)}, ${JSON.stringify(agentMd(agentZeilen))}); return true;`);
     // Der Orchestrator liest die Persona aus dem metadataCache, und der zieht nach einem Schreiben mit Verzug nach:
     // ein Lauf direkt nach dem Schreiben rechnete sonst mit der VORIGEN Persona (gemessen: N2-3/N2-4 lasen jeweils die
@@ -1255,8 +1204,8 @@ async function w14Body(cdp: Cdp): Promise<void> {
       const info = await cdp.evaluate<{ runId: string }>(`return ${PLUGIN}.lastRuns[${JSON.stringify(id)}];`);
       runDir = `${root}/runs/${info.runId}`;
     }
-    console.log(`    (Lauf: ${fertig ? "fertig" : "KEIN Ergebnis"}, ${bodies.length - vorher} Body/Bodies am Fake-Server)`);
-    return bodies.length > vorher ? bodies[vorher] : undefined;
+    console.log(`    (Lauf: ${fertig ? "fertig" : "KEIN Ergebnis"}, ${bodies().length - vorher} Body/Bodies am Fake-Server)`);
+    return bodies().length > vorher ? bodies()[vorher] : undefined;
   };
   const saved = await cdp.evaluate<{ endpoints: unknown; request: unknown }>(
     `return { endpoints: JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints)), request: JSON.parse(JSON.stringify(${PLUGIN}.settings.request)) };`);
@@ -1297,8 +1246,7 @@ async function w14Body(cdp: Cdp): Promise<void> {
       letzte !== null && b4 !== undefined && ["temperature", "top_p", "reasoning_effort", "max_tokens"].every((k) => letzte[k] === b4[k]),
       letzte ? `Sitzung: temperature ${String(letzte.temperature)}, reasoning_effort ${String(letzte.reasoning_effort)}` : "keine Aufzeichnung");
   } finally {
-    server.closeAllConnections?.();
-    server.close();
+    await stub.stop();
     await cdp.evaluate(`
       ${PLUGIN}.settings.endpoints = ${JSON.stringify(saved.endpoints)};
       ${PLUGIN}.settings.request = ${JSON.stringify(saved.request)};
@@ -1394,47 +1342,220 @@ async function abschnittWelle14(cdp: Cdp): Promise<void> {
   }
 }
 
+// --- Welle 20: der Strom im Panel, gemessen gegen den zentralen Stub ---------------------------------------------
+
+const P_ABBRECHEN = "Panel — Abbrechen-Knopf liegt während eines Laufs im Leaf-Rechteck";
+
+/** Welle 20 — die vier Punkte, die ohne Modell nie messbar waren (Dach-Task „Stream-Stub für GUI-Smokes“):
+ *  (1) der Abbrechen-Knopf der Statuszeile liegt WÄHREND eines Laufs im Rechteck des Leaf (UI-STANDARD §4),
+ *  (2) Denkblock live: der Denktext wächst während des Stroms und die Zusammenfassungszeile zählt mit,
+ *  (3) Folge-Regel: ein Hochscrollen mitten im Strom wird respektiert, (4) Kontrolle: ohne Störung folgt der Strom.
+ *
+ *  Vorlauf-Check zur Folge-Regel: `buildStreamArea` bekommt hier kein `scrollEl`, also scrollt `.okit-stream-body`
+ *  selbst, und seine Höhe ist begrenzt (`max-height: 40vh`, styles.css) — der Bereich kann also überlaufen und folgen.
+ *  Gültigkeitsbedingung (sonst „nichts gemessen“, CORE-TEST-22): der Überlauf beträgt zum Störungszeitpunkt ≥ 80 px
+ *  (Schwelle `followThreshold` 40 px plus 40 px Spielraum), und nach der Störung kommen mindestens zwei weitere Stücke.
+ *  Gemessen wird `scrollTop` nach der Störung gegen `scrollTop` zur Störungszeit, nicht die Schwelle als Position; der
+ *  Stub hält die Verbindung nach dem letzten Stück offen (`nachlaufMs`), Messungen nach dem Schluss-Draw zählen nicht. */
+async function w20Strom(cdp: Cdp): Promise<void> {
+  const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
+  const id = "zz-w20";
+  const ordner = "zz-w20-ordner";
+  // Tokengroße Stücke (≤ 10 Zeichen, Rundschreiben 3): `followTail` prüft „am Ende?“ NACH dem Wachsen — ein Stück, das den
+  // Text um mehr als die Schwelle (40 px) vergrößert, sähe wie ein Hochscrollen aus und beendete das Folgen (Kit-Befund,
+  // Welle 20; mit 90-Zeichen-Stücken war die Kontrolle auf dem Pin 0.57.0 rot: Abstand 79 px — erwartet, Fix in obsidian-kit
+  // 0.59.0). Mit absatzgroßen Stücken gehört die Kontrolle nach der Pin-Hebung (B2) dazu, sonst misst sie die Stückgröße.
+  const TAKT = 40;
+  const zeilen = (praefix: string, n: number): string =>
+    Array.from({ length: n }, (_, i) => `${praefix} ${String(i + 1).padStart(2, "0")} — ein Satz, der Platz im Strom braucht.\n`).join("");
+  const text = zeilen("Zeile", 40);
+  const stub = await startLlmStub({
+    models: ["fake-modell"], takt: TAKT, laenge: 10, nachlaufMs: 4 * TAKT,
+    standard: { reasoning: zeilen("Denkzeile", 12), text },
+  });
+  const team = ["---", "crew-kind: team", "name: ZZ W20", "version: 1", "description: Smoke", "trigger: manual",
+    "limits:", "  max_writes: 1", "write_scope:", `  - "${ordner}/**/*.md"`, "tasks:",
+    "  - id: collect", "    kind: collector", "    collector: vault.list", "    params:", `      folder: ${ordner}`,
+    "  - id: analyse", "    kind: llm", "    agent: zz-w20-agent", "    inputs: [collect]", "    instruction: Tue nichts.",
+    "    output_schema: triage-v1", "    on_error: skip",
+    "  - id: apply", "    kind: actions", "    inputs: [analyse]", "    allowed_actions: [frontmatter.patch]", "    allowed_keys: [priority]",
+    "---", "Smoke", ""].join("\n");
+  const agent = ["---", "crew-kind: agent", "name: ZZ W20", "---", "Du bist ein Test.", ""].join("\n");
+  const teamPfad = `${root}/teams/${id}.md`;
+  const agentPfad = `${root}/agents/zz-w20-agent.md`;
+  const notePfad = `${ordner}/a.md`;
+  const saved = await cdp.evaluate<{ endpoints: unknown }>(`return { endpoints: JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints)) };`);
+  let runDir = "";
+  try {
+    await cdp.evaluate(`
+      for (const d of [${JSON.stringify(root)}, ${JSON.stringify(root + "/teams")}, ${JSON.stringify(root + "/agents")}, ${JSON.stringify(ordner)}]) {
+        if (!app.vault.getAbstractFileByPath(d)) await app.vault.createFolder(d);
+      }
+      await app.vault.create(${JSON.stringify(teamPfad)}, ${JSON.stringify(team)});
+      await app.vault.create(${JSON.stringify(agentPfad)}, ${JSON.stringify(agent)});
+      await app.vault.create(${JSON.stringify(notePfad)}, "---\\npriority: mittel\\n---\\nInhalt\\n");
+      ${PLUGIN}.settings.endpoints = [{ url: "${stub.urlV1}", model: "fake-modell" }];
+      await ${PLUGIN}.refreshTeams?.();
+      await ${PLUGIN}.activatePanel();
+      return true;`);
+    await wartetAuf(cdp, `app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(teamPfad)}))?.frontmatter && app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(agentPfad)}))?.frontmatter`, 8000);
+    // Das Crews-Panel muss der aktive Tab sein (der Fast-Path zeichnet nur dort).
+    await cdp.evaluate(`${PANEL}.querySelector('.okit-hub-tab[data-tab="crews"]')?.click(); await new Promise((r) => setTimeout(r, 300)); return true;`);
+
+    // Der Lauf und die Messschleife laufen im Renderer (eine CDP-Rundreise je Sample wäre selbst ein Takt).
+    await cdp.evaluate(`
+      window.__vcW20 = { fertig: false };
+      (async () => {
+        const w = window.__vcW20;
+        const leaf = ${PANEL};
+        const warte = (ms) => new Promise((r) => setTimeout(r, ms));
+        const erwartet = ${JSON.stringify(text.length)};
+        w.denk = []; w.summary = []; w.nachher = []; w.kontrolle = null; w.stoerung = null; w.cancel = null; w.gestartet = false;
+        let letzterTail = -1;
+        ${PLUGIN}.runCrew(${JSON.stringify(id)});
+        const t0 = Date.now();
+        while (Date.now() - t0 < 26000) {
+          if (${PLUGIN}.runActive === true) w.gestartet = true;
+          if (w.gestartet && ${PLUGIN}.runActive === false) break;
+          const body = leaf.querySelector(".okit-stream-body");
+          const tail = leaf.querySelector(".okit-stream-tail");
+          const pre = leaf.querySelector(".okit-stream-reasoning pre");
+          const sum = leaf.querySelector(".okit-stream-reasoning summary");
+          if (pre && ${PLUGIN}.runActive === true) {
+            const n = pre.textContent.length;
+            if (w.denk[w.denk.length - 1] !== n) { w.denk.push(n); w.summary.push(sum ? sum.textContent : ""); }
+          }
+          if (body && tail) {
+            const laenge = tail.textContent.length;
+            const ueberlauf = body.scrollHeight - body.clientHeight;
+            if (w.stoerung === null && ueberlauf >= 80 && laenge < erwartet) {
+              // Kontrolle: ohne Störung steht der Strom am Ende (Abstand zum Ende in px)
+              w.kontrolle = { abstand: ueberlauf - body.scrollTop, ueberlauf };
+              // Abbrechen-Knopf im Leaf-Rechteck, jetzt, wo der Inhalt groß ist
+              const knopf = leaf.querySelector(".vault-crews-cancel");
+              if (knopf) {
+                const k = knopf.getBoundingClientRect(), l = leaf.getBoundingClientRect();
+                w.cancel = { k: [k.left, k.top, k.right, k.bottom].map(Math.round), l: [l.left, l.top, l.right, l.bottom].map(Math.round),
+                  sichtbar: k.width > 0 && k.height > 0 };
+              } else { w.cancel = { fehlt: true }; }
+              // Störung: der Nutzer scrollt hoch
+              body.scrollTop = 0;
+              w.stoerung = { ueberlauf, scrollTop: body.scrollTop, laenge };
+              letzterTail = laenge;
+            } else if (w.stoerung !== null && laenge < erwartet && laenge !== letzterTail) {
+              w.nachher.push({ laenge, scrollTop: body.scrollTop, ueberlauf });
+              letzterTail = laenge;
+            }
+          }
+          await warte(40);
+        }
+        w.fertig = true;
+      })();
+      return true;`);
+    const w = await pollUntil<{
+      gestartet: boolean;
+      denk: number[]; summary: string[];
+      kontrolle: { abstand: number; ueberlauf: number } | null;
+      stoerung: { ueberlauf: number; scrollTop: number; laenge: number } | null;
+      nachher: { laenge: number; scrollTop: number; ueberlauf: number }[];
+      cancel: { k?: number[]; l?: number[]; sichtbar?: boolean; fehlt?: boolean } | null;
+    }>(cdp, `return window.__vcW20?.fertig ? window.__vcW20 : null;`, 40_000, 500).catch(() => null);
+    const fertig = await wartetAuf(cdp, `${PLUGIN}.lastRuns[${JSON.stringify(id)}] && ${PLUGIN}.runActive === false`, 20000);
+    if (fertig) {
+      const info = await cdp.evaluate<{ runId: string }>(`return ${PLUGIN}.lastRuns[${JSON.stringify(id)}];`);
+      runDir = `${root}/runs/${info.runId}`;
+    }
+    const keinLauf = "kein Lauf zustande gekommen (Messschleife lieferte nichts)";
+
+    // (1) Abbrechen-Knopf im Leaf-Rechteck
+    if (!w || !w.gestartet || w.cancel === null) unmeasured(P_ABBRECHEN, w ? "der Lauf startete nicht oder der Strom blieb zu kurz" : keinLauf);
+    else if (w.cancel.fehlt) record(P_ABBRECHEN, false, "kein .vault-crews-cancel während des Laufs");
+    else {
+      const [kl, kt, kr, kb] = w.cancel.k ?? [0, 0, 0, 0];
+      const [ll, lt, lr, lb] = w.cancel.l ?? [0, 0, 0, 0];
+      const innen = (w.cancel.sichtbar ?? false) && kl >= ll - 1 && kt >= lt - 1 && kr <= lr + 1 && kb <= lb + 1;
+      record(P_ABBRECHEN, innen, `Knopf [${kl},${kt},${kr},${kb}] im Leaf [${ll},${lt},${lr},${lb}] bei Überlauf ${String(w.kontrolle?.ueberlauf)} px`);
+    }
+
+    // (2) Denkblock live: wächst, Zusammenfassung zählt mit. Gültig erst ab drei Samples während des Laufs.
+    if (!w || w.denk.length < 3) unmeasured(P_DENKBLOCK, w ? `nur ${w.denk.length} Sample(s) des Denktexts während des Laufs` : keinLauf);
+    else {
+      const waechst = w.denk.every((n, i) => i === 0 || n > (w.denk[i - 1] ?? 0));
+      const zahl = (z: string | undefined): number => Number((z ?? "").match(/\d+/)?.[0] ?? NaN);
+      // Der Zähler hält mit den Stücken Schritt: schon beim ersten Stück ≥ 1, am Ende nicht hinter den gesehenen Stücken.
+      // (Ein bloßes „wächst“ bestünde auch ohne den Fast-Path: jede volle Neuzeichnung schriebe den Stand nach.)
+      const zaehlt = zahl(w.summary[0]) >= 1 && zahl(w.summary[w.summary.length - 1]) >= w.denk.length - 2;
+      record(P_DENKBLOCK, waechst && zaehlt,
+        `${w.denk.length} Samples, Denktext ${w.denk[0]} → ${w.denk[w.denk.length - 1]} Zeichen · Zusammenfassung „${String(w.summary[0])}“ → „${String(w.summary[w.summary.length - 1])}“`);
+    }
+
+    // (3)/(4) Folge-Regel. Ohne Überlauf ≥ 80 px zur Störungszeit ist nichts gemessen.
+    if (!w || w.kontrolle === null || w.stoerung === null) {
+      unmeasured(P_KONTROLLE, w ? "der Überlauf erreichte 80 px nie, solange noch Stücke kamen" : keinLauf);
+      unmeasured(P_FOLGE, w ? "der Überlauf erreichte 80 px nie, solange noch Stücke kamen" : keinLauf);
+    } else {
+      record(P_KONTROLLE, w.kontrolle.abstand <= 5, `Abstand zum Ende ${Math.round(w.kontrolle.abstand)} px bei Überlauf ${Math.round(w.kontrolle.ueberlauf)} px (Soll ≤ 5)`);
+      if (w.nachher.length < 2) {
+        unmeasured(P_FOLGE, `nach der Störung kamen nur ${w.nachher.length} Stück(e) (mindestens 2 nötig)`);
+      } else {
+        const wanderte = w.nachher.filter((n) => n.scrollTop > w.stoerung!.scrollTop + 2);
+        record(P_FOLGE, wanderte.length === 0,
+          `Störung bei Überlauf ${Math.round(w.stoerung.ueberlauf)} px (scrollTop ${w.stoerung.scrollTop}); danach ${w.nachher.length} Stücke, scrollTop ${w.nachher.map((n) => Math.round(n.scrollTop)).join("/")}`);
+      }
+    }
+  } finally {
+    await stub.stop();
+    await cdp.evaluate(`
+      ${PLUGIN}.settings.endpoints = ${JSON.stringify(saved.endpoints)};
+      for (const p of [${JSON.stringify(teamPfad)}, ${JSON.stringify(agentPfad)}, ${JSON.stringify(notePfad)}, ${JSON.stringify(ordner)}, ${JSON.stringify(runDir)}]) {
+        if (!p) continue;
+        const f = app.vault.getAbstractFileByPath(p);
+        if (f) await app.vault.delete(f, true);
+      }
+      delete ${PLUGIN}.lastRuns[${JSON.stringify(id)}];
+      delete window.__vcW20;
+      return true;`).catch(() => undefined);
+  }
+}
+
+async function abschnittWelle20(cdp: Cdp): Promise<void> {
+  try {
+    await w20Strom(cdp);
+    record("Welle 20 — Abschnitt lief bis zum Ende", true, "kein Abbruch");
+  } catch (e) {
+    record("Welle 20 — Abschnitt lief bis zum Ende", false, `abgebrochen: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 // --- Welle 15: Schlüsselbund, Schwärzung, Wiederherstellung --------------------
 
 const W15_KEY = "sk-w15-geheim-1234567890abcdef";
 const W15_PEM = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7\n-----END PRIVATE KEY-----";
 const W15_BEARER = "abcdef0123456789abcdef0123456789";
-const W15_CORS = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "GET, POST, OPTIONS" };
 
 interface W15Antwort { status: number; content?: string; raw?: string }
-interface W15Server { server: Server; port: number; bodies: string[]; auth: Array<string | undefined> }
+interface W15Server { stub: LlmStub; port: number; readonly bodies: string[]; readonly auth: Array<string | undefined> }
 
-/** Fake-Endpunkt mit CORS (der XHR-Stream-Weg läuft im Renderer): hält jeden gesendeten Chat-Body und den
- *  Authorization-Kopf fest und antwortet, was `antwort` aus dem Body macht. */
+/** Fake-Endpunkt (zentraler Stub, CORS an — der XHR-Stream-Weg läuft im Renderer): hält jeden gesendeten Chat-Body und
+ *  den Authorization-Kopf fest und antwortet, was `antwort` aus dem Body macht. Eine Antwort mit Status ≠ 200 ist ein
+ *  echter 4xx mit dem Rohkörper (`roh`), sonst ein Strom mit einem Stück (`teile: 1`). */
 async function w15Server(antwort: (body: string) => W15Antwort): Promise<W15Server> {
-  const bodies: string[] = [];
-  const auth: Array<string | undefined> = [];
-  const server = createServer((req, res) => {
-    if (req.method === "OPTIONS") { res.writeHead(204, W15_CORS); res.end(); return; }
-    if (req.method === "GET" && req.url?.startsWith("/v1/models")) {
-      res.writeHead(200, { "content-type": "application/json", ...W15_CORS });
-      res.end(JSON.stringify({ object: "list", data: [{ id: "fake-modell", object: "model" }] }));
-      return;
-    }
-    if (req.method === "POST" && /chat\/completions/.test(req.url ?? "")) {
-      let raw = "";
-      req.on("data", (c) => { raw += String(c); });
-      req.on("end", () => {
-        bodies.push(raw);
-        auth.push(typeof req.headers.authorization === "string" ? req.headers.authorization : undefined);
-        const a = antwort(raw);
-        if (a.status !== 200) { res.writeHead(a.status, { "content-type": "application/json", ...W15_CORS }); res.end(a.raw ?? "{}"); return; }
-        res.writeHead(200, { "content-type": "text/event-stream", ...W15_CORS });
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: a.content ?? "" } }] })}\n\n`);
-        res.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
-        res.end("data: [DONE]\n\n");
-      });
-      return;
-    }
-    res.writeHead(404, W15_CORS); res.end("{}");
+  const stub = await startLlmStub({
+    models: ["fake-modell"],
+    antwort: (anfrage) => {
+      const a = antwort(anfrage.body);
+      return a.status !== 200
+        ? { roh: { status: a.status, body: a.raw ?? "{}", contentType: "application/json" } }
+        : { text: a.content ?? "", teile: 1 };
+    },
   });
-  await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
-  return { server, port: (server.address() as { port: number }).port, bodies, auth };
+  const chat = () => stub.anfragen().filter((x) => x.route === "chat");
+  return {
+    stub,
+    port: stub.port,
+    get bodies(): string[] { return chat().map((x) => x.body); },
+    get auth(): Array<string | undefined> { return chat().map((x) => (typeof x.header["authorization"] === "string" ? x.header["authorization"] : undefined)); },
+  };
 }
 
 /** Platzhalter der Schwärzung in der Reihenfolge ihres ersten Auftretens im gesendeten Body. */
@@ -1539,7 +1660,7 @@ async function w15Laeufe(cdp: Cdp): Promise<void> {
       record("Welle 15 — Wiederherstellung (JSON-Schema): die Notiz trägt PEM und Token im Original, kein Platzhalter",
         l.info?.status === "ok" && note.includes("MIIEvQIBADANBgkqhkiG9w0BAQEFAASC") && note.includes(W15_BEARER) && !note.includes("[redacted-"),
         `Status ${String(l.info?.status)} · PEM ${note.includes("MIIEvQIBADANBgkqhkiG9w0BAQEFAASC") ? "da" : "FEHLT"} · Token ${note.includes(W15_BEARER) ? "da" : "FEHLT"} · Platzhalter ${note.includes("[redacted-") ? "STEHT NOCH DA" : "weg"}`);
-    } finally { a.server.closeAllConnections?.(); a.server.close(); }
+    } finally { await a.stub.stop(); }
 
     // (b) Markdown-Schema — mit frischer Quellnotiz: der Lauf (a) hat PEM und Token in a.md geschrieben, und ein zweiter
     // Lauf über dieselbe Notiz sähe dort zwei verschiedene PEM-Platzhalter (der erste wäre der schon JSON-maskierte Wert).
@@ -1565,7 +1686,7 @@ async function w15Laeufe(cdp: Cdp): Promise<void> {
       record("Welle 15 — Wiederherstellung (Markdown-Schema): das PEM kommt im Wortlaut des Prompts zurück, nicht ein zweites Mal maskiert",
         l.info?.status === "ok" && einfach && !doppelt && !ziel.includes("[redacted-"),
         `Status ${String(l.info?.status)} · ${doppelt ? "DOPPELT maskiert (\\\\n)" : einfach ? "Wortlaut des Prompts (\\n)" : "PEM fehlt"} · Platzhalter ${ziel.includes("[redacted-") ? "STEHT NOCH DA" : "weg"}`);
-    } finally { b.server.closeAllConnections?.(); b.server.close(); }
+    } finally { await b.stub.stop(); }
 
     // (c) 401 mit dem Schlüssel im Body
     const c = await w15Server(() => ({ status: 401, raw: JSON.stringify({ error: { message: `Incorrect API key provided: ${W15_KEY}` } }) }));
@@ -1603,7 +1724,7 @@ async function w15Laeufe(cdp: Cdp): Promise<void> {
           c.auth.includes(`Bearer ${W15_KEY}`), `Kopf am Server: ${c.auth[0] === undefined ? "keiner" : c.auth[0].replace(W15_KEY, "<Schlüssel>")}`);
       }
     } finally {
-      c.server.closeAllConnections?.(); c.server.close();
+      await c.stub.stop();
       if (secretId) await cdp.evaluate(`app.secretStorage.setSecret(${JSON.stringify(secretId)}, ""); return true;`).catch(() => undefined);
     }
   } finally {
@@ -1771,6 +1892,7 @@ async function main(): Promise<void> {
     await abschnittWelle8(cdp);
     await abschnittWelle14(cdp);
     await abschnittWelle15(cdp, dataPfad);
+    await abschnittWelle20(cdp);
   } finally {
     // Zurueckschreiben und das Ergebnis MESSEN statt darauf vertrauen.
     if (vorwert) {
