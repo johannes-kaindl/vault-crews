@@ -46,48 +46,35 @@
 
 import { createServer, type Server } from "node:http";
 import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { attachTo, Cdp, clearNotices, notices, pollUntil, requireVisible, vaultName } from "../../tools/obsidian-cdp/cdp.js";
+import { attachTo, bereiteInstanzVor, Cdp, clearNotices, notices, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
+import { createBilanz, parseArgs, runDriver, Vorbedingung } from "../../tools/obsidian-cdp/bilanz.js";
 import { capture } from "../../tools/obsidian-cdp/shot.js";
 
 const PLUGIN_ID = "vault-crews";
 
-const args = process.argv.slice(2);
-const argOf = (name: string, fallback: string): string => {
-  const i = args.indexOf(`--${name}`);
-  const value = i >= 0 ? args[i + 1] : undefined;
-  return value ?? fallback;
-};
-const PORT = Number(argOf("port", "9222"));
-const VAULT = args.includes("--vault") ? argOf("vault", "") : undefined;
-const KEEP = args.includes("--keep");
+const args = parseArgs(process.argv.slice(2));
+const PORT = Number(args.value("port") ?? "9222");
+const VAULT = args.has("vault") ? (args.value("vault") ?? "") : undefined;
+const KEEP = args.has("keep");
 
 // --- Prüfpunkte --------------------------------------------------------------
 
-interface Check {
-  name: string;
-  passed: boolean;
-  detail: string;
-  skipped?: boolean;
-}
-const checks: Check[] = [];
+// Bilanz in vier Zuständen (grün · rot · übersprungen · nichts gemessen), Exit 1 bei Rot ODER
+// nichts gemessen (Modul `tools/obsidian-cdp/bilanz.ts`, CORE-TEST-19). Die Aufrufstellen behalten
+// ihre Form: `record(name, passed, detail)`, `skipped(name, grund)` und neu `unmeasured(name, grund)`.
+const bilanz = createBilanz();
+const record = (name: string, passed: boolean, detail: string): void => bilanz.record(name, passed, detail);
+/** Der Punkt ist nicht anwendbar (z. B. ein echter Manager ist geladen) — mit Grund, aber nichts gemessen. */
+const skipped = (name: string, reason: string): void => bilanz.skipped(name, reason);
+/** Der Gegenstand des Punkts wurde nicht erreicht (Vorbedingung fehlt) — „nichts gemessen", nie grün. */
+const unmeasured = (name: string, reason: string): void => bilanz.unmeasured(name, reason);
 
-function record(name: string, passed: boolean, detail: string): void {
-  checks.push({ name, passed, detail });
-  console.log(`${passed ? "✓" : "✗"} ${name} — ${detail}`);
-}
-
-function skipped(name: string, reason: string): void {
-  checks.push({ name, passed: true, skipped: true, detail: `übersprungen: ${reason}` });
-  console.log(`· ${name} — übersprungen: ${reason}`);
-}
-
-/** Verletzte Umgebungsbedingung — KEIN Befund am Prüfling.
+/** Verletzte Umgebungsbedingung (Klasse `Vorbedingung` des Moduls `bilanz`) — KEIN Befund am Prüfling.
  *
  *  Der Unterschied ist die halbe Regel (CORE-TEST-02 g): „antwortet nicht" ist die fehlende
  *  Umgebung und bricht mit Ansage ab; „antwortet falsch" ist ein Befund und bleibt rot. Wer
  *  beides zusammenwirft, verbucht den gesuchten Defekt als Nichtmessung — dann läuft die
  *  Gegenprobe durch, ohne rot zu werden. */
-class PreconditionError extends Error {}
 
 // --- Helfer ------------------------------------------------------------------
 
@@ -767,7 +754,7 @@ async function w8Ausblenden(cdp: Cdp): Promise<void> {
       return leaf.view.containerEl.ownerDocument !== app.workspace.rootSplit.doc;`);
     try {
       if (!po) {
-        skipped("Welle 18 — Pop-out aktiv: Regel im Hauptfenster, nicht im Pop-out", "Pop-out-Fenster ließ sich nicht öffnen — nichts gemessen");
+        unmeasured("Welle 18 — Pop-out aktiv: Regel im Hauptfenster, nicht im Pop-out", "Pop-out-Fenster ließ sich nicht öffnen");
       } else {
         const popBlätter = `return window.__vcSmokePopout.view.containerEl.ownerDocument.adoptedStyleSheets.length;`;
         const vorherPop = await cdp.evaluate<number>(popBlätter);
@@ -984,7 +971,7 @@ async function w11ChatClient(cdp: Cdp): Promise<void> {
     const got = await pollUntil<{ done: boolean; skip?: string; model?: string; calls?: number; text?: string; content?: string; finish?: string }>(
       cdp, `return window.__vcW11?.done ? window.__vcW11 : null;`, 240_000, 1_000).catch(() => null);
     if (!got || got.skip) {
-      skipped(P_STREAM, `${got?.skip ?? "keine Antwort in 240 s"} — nichts gemessen`);
+      unmeasured(P_STREAM, got?.skip ?? "keine Antwort in 240 s");
     } else {
       record(P_STREAM,
         (got.calls ?? 0) > 1 && (got.content ?? "").length > 0 && got.content === got.text && got.finish !== "aborted",
@@ -1197,7 +1184,7 @@ async function w14Body(cdp: Cdp): Promise<void> {
 async function w14Abschnitt(cdp: Cdp): Promise<void> {
   const name = "N1 Abschnitt Request";
   const ui = await einstellungenOeffnen(cdp);
-  if (!ui) { skipped(name, "kein Einstellungen-Fenster am Port — nichts gemessen"); return; }
+  if (!ui) { unmeasured(name, "kein Einstellungen-Fenster am Port"); return; }
   const kopf = `
     const wurzel = document.querySelector(".modal.mod-settings") ?? document.body;
     const kopf = [...wurzel.querySelectorAll(".okit-collapsible-header")].find((h) => /^(Request|Anfrage)$/.test(h.textContent.trim()));
@@ -1521,20 +1508,14 @@ async function main(): Promise<void> {
   let aktiv = await cdp.evaluate<boolean>(
     `return Boolean(app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]);`,
   );
-  // Ein frisch gebauter Staging-Vault startet im Restricted Mode: Community-Plugins sind aus,
-  // die community-plugins.json des Fixtures hebt das nicht auf, und weder `npm run deploy` noch
-  // ein Reload helfen. Der Treiber schaltet deshalb selbst frei — aber NUR im eigenen
-  // Staging-Vault (heisst wie das Repo); in einem fremden Vault waere das ein Eingriff in den
-  // Wirt, dort bleibt es beim Abbruch mit Ansage. (Vorbild obsidian-letterhead/scripts/gui-smoke.ts.)
-  if (!aktiv && (await vaultName(cdp)) === PLUGIN_ID) {
-    aktiv = await cdp.evaluate<boolean>(`
-      try {
-        if (app.plugins.setEnable) await app.plugins.setEnable(true);
-        await app.plugins.enablePluginAndSave(${JSON.stringify(PLUGIN_ID)});
-        await new Promise((r) => setTimeout(r, 1200));
-      } catch (e) { /* Abbruchmeldung unten nennt den Zustand */ }
-      return Boolean(app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]);
-    `);
+  // Ein frisch gebauter Staging-Vault startet im Restricted Mode (und ein frisches Profil fragt
+  // „Dem Ersteller vertrauen"): `bereiteInstanzVor` der zentralen Brücke bestätigt den Dialog und
+  // schaltet frei — aber NUR im eigenen Staging-Vault (heißt wie das Repo, `nurVault`); in einem
+  // fremden Vault wäre das ein Eingriff in den Wirt, dort bleibt es beim Abbruch mit Ansage.
+  if (!aktiv) {
+    const r = await bereiteInstanzVor(cdp, { pluginIds: [PLUGIN_ID], nurVault: PLUGIN_ID });
+    console.log(`Instanz vorbereitet: ${r.hinweis}`);
+    aktiv = r.plugins[PLUGIN_ID] === "geladen";
   }
   if (!aktiv) {
     console.error(
@@ -1554,7 +1535,7 @@ async function main(): Promise<void> {
     await requireVisible(cdp);
   } catch (e) {
     cdp.close();
-    throw new PreconditionError(e instanceof Error ? e.message : String(e));
+    throw new Vorbedingung(e instanceof Error ? e.message : String(e));
   }
 
   const basis = await cdp.evaluate<string>(`return app.vault.adapter.basePath;`);
@@ -1662,34 +1643,31 @@ async function main(): Promise<void> {
     }
     await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
 
-    // Übersprungenes gehört IN die Abschlusszeile, nicht nur in die Zeile daneben: sonst
-    // wird aus „13/13 grün" beim Zitieren ein bestandener Smoke, obwohl ein Teil nie
-    // gemessen wurde.
-    const rot = checks.filter((c) => !c.passed);
-    const uebersprungen = checks.filter((c) => c.skipped);
-    const gemessen = checks.length - uebersprungen.length;
-    console.log(
-      `\n${gemessen - rot.length}/${gemessen} gemessene Prüfpunkte grün`
-      + (uebersprungen.length > 0 ? ` · ${uebersprungen.length} übersprungen` : ""),
-    );
-    for (const c of rot) console.log(`  ✗ ${c.name} — ${c.detail}`);
-    for (const c of uebersprungen) console.log(`  · ${c.name} — ${c.detail}`);
+    // Die Abschlusszeile trägt alle vier Zustände: ein übersprungener oder nie gemessener Punkt
+    // gehört IN sie, sonst wird aus „13/13 grün" beim Zitieren ein bestandener Smoke, obwohl ein
+    // Teil nie gemessen wurde. `abschluss()` setzt Exit 1 bei Rot ODER nichts gemessen.
+    const ende = bilanz.abschluss();
+    for (const p of bilanz.eintraege()) {
+      if (p.zustand === "rot" || p.zustand === "nichts-gemessen") console.log(`  ${p.name} — ${p.detail}`);
+    }
+    void ende;
     cdp.close();
     // Abmelden, sonst haengt ein SPAETES Signal (nach normalem Abschluss, cdp schon zu) den
     // Prozess in onAbortSignal an einer toten Verbindung auf.
     process.off("SIGINT", onAbortSignal);
     process.off("SIGTERM", onAbortSignal);
-    if (rot.length > 0) process.exitCode = 1;
   }
 }
 
-try {
-  await main();
-} catch (e) {
-  if (e instanceof PreconditionError) {
-    console.error(`\nAbbruch — Umgebungsbedingung nicht erfüllt:\n${e.message}`);
-    process.exitCode = 2;   // eigener Code: nicht gemessen ist nicht dasselbe wie durchgefallen
-  } else {
-    throw e;
+runDriver(async () => {
+  try {
+    await main();
+  } catch (e) {
+    if (e instanceof Vorbedingung) {
+      console.error(`\nAbbruch — Umgebungsbedingung nicht erfüllt:\n${e.message}`);
+      process.exitCode = 2;   // eigener Code: nicht gemessen ist nicht dasselbe wie durchgefallen
+    } else {
+      throw e;
+    }
   }
-}
+});

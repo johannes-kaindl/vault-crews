@@ -160,7 +160,7 @@ Endpoint and timeout changes take effect with the next run; no plugin reload is 
 <img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/run-log.png" width="600" alt="A run log note: frontmatter with status ok, undoable true, one write, one LLM call, duration and model, followed by the per-task sections">
 
 
-<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/settings-endpoints.png" width="600" alt="The Connection settings: one endpoint row with URL, API key field and model dropdown, marked Active">
+<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/settings-endpoints.png" width="600" alt="The Connection settings: one endpoint row with URL, API key field and model dropdown, marked Active, with the context window the server reports below it">
 
 ## How it works
 

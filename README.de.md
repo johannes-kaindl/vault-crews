@@ -170,7 +170,7 @@ Eigene Teams und Agenten zu schreiben ist schlichtes Markdown im Vault — siehe
 <img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/run-log.png" width="600" alt="Ein Lauf-Protokoll: Frontmatter mit status ok, undoable true, einem Write, einem LLM-Call, Dauer und Modell, darunter die Task-Abschnitte">
 
 
-<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/settings-endpoints.png" width="600" alt="Die Verbindungs-Einstellungen: eine Endpunkt-Zeile mit URL, Schlüsselfeld und Modell-Auswahl, als aktiv markiert">
+<img src="https://raw.githubusercontent.com/johannes-kaindl/vault-crews/main/docs/images/settings-endpoints.png" width="600" alt="Die Verbindungs-Einstellungen: eine Endpunkt-Zeile mit URL, Schlüsselfeld und Modell-Auswahl, als aktiv markiert, darunter das Kontextfenster, das der Server meldet">
 
 ## Funktionsweise
 
