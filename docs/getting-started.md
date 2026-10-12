@@ -19,7 +19,7 @@ Follow one of the [install routes in the README](https://github.com/johannes-kai
 
 Open **Settings → Community plugins → Vault Crews**. Under **Connection** the first row of **Endpoints** already holds `http://localhost:1234/v1`. Its status line should read **Connected** and the row is marked **Active**. If your server runs elsewhere, change the address there.
 
-Every endpoint row carries its own model. Open the model dropdown of the active row and choose the model you loaded (**Refresh model list** re-reads it from the server). A row without a model makes every run stop with "Model not found".
+Every endpoint row carries its own model. Open the model dropdown of the active row and choose the model you loaded (**Refresh model list** re-reads it from the server). A row set to **— (server picks)** has no model; every run on it stops with "Model not found" unless the agent note names one with `model:`. Under a row that is reachable and has a model, the settings show the context window the server reports ("Context: loaded N · max M tokens").
 
 If the **LLM Endpoint Manager** plugin is installed, the endpoint and model come from there instead; the settings then show its picker.
 

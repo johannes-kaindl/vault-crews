@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The endpoint list speaks the Kit's wording (obsidian-kit 0.56.0, English and German).** The status tooltips and the address hints come from the shared texts now. Visible: "Timed out — …" reads "Timeout — …", an unreachable row without a known reason reads "Not reachable — <error text>" (before: "Not reachable."), and the hint "Looks like an example/placeholder address" reads "… example or placeholder address".
+- **The model dropdown of an endpoint row has its empty choice back, now called "— (server picks)"** (before: "— no model chosen —"). Choosing it removes the model from the row, so a model chosen once can be taken back. Kit 0.55.0 had dropped the empty choice together with the global model; 0.56.0 restored it with this wording. The migration of an old global `defaultModel` into rows stays.
+- **JSON in a model answer is found by the shared code-kit module `llm-json` (code-kit 0.23.0).** The last ```` ```json ```` fence still wins, typographic quotes and a trailing comma are still repaired, "output truncated" is still reported. Three behaviours change on purpose: (1) **an unclosed `<think>` now drops the rest of the answer** — a JSON behind it is no longer read (decided 2026-10-12: its brackets come from the thinking, not from the answer); a closed `<think>…</think>` in front is removed as before. (2) **Prose with brackets in front of the JSON is skipped** instead of failing the run with "no JSON"/"invalid JSON" (only text that parses counts as a candidate). (3) **A fence on one line (```` ```json {…}``` ````) is no block any more**; its JSON is still found in the whole text. Searching an answer built to defeat the search (`[` repeated 20 000 times and closed again, 40 000 escaped quotes) stays linear: 50 000 broken pairs take about 0.4 s.
+- **Folder hiding comes from the Kit module `folder-hide`** (own copy removed). Same behaviour; the stylesheet is created in the main window's own realm, also with a pop-out window open.
+- Kit pins: obsidian-kit 0.53.0 → 0.56.0, code-kit 0.21.1 → 0.23.0.
+- Skipped Kit releases, user-visible: **long streamed answers render faster and leak less** — the DOM guard of the live ticker only walks the changed parts (obsidian-kit 0.54.0); reasoning blocks are stripped in linear time in the shared response check (code-kit 0.22.0); the index and embedding modules of code-kit 0.22.x are not used by this plugin.
+
 ## [0.16.0] — 2026-10-11
 
 ### Changed

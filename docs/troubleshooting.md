@@ -22,9 +22,10 @@ Each entry starts with what you see — the wording is the plugin's own English 
 |---|---|
 | Connection refused — server not running or wrong port. | The server is off, or the port in the address is wrong. |
 | Unknown host — typo in the address? | The host name does not resolve. |
-| Timed out — network unreachable (wrong network / VPN off?). | The machine is not reachable from here. |
+| Timeout — network unreachable (wrong network / VPN off?). | The machine is not reachable from here. |
 | Responds, but is not an OpenAI-compatible endpoint — wrong path/service? | Something answers, but it is not a chat-completions server. |
 | Access denied — API key missing or invalid. | The server wants an API key. Enter it on that row. |
+| Not reachable — followed by the error text | Anything else; the text after the dash is what the connection reported. |
 
 Local servers almost always need a port, for example `http://localhost:1234/v1`.
 
@@ -32,7 +33,7 @@ Local servers almost always need a port, for example `http://localhost:1234/v1`.
 
 > Notiz-Tagger: run refused — Model not found — check the default model or the team's model field.
 
-**Cause:** the active endpoint has no model chosen, or the chosen model is not loaded on the server. (The plugin has no global "default model" any more — the model belongs to the endpoint row. The notice text still says "default model"; it means that row.) The run log names the model: "Modell nicht geladen: …" or "Für diesen Endpunkt ist kein Modell gewählt".
+**Cause:** the active endpoint has no model chosen (the dropdown of its row reads **— (server picks)**), or the chosen model is not loaded on the server. (The plugin has no global "default model" any more — the model belongs to the endpoint row. The notice text still says "default model"; it means that row.) The run log names the model: "Modell nicht geladen: …" or "Für diesen Endpunkt ist kein Modell gewählt".
 
 **Fix:** in **Settings → Vault Crews → Connection** choose the model in the dropdown of the active row, press **Refresh model list** if it is missing, and load it on the server. An agent note may pin its own `model:` — that only counts when the active endpoint carries that model, otherwise the row's model is used.
 
