@@ -63,6 +63,7 @@ const P_STALL = "Welle 11 — Server bricht nach dem ersten Chunk ab: Stall-Dete
 const P_FOLGE = "Welle 20 — Folge-Regel: Hochscrollen mitten im Strom wird respektiert";
 const P_KONTROLLE = "Welle 20 — Folge-Regel (Kontrolle): ohne Störung folgt der Strom dem Ende";
 const P_DENKBLOCK = "Welle 20 — Denkblock live: der Denktext wächst während des Stroms, die Zusammenfassung zählt mit";
+const P_KONTROLLE_ABSATZ = "Welle 20 — Folge-Regel (Kontrolle, absatzgroße Stücke): der Strom folgt auch bei Stücken über der Schwelle";
 const N1_PUNKT = "N1 Abschnitt Request ist vorhanden, klappt auf und zeigt die Felder";
 const PUNKTE = [
   "Alte Endpunkt-Liste wird zu genau einem Eintrag",
@@ -94,6 +95,7 @@ const PUNKTE = [
   P_FOLGE,
   P_KONTROLLE,
   P_DENKBLOCK,
+  P_KONTROLLE_ABSATZ,
   "Welle 20 — Abschnitt lief bis zum Ende",
   "Panel — kein Streuner-Hinweis ohne Anlass",
   "Panel — verirrte Crew-Datei wird benannt, ohne das Panel neu zu öffnen",
@@ -1518,9 +1520,107 @@ async function w20Strom(cdp: Cdp): Promise<void> {
   }
 }
 
+/** Kontrolle der Folge-Regel mit ABSATZGROSSEN Stücken (Rundschreiben 3/4): jedes Stück ist drei Zeilen hoch, also deutlich
+ *  über der Folge-Schwelle (40 px). Vor obsidian-kit 0.59.0 maß `followTail` „unten?“ erst NACH dem Wachsen und hörte nach
+ *  dem ersten solchen Stück auf zu folgen (Befund kuro-w20) — auf dem Pin 0.57.0 ist dieser Punkt deshalb ROT (erwartet),
+ *  ab 0.59.0 grün: er belegt, dass der Kit-Fix im Plugin ankommt. Gültig erst, wenn der Überlauf ≥ 80 px erreicht ist und
+ *  danach mindestens drei weitere Stücke kamen; gemessen wird der Abstand zum Ende NACH jedem Stück (Soll ≤ 5 px). */
+async function w20Absatz(cdp: Cdp): Promise<void> {
+  const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
+  const id = "zz-w20a";
+  const ordner = "zz-w20a-ordner";
+  const absatz = (n: number): string => `Absatz ${String(n).padStart(2, "0")}: erste Zeile des Absatzes, die Platz braucht.\nzweite Zeile des Absatzes, ebenfalls mit Platz.\ndritte Zeile des Absatzes, damit er größer als die Schwelle wird.\n`;
+  const stuecke = Array.from({ length: 24 }, (_, i) => absatz(i + 1));
+  const stub = await startLlmStub({ models: ["fake-modell"], takt: 200, nachlaufMs: 800, standard: { stuecke } });
+  const team = ["---", "crew-kind: team", "name: ZZ W20a", "version: 1", "description: Smoke", "trigger: manual",
+    "limits:", "  max_writes: 1", "write_scope:", `  - "${ordner}/**/*.md"`, "tasks:",
+    "  - id: collect", "    kind: collector", "    collector: vault.list", "    params:", `      folder: ${ordner}`,
+    "  - id: analyse", "    kind: llm", "    agent: zz-w20a-agent", "    inputs: [collect]", "    instruction: Tue nichts.",
+    "    output_schema: triage-v1", "    on_error: skip",
+    "  - id: apply", "    kind: actions", "    inputs: [analyse]", "    allowed_actions: [frontmatter.patch]", "    allowed_keys: [priority]",
+    "---", "Smoke", ""].join("\n");
+  const agent = ["---", "crew-kind: agent", "name: ZZ W20a", "---", "Du bist ein Test.", ""].join("\n");
+  const teamPfad = `${root}/teams/${id}.md`;
+  const agentPfad = `${root}/agents/zz-w20a-agent.md`;
+  const notePfad = `${ordner}/a.md`;
+  const saved = await cdp.evaluate<{ endpoints: unknown }>(`return { endpoints: JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints)) };`);
+  let runDir = "";
+  try {
+    await cdp.evaluate(`
+      for (const d of [${JSON.stringify(root)}, ${JSON.stringify(root + "/teams")}, ${JSON.stringify(root + "/agents")}, ${JSON.stringify(ordner)}]) {
+        if (!app.vault.getAbstractFileByPath(d)) await app.vault.createFolder(d);
+      }
+      await app.vault.create(${JSON.stringify(teamPfad)}, ${JSON.stringify(team)});
+      await app.vault.create(${JSON.stringify(agentPfad)}, ${JSON.stringify(agent)});
+      await app.vault.create(${JSON.stringify(notePfad)}, "---\\npriority: mittel\\n---\\nInhalt\\n");
+      ${PLUGIN}.settings.endpoints = [{ url: "${stub.urlV1}", model: "fake-modell" }];
+      await ${PLUGIN}.refreshTeams?.();
+      await ${PLUGIN}.activatePanel();
+      return true;`);
+    await wartetAuf(cdp, `app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(teamPfad)}))?.frontmatter && app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(agentPfad)}))?.frontmatter`, 8000);
+    await cdp.evaluate(`${PANEL}.querySelector('.okit-hub-tab[data-tab="crews"]')?.click(); await new Promise((r) => setTimeout(r, 300)); return true;`);
+    await cdp.evaluate(`
+      window.__vcW20a = { fertig: false, proben: [], gueltigAb: null, gestartet: false };
+      (async () => {
+        const w = window.__vcW20a;
+        const leaf = ${PANEL};
+        const erwartet = ${JSON.stringify(stuecke.join("").length)};
+        let letzter = -1;
+        ${PLUGIN}.runCrew(${JSON.stringify(id)});
+        const t0 = Date.now();
+        while (Date.now() - t0 < 20000) {
+          if (${PLUGIN}.runActive === true) w.gestartet = true;
+          if (w.gestartet && ${PLUGIN}.runActive === false) break;
+          const body = leaf.querySelector(".okit-stream-body");
+          const tail = leaf.querySelector(".okit-stream-tail");
+          if (body && tail) {
+            const laenge = tail.textContent.length;
+            const ueberlauf = body.scrollHeight - body.clientHeight;
+            if (laenge !== letzter && laenge < erwartet) {
+              letzter = laenge;
+              if (w.gueltigAb === null && ueberlauf >= 80) w.gueltigAb = laenge;
+              if (w.gueltigAb !== null) w.proben.push({ laenge, abstand: Math.round(ueberlauf - body.scrollTop) });
+            }
+          }
+          await new Promise((r) => setTimeout(r, 30));
+        }
+        w.fertig = true;
+      })();
+      return true;`);
+    const w = await pollUntil<{ gestartet: boolean; gueltigAb: number | null; proben: { laenge: number; abstand: number }[] }>(
+      cdp, `return window.__vcW20a?.fertig ? window.__vcW20a : null;`, 30_000, 500).catch(() => null);
+    const fertig = await wartetAuf(cdp, `${PLUGIN}.lastRuns[${JSON.stringify(id)}] && ${PLUGIN}.runActive === false`, 20000);
+    if (fertig) {
+      const info = await cdp.evaluate<{ runId: string }>(`return ${PLUGIN}.lastRuns[${JSON.stringify(id)}];`);
+      runDir = `${root}/runs/${info.runId}`;
+    }
+    if (!w || !w.gestartet) unmeasured(P_KONTROLLE_ABSATZ, "kein Lauf zustande gekommen");
+    else if (w.gueltigAb === null || w.proben.length < 3) {
+      unmeasured(P_KONTROLLE_ABSATZ, `der Überlauf erreichte 80 px nicht, oder weniger als drei Stücke danach (${w.proben.length})`);
+    } else {
+      const weg = w.proben.filter((x) => x.abstand > 5);
+      record(P_KONTROLLE_ABSATZ, weg.length === 0,
+        `${w.proben.length} Stücke nach Überlauf ≥ 80 px, Abstand zum Ende ${w.proben.map((x) => x.abstand).join("/")} px (Soll ≤ 5)`);
+    }
+  } finally {
+    await stub.stop();
+    await cdp.evaluate(`
+      ${PLUGIN}.settings.endpoints = ${JSON.stringify(saved.endpoints)};
+      for (const p of [${JSON.stringify(teamPfad)}, ${JSON.stringify(agentPfad)}, ${JSON.stringify(notePfad)}, ${JSON.stringify(ordner)}, ${JSON.stringify(runDir)}]) {
+        if (!p) continue;
+        const f = app.vault.getAbstractFileByPath(p);
+        if (f) await app.vault.delete(f, true);
+      }
+      delete ${PLUGIN}.lastRuns[${JSON.stringify(id)}];
+      delete window.__vcW20a;
+      return true;`).catch(() => undefined);
+  }
+}
+
 async function abschnittWelle20(cdp: Cdp): Promise<void> {
   try {
     await w20Strom(cdp);
+    await w20Absatz(cdp);
     record("Welle 20 — Abschnitt lief bis zum Ende", true, "kein Abbruch");
   } catch (e) {
     record("Welle 20 — Abschnitt lief bis zum Ende", false, `abgebrochen: ${e instanceof Error ? e.message : String(e)}`);

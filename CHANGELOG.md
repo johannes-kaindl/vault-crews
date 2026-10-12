@@ -18,6 +18,8 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - Tests only: the run-time limits on `extractJson`/`extractText` (a fixed 500 ms) are replaced by the Kit's linearity probe (growth from 1 000 to 50 000), so a busy machine can no longer fail them.
+- Kit pin raised to obsidian-kit 0.59.0 (code-kit stays 0.24.0). Visible in the settings: in the endpoint list the "move up" and "remove endpoint" buttons stay together in one row instead of the trash can standing alone on a second line; the key and model fields are a little narrower, the address stays fully visible.
+- **The live answer area keeps following the end when a large block arrives in one piece** (a paragraph, a table, a code block), as long as you are at the bottom. Before, one block taller than a few lines made it stop following after the first one; with small streamed pieces you never saw it. If you scroll up, you are still not pulled back down.
 - Kit pins raised to obsidian-kit 0.57.0 / code-kit 0.24.0. The stored endpoint choice in `data.json` is cleaned by the kit's shared `sanitizeChoice` instead of a local copy (identical result: only non-empty strings survive), so nothing changes for you.
 - The plugin's test double for the Obsidian API is now the kit's shared mock (tests only; no effect on the plugin).
 
