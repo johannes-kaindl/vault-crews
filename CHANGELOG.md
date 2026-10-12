@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-10-12
+
 ### Changed
 
 - **The endpoint list speaks the Kit's wording (obsidian-kit 0.56.0, English and German).** The status tooltips and the address hints come from the shared texts now. Visible: "Timed out — …" reads "Timeout — …", an unreachable row without a known reason reads "Not reachable — <error text>" (before: "Not reachable."), and the hint "Looks like an example/placeholder address" reads "… example or placeholder address".
