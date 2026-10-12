@@ -6,22 +6,9 @@
  * (`obsidian-plugins/tools/obsidian-cdp/`); hier steht nur das Rezept — welches Bild was
  * zeigt. Denselben Import benutzt `scripts/gui-smoke.ts`.
  *
- * ## Ablauf
+ * ## Ablauf (Zweitinstanz, eigener Port, Lock je Port — Dach-AGENTS.md § Staging-Vaults)
  *
- * ⚠️ **Vor dem Quit koordinieren — Obsidian ist geteilte Infrastruktur.** Dieses Rezept
- * braucht den frischen Start (ein Bild pro Start, jeder Lauf hinterlässt Zustand); Mitnutzen ist
- * hier keine Alternative. Aber Obsidian ist Single-Instance: der Quit trifft die Instanz, an der
- * möglicherweise eine andere Session arbeitet, und zerstört deren Zustand. Der eigene Lauf ist
- * danach sauber grün; der Schaden fällt nicht auf.
- *
- * ```bash
- * lsof -nP -iTCP:9222 -sTCP:LISTEN >/dev/null && echo "belegt — erst fragen, wem"
- * ```
- *
- * Hört der Port, hängt jemand dran: **erst fragen, dann quitten.** ⚠️ Und die Prüfung ersetzt die
- * Frage nicht — sie zeigt aktive CDP-Treiber, aber nicht, wer ein Fenster offen hält oder auf den
- * Port wartet; am 2026-08-30 hätte sie einen zwei Stunden alten Reindex nicht gezeigt, denn der
- * hing an Ollama, nicht am Port.
+ * Kein Quit und kein Neustart der regulaeren Instanz; `--port` ist Pflicht.
  *
  * ```bash
  * # STAGING_VAULTS_DIR muss gesetzt sein (steht in ~/.zshenv, kanonischer Ort:
@@ -29,13 +16,18 @@
  * # zweiter Ort in der Doku gabelt die Konvention, genau so entstand der Drift.
  * npm run build && npm run shots -- --setup
  *
- * osascript -e 'quit app "Obsidian"'
- * open -a Obsidian --args --remote-debugging-port=9222
- * #   ... Aufnahme-Vault öffnen und einmalig als vertrauenswürdig markieren
+ * UD=/tmp/obs-test-vault-crews; mkdir -p "$UD"
+ * lsof -nP -iTCP:<port> -sTCP:LISTEN; pgrep -f "user-data-dir=$UD"      # beides leer
+ * cp ~/Library/Application\ Support/obsidian/obsidian-*.asar "$UD"/
+ * # $UD/obsidian.json: {"vaults":{"vc":{"path":"$STAGING_VAULTS_DIR/vault-crews","ts":1,"open":true}},"language":"en"}
+ * python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label vault-crews --intent "README-Bilder" --exclusive focus --port <port> --ttl 900
+ * /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=<port> &
+ * #   ... Aufnahme-Vault einmalig als vertrauenswürdig markieren (oder bereiteInstanzVor)
  *
- * osascript -e 'tell application "Obsidian" to activate' && npm run shots
- * npm run shots -- --only hero.png
+ * npm run shots -- --port <port>
+ * npm run shots -- --port <port> --only hero.png
  * npm run shots -- --list
+ * python3 ~/.claude/hooks/obsidian-cdp-lock.py release
  * ```
  *
  * ## Was hier anders ist als in einem Rendering-Plugin
@@ -46,7 +38,6 @@
  * Endpunkt antwortet, meldet der Treiber das und lässt das Bild aus; er erfindet keines.
  */
 
-import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { argv, cwd, env, exit } from "node:process";
@@ -443,7 +434,7 @@ const argOf = (name: string, fallback: string): string => {
   const value = i >= 0 ? args[i + 1] : undefined;
   return value ?? fallback;
 };
-const PORT = Number(argOf("port", "9222"));
+const PORT = Number(argOf("port", ""));
 /** Welches Modell die Lauf-Bilder benutzen. Ueberschreibbar, weil nicht jede Maschine
  *  jedes Modell laedt: LM Studios Guardrail lehnt einen JIT-Load ab, wenn der Speicher
  *  knapp ist — und ein Bild, das an einem nicht ladbaren Modell scheitert, sagt nichts
@@ -475,22 +466,18 @@ if (SETUP) {
 const OPTS: ShotOptions = { outDir: OUT_DIR, captureWidth: CAPTURE_WIDTH, thumbWidth: THUMB_WIDTH };
 
 async function main(): Promise<void> {
+  if (!Number.isInteger(PORT) || PORT <= 0) {
+    console.error("--port <port> ist Pflicht (Zweitinstanz, siehe Kopf dieser Datei); kein Standardport.");
+    exit(2);
+  }
   const cdp = await attachTo("workspace", PORT, argOf("vault", ""));
   if (!cdp) {
     console.error(`Kein Obsidian-Fenster am Port ${PORT}.`);
     exit(1);
   }
-  // Das Fenster selbst nach vorn holen, statt es vom Aufrufer zu verlangen: zwischen einem
-  // `activate` in der Kommandozeile und dem ersten Messen liegt das Bündeln des Treibers,
-  // und in diesen Sekunden gibt macOS den Fokus an das Terminal zurück — der Lauf brach
-  // dann mit „nicht sichtbar" ab, obwohl der Aufrufer alles richtig gemacht hatte. Ein
-  // Aufnahme-Werkzeug darf das: es will das Fenster fotografieren.
-  try {
-    execFileSync("osascript", ["-e", 'tell application "Obsidian" to activate']);
-    await new Promise((r) => setTimeout(r, 1200));
-  } catch {
-    // Kein macOS oder kein osascript — dann entscheidet die Messung gleich darunter.
-  }
+  // Das Fenster selbst nach vorn holen, statt es vom Aufrufer zu verlangen: `requireVisible` zielt
+  // auf das VERBUNDENE Fenster. Ein `osascript … activate` holte stattdessen die reguelaere Instanz
+  // nach vorn (Befund kl-w19).
   await requireVisible(cdp);
 
   const sprache = await cdp.evaluate<string>(

@@ -14,34 +14,24 @@
  *
  * ## Voraussetzung
  *
- * ⚠️ **Zuerst prüfen, wer sonst an Obsidian hängt.** Obsidian ist Single-Instance — ein
- * `quit` trifft die Instanz, an der möglicherweise eine andere Session arbeitet, und zerstört
- * deren Zustand. Der eigene Lauf ist danach sauber grün; der Schaden entsteht woanders und
- * fällt nicht auf.
+ * Zweitinstanz mit eigenem Profil und eigenem Port, nie die regulaere Instanz (kein `quit`,
+ * kein Neustart fremder Fenster). `--port` ist Pflicht.
  *
  * ```bash
- * lsof -nP -iTCP:9222 -sTCP:LISTEN >/dev/null && echo "läuft bereits — NICHT beenden"
+ * UD=/tmp/obs-test-vault-crews; mkdir -p "$UD"
+ * lsof -nP -iTCP:<port> -sTCP:LISTEN; pgrep -f "user-data-dir=$UD"      # beides leer
+ * cp ~/Library/Application\ Support/obsidian/obsidian-*.asar "$UD"/      # aktuelle Version
+ * # $UD/obsidian.json: {"vaults":{"vc":{"path":"$STAGING_VAULTS_DIR/vault-crews","ts":1,"open":true}},"language":"en"}
+ * npm run build && npm run shots -- --setup     # baut den Staging-Vault aus docs/images/fixture/
+ * OBSIDIAN_PLUGIN_DIR="$STAGING_VAULTS_DIR/vault-crews/.obsidian/plugins/vault-crews" npm run deploy
+ * python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label vault-crews --intent "GUI-Smoke" --exclusive focus --port <port> --ttl 300
+ * /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=<port> &
+ * npm run smoke:gui -- --vault vault-crews --port <port> [--keep]
+ * python3 ~/.claude/hooks/obsidian-cdp-lock.py release
  * ```
  *
- * Hört der Port schon, dann **mitnutzen statt neu starten**: ein eigenes Fenster per
- * `vault-open` über IPC öffnen, dann `attachTo("workspace", port, vault)` — der Vault-Name
- * wählt, nicht die Reihenfolge. ⚠️ Die Port-Prüfung ersetzt die Frage nicht: sie zeigt aktive
- * CDP-Treiber, aber nicht, wer ein Fenster offen hält oder auf den Port wartet.
- *
- * Erst wenn nichts läuft — oder nach Absprache mit dem, der es benutzt — gilt das Rezept unten.
- *
- * ```bash
- * osascript -e 'quit app "Obsidian"'
- * open -a Obsidian --args --remote-debugging-port=9222
- * OBSIDIAN_PLUGIN_DIR="<vault>/.obsidian/plugins/vault-crews" npm run deploy
- * ```
- *
- * Dann:
- *
- * ```bash
- * npm run smoke:gui -- --vault 10_Pallas
- * npm run smoke:gui -- --port 9222 --keep
- * ```
+ * Je Messlauf ein frischer Prozess; der erste Lauf nach einer Profilanlage ist ein Aufwaermlauf.
+ * Exit 0 gruen/uebersprungen, 1 bei Rot oder „nichts gemessen", 2 bei Abbruch.
  */
 
 import { createServer, type Server } from "node:http";
@@ -53,7 +43,7 @@ import { capture } from "../../tools/obsidian-cdp/shot.js";
 const PLUGIN_ID = "vault-crews";
 
 const args = parseArgs(process.argv.slice(2));
-const PORT = Number(args.value("port") ?? "9222");
+const PORT = Number(args.value("port") ?? "");
 const VAULT = args.has("vault") ? (args.value("vault") ?? "") : undefined;
 const KEEP = args.has("keep");
 
@@ -1495,11 +1485,14 @@ async function abschnittWelle15(cdp: Cdp, dataPfad: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  if (!Number.isInteger(PORT) || PORT <= 0) {
+    throw new Vorbedingung("--port <port> ist Pflicht (Zweitinstanz, siehe Kopf dieser Datei); kein Standardport.");
+  }
   const cdp = await attachTo("workspace", PORT, VAULT);
   if (!cdp) {
     console.error(
       `Kein Obsidian-Fenster${VAULT ? ` fuer Vault „${VAULT}"` : ""} am Port ${PORT}.\n`
-      + `Starten mit: open -a Obsidian --args --remote-debugging-port=${PORT}`,
+      + "Zweitinstanz starten (Rezept im Kopf dieser Datei), nicht die regulaere Instanz neu starten.",
     );
     process.exitCode = 1;
     return;
