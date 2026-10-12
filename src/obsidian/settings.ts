@@ -8,6 +8,7 @@ import { DEFAULT_REQUEST_SETTINGS, FAMILIES, BACKENDS, type BackendId, type Fami
 import { buildRequestSection, type RequestSectionState } from "../vendor/kit-obsidian/request-section";
 import type { RequestSession } from "../vendor/kit-obsidian/request-session";
 import { deviationDetail, fieldStateText } from "./request-text";
+import type { ModelContext } from "../vendor/kit/model-context";
 import { createModelListCache, type ModelListCache } from "../vendor/kit/model-list-cache";
 import { guessFromName, type Capabilities } from "../vendor/kit/capabilities";
 import { buildEndpointSourceSection } from "../vendor/kit-obsidian/endpoint-source";
@@ -83,6 +84,11 @@ export interface SettingsHost {
   probeEndpoint(cfg: EndpointConfig): Promise<EndpointStatus>;
   /** Modelle GENAU DIESES Eintrags (Dropdown je Zeile). */
   listModels(cfg: EndpointConfig): Promise<string[]>;
+  /** Kontextlänge des Modells GENAU DIESES Eintrags (Kit `fetchModelContext`, mit Schlüssel und Frist);
+   *  `null`, wenn der Server keine Zahl nennt. Zwischengespeichert je (URL, Modell). */
+  modelContext(cfg: EndpointConfig): Promise<ModelContext | null>;
+  /** Verwirft den Zwischenspeicher der Kontextlängen — eine Zeile oder, ohne Argument, alle. */
+  resetModelContext(cfg?: EndpointConfig): void;
   /** Normalisierte URL des ersten erreichbaren Eintrags, oder null. */
   resolveActive(): Promise<string | null>;
   /** Anfragen und Abweichungen dieser Sitzung (Abschnitt „Anfrage"). */
@@ -328,6 +334,7 @@ export class SettingsTab extends PluginSettingTab {
    *  den alten Zustand. */
   hide(): void {
     this.modelCache.clear();
+    this.host.resetModelContext();
     this.activeUrl = null;
     this.requestSourceAsked = false;
     super.hide();
@@ -542,6 +549,12 @@ export class SettingsTab extends PluginSettingTab {
         probe: (): Promise<EndpointStatus> => this.host.probeEndpoint(cfg),
         listModels: (): Promise<string[]> => this.host.listModels(cfg),
       }),
+      // Kontextlänge unter der Zeile (obsidian-kit 0.56.0). `buildEndpointList` wird hier direkt benutzt,
+      // darum verdrahten wir den Rückruf selbst; er läuft nach der Statusprobe und nur für erreichbare Zeilen.
+      modelContext: {
+        load: (cfg: EndpointConfig) => this.host.modelContext(cfg),
+        invalidate: (cfg: EndpointConfig) => this.host.resetModelContext(cfg),
+      },
       save: () => this.host.saveSettings(),
       reconnect: async () => {
         this.activeUrl = await this.host.resolveActive();

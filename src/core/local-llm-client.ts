@@ -9,7 +9,7 @@
 import { createChatClient, type ChatClient, type ChatResult, type SseTransport } from '../vendor/kit/chat-client';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { authHeaders, type EndpointConfig } from '../vendor/kit/endpoint_config';
-import { parseLmStudioContext, parseOllamaContext } from './model-info';
+import { effectiveContext, type ModelContext } from '../vendor/kit/model-context';
 import { reasoningHappened } from '../vendor/kit/reasoning';
 import type { ClockPort } from '../vendor/kit/clock';
 import { LlmCallError } from './ports';
@@ -32,6 +32,9 @@ export class LocalLlmClient implements LlmClient {
 		endpoint: EndpointConfig,
 		private readonly transports: ChatTransports,
 		private readonly json: JsonTransport,
+		/** Kontext-Abruf (Kit `fetchEndpointContext`, in `main.ts` verdrahtet — `core` kennt kein `obsidian`).
+		 *  Bekommt Schlüssel und URL des AKTIVEN Endpunkts; wirft nie, `null` = der Server nennt keine Zahl. */
+		private readonly fetchContext: (url: string, model: string, apiKey?: string) => Promise<ModelContext | null>,
 		private readonly clock: ClockPort,
 		private readonly timeouts: Timeouts,
 	) {
@@ -91,20 +94,13 @@ export class LocalLlmClient implements LlmClient {
 			.filter((id): id is string => id !== null);
 	}
 
-	/** Best-effort Kontextlänge: erst LM Studios /api/v0/models, dann Ollamas
-	 *  POST /api/show. Wer antwortet, gewinnt; sonst contextLength = null. */
+	/** Best-effort Kontextlänge über das Kit (LM Studios /api/v0/models zuerst, dann Ollamas
+	 *  /api/show; je Versuch 5 s Frist). Wer antwortet, gewinnt; sonst contextLength = null — darauf
+	 *  verlässt sich der Orchestrator. Der Schlüssel des aktiven Endpunkts geht mit: ein geschützter
+	 *  Endpunkt lieferte sonst still `null`. */
 	async modelInfo(model: string): Promise<ModelInfo | null> {
-		try {
-			const lm = await this.json.getJson(`${this.base}/api/v0/models`, this.headers());
-			const ctx = parseLmStudioContext(lm, model);
-			if (ctx) return { id: model, contextLength: ctx.loadedContextLength ?? ctx.maxContextLength ?? null };
-		} catch { /* nächste Sonde */ }
-		try {
-			const oll = await this.json.postJson(`${this.base}/api/show`, { model }, this.headers());
-			const ctx = parseOllamaContext(oll);
-			if (ctx) return { id: model, contextLength: ctx.maxContextLength ?? null };
-		} catch { /* aufgeben */ }
-		return { id: model, contextLength: null };
+		const ctx = await this.fetchContext(this.cfg.url, model, this.cfg.apiKey);
+		return { id: model, contextLength: effectiveContext(ctx) };
 	}
 
 	async stream(

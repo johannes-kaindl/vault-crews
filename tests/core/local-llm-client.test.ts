@@ -5,6 +5,7 @@ import { LocalLlmClient } from '../../src/core/local-llm-client';
 import type { SseTransport } from '../../src/vendor/kit/chat-client';
 import { LlmCallError } from '../../src/core/ports';
 import type { JsonTransport, LlmParams } from '../../src/core/ports';
+import type { ModelContext } from '../../src/vendor/kit/model-context';
 import { FakeClock } from '../helpers/fake-clock';
 
 const fixture = (name: string): string => readFileSync(join(__dirname, '../fixtures/streams', name), 'utf8');
@@ -71,12 +72,24 @@ class FakeJson implements JsonTransport {
 	}
 }
 
-function make(): { client: LocalLlmClient; sse: FakeSse; fallback: FakeSse; json: FakeJson; clock: FakeClock } {
+/** Der Kontext-Abruf kommt injiziert (in Produktion `fetchEndpointContext` des Kits). Die Attrappe hält die
+ *  Aufrufe fest: URL, Modell und Schlüssel, mit denen der Client fragt. */
+class FakeContext {
+	calls: Array<{ url: string; model: string; apiKey?: string }> = [];
+	answers = new Map<string, ModelContext | null>();
+	fetch = (url: string, model: string, apiKey?: string): Promise<ModelContext | null> => {
+		this.calls.push({ url, model, ...(apiKey !== undefined ? { apiKey } : {}) });
+		return Promise.resolve(this.answers.get(model) ?? null);
+	};
+}
+
+function make(): { client: LocalLlmClient; sse: FakeSse; fallback: FakeSse; json: FakeJson; clock: FakeClock; ctx: FakeContext } {
 	const sse = new FakeSse();
 	const fallback = new FakeSse();
 	const json = new FakeJson();
 	const clock = new FakeClock(1_000_000);
-	return { client: new LocalLlmClient({ url: 'http://localhost:1234' }, { transport: sse, fallbackTransport: fallback }, json, clock, TIMEOUTS), sse, fallback, json, clock };
+	const ctx = new FakeContext();
+	return { client: new LocalLlmClient({ url: 'http://localhost:1234' }, { transport: sse, fallbackTransport: fallback }, json, ctx.fetch, clock, TIMEOUTS), sse, fallback, json, clock, ctx };
 }
 
 const tickAsync = async (clock: FakeClock, ms: number): Promise<void> => {
@@ -395,48 +408,26 @@ describe('LocalLlmClient Metadaten', () => {
 		expect(await client.ping({ url: 'http://tot:9' })).toBe(false);
 	});
 
-	it('modelInfo bevorzugt loaded_context_length, fällt auf max_context_length und null zurück', async () => {
-		const { client, json } = make();
-		json.responses.set('http://localhost:1234/api/v0/models', {
-			data: [
-				{ id: 'm1', max_context_length: 32_768, loaded_context_length: 8192 },
-				{ id: 'm2', max_context_length: 16_384 },
-			],
-		});
+	it('modelInfo nimmt die geladene Länge, sonst die maximale, sonst null (effectiveContext des Kits)', async () => {
+		const { client, ctx } = make();
+		ctx.answers.set('m1', { loadedContextLength: 8192, maxContextLength: 32_768 });
+		ctx.answers.set('m2', { maxContextLength: 16_384 });
 		expect(await client.modelInfo('m1')).toEqual({ id: 'm1', contextLength: 8192 });
 		expect(await client.modelInfo('m2')).toEqual({ id: 'm2', contextLength: 16_384 });
 		expect(await client.modelInfo('fehlt')).toEqual({ id: 'fehlt', contextLength: null });
 	});
 
-	it('modelInfo liefert contextLength:null, wenn keine Sonde greift', async () => {
-		const { client } = make();
-		expect(await client.modelInfo('m1')).toEqual({ id: 'm1', contextLength: null });
-	});
-});
-
-describe('LocalLlmClient.modelInfo', () => {
-	it('nimmt LM Studios loaded_context_length wenn /api/v0/models trifft', async () => {
-		const { client, json } = make();
-		json.responses.set('http://localhost:1234/api/v0/models', {
-			data: [{ id: 'qwen3-8b', max_context_length: 32768, loaded_context_length: 8192 }],
-		});
-		expect(await client.modelInfo('qwen3-8b')).toEqual({ id: 'qwen3-8b', contextLength: 8192 });
+	it('der Schlüssel und die URL des AKTIVEN Endpunkts gehen in den Abruf (geschützte Endpunkte liefern sonst still null)', async () => {
+		const { client, ctx } = make();
+		client.setEndpoint({ url: 'http://gateway:8080', apiKey: 'sk-geheim' });
+		await client.modelInfo('m');
+		expect(ctx.calls).toEqual([{ url: 'http://gateway:8080', model: 'm', apiKey: 'sk-geheim' }]);
 	});
 
-	it('fällt auf Ollama /api/show zurück wenn LM Studio nichts liefert', async () => {
-		const { client, json } = make();
-		json.responses.set('http://localhost:1234/api/v0/models', { data: [] });
-		json.responses.set('http://localhost:1234/api/show', { model_info: { 'qwen3.context_length': 40960 } });
-		expect(await client.modelInfo('qwen3-8b')).toEqual({ id: 'qwen3-8b', contextLength: 40960 });
-		expect(json.lastPostUrl).toBe('http://localhost:1234/api/show');
-		expect(json.lastPostBody).toEqual({ model: 'qwen3-8b' });
-	});
-
-	it('gibt {contextLength:null} wenn keine Sonde greift', async () => {
-		const { client, json } = make();
-		json.responses.set('http://localhost:1234/api/v0/models', { data: [] });
-		json.responses.set('http://localhost:1234/api/show', {});
-		expect(await client.modelInfo('qwen3-8b')).toEqual({ id: 'qwen3-8b', contextLength: null });
+	it('ohne Schlüssel wird keiner erfunden', async () => {
+		const { client, ctx } = make();
+		await client.modelInfo('m');
+		expect(ctx.calls[0]?.apiKey).toBeUndefined();
 	});
 });
 

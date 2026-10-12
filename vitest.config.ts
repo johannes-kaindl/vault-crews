@@ -5,6 +5,7 @@ export default defineConfig({
   test: {
     environment: "node",
     globals: true,
+    setupFiles: ["tests/setup.ts"],
     // Integrationstests (echtes git) laufen NICHT im Default-`npm test`,
     // sondern über `npm run test:integration` (vitest.integration.config.ts):
     exclude: [...configDefaults.exclude, "tests/integration/**"],

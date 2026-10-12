@@ -136,7 +136,8 @@
       "source": "obsidian-kit",
       "from": "src/testing",
       "modules": [
-        "kit-css"
+        "kit-css",
+        "window-timers"
       ]
     }
   ]

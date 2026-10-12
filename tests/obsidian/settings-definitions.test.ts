@@ -36,6 +36,8 @@ function makeFakeHost(overrides: Partial<SettingsHost> = {}): SettingsHost {
     probeEndpoint: vi.fn().mockResolvedValue(OK_STATUS),
     listModels: vi.fn().mockResolvedValue(["m1", "m2"]),
     resolveActive: vi.fn().mockResolvedValue(null),
+    modelContext: vi.fn().mockResolvedValue(null),
+    resetModelContext: vi.fn(),
     installExamples: vi.fn(),
     requestSession: createRequestSession({ message: (d) => d.kind, notice: () => {} }),
     requestSectionState: () => ({ family: null, familySource: "none", backend: "unknown", backendSource: "none", model: "", sentModel: "" }),

@@ -191,6 +191,48 @@ describe("VaultCrewsPlugin.probeEndpoint", () => {
   });
 });
 
+describe("VaultCrewsPlugin.modelContext — Kontextlänge unter der Endpunkt-Zeile (Welle 18)", () => {
+  afterEach(() => {
+    requestUrl.mockImplementation(() => Promise.resolve({
+      status: 200, headers: {}, text: "", json: {}, arrayBuffer: new ArrayBuffer(0),
+    }));
+  });
+
+  const antwort = (body: unknown) => Promise.resolve({ status: 200, headers: {}, text: JSON.stringify(body), json: {}, arrayBuffer: new ArrayBuffer(0) });
+  const urlOf = (opts: unknown): string => (typeof opts === "string" ? opts : (opts as { url: string }).url);
+
+  it("liest geladene und maximale Länge, schickt den Schlüssel mit und merkt sich das Ergebnis je (URL, Modell)", async () => {
+    requestUrl.mockClear();
+    requestUrl.mockImplementation((opts: unknown) => urlOf(opts).endsWith("/api/v0/models")
+      ? antwort({ data: [{ id: "m1", max_context_length: 32768, loaded_context_length: 8192 }] })
+      : Promise.reject(new Error("unerwartet")));
+    const plugin = makePlugin();
+    await plugin.onload();
+    const row = { url: "http://gw:1234", model: "m1", apiKey: "sk-zeile" };
+
+    await expect(plugin.modelContext(row)).resolves.toEqual({ loadedContextLength: 8192, maxContextLength: 32768 });
+    const first = requestUrl.mock.calls[0]?.[0] as { headers?: Record<string, string> };
+    expect(first.headers?.Authorization).toBe("Bearer sk-zeile");
+
+    const n = requestUrl.mock.calls.length;
+    await plugin.modelContext(row);
+    expect(requestUrl.mock.calls.length).toBe(n);            // Zwischenspeicher
+    plugin.resetModelContext(row);
+    await plugin.modelContext(row);
+    expect(requestUrl.mock.calls.length).toBeGreaterThan(n); // „Modelle neu laden“ fragt neu
+  });
+
+  it("ohne Modell kein Abruf, und ein Server ohne Zahl ergibt null", async () => {
+    requestUrl.mockClear();
+    requestUrl.mockImplementation(() => antwort({ data: [] }));
+    const plugin = makePlugin();
+    await plugin.onload();
+    await expect(plugin.modelContext({ url: "http://gw:1234" })).resolves.toBeNull();
+    expect(requestUrl.mock.calls.length).toBe(0);
+    await expect(plugin.modelContext({ url: "http://gw:1234", model: "x" })).resolves.toBeNull();
+  });
+});
+
 describe("VaultCrewsPlugin.listModels / resolveActive", () => {
   afterEach(() => {
     requestUrl.mockImplementation(() => Promise.resolve({

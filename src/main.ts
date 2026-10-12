@@ -20,6 +20,7 @@ import {
 } from "obsidian";
 import { pickLang, setLang, t } from "./vendor/kit/i18n";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
+import type { ModelContext } from "./vendor/kit/model-context";
 import {
   authHeaders,
   resolveActiveEndpointConfig,
@@ -52,7 +53,7 @@ import { resolveEndpointSource, type EndpointSourceResult } from "./vendor/kit/e
 import { sanitizeRequestSettings } from "./vendor/kit/sampling-profiles";
 import { createRequestSession, type RequestSession } from "./vendor/kit-obsidian/request-session";
 import type { RequestSectionState } from "./vendor/kit-obsidian/request-section";
-import { cachedProbe } from "./vendor/kit-obsidian/backend-probe";
+import { cachedProbe, fetchEndpointContext } from "./vendor/kit-obsidian/backend-probe";
 import { hydrateLocalEndpoints, prepareLocalEndpoints } from "./vendor/kit-obsidian/endpoint-secrets";
 import { createRequestPort } from "./obsidian/request-port";
 import { deviationNotice } from "./obsidian/request-text";
@@ -284,6 +285,31 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     }
   }
 
+  /** Kontextlänge unter einer Endpunkt-Zeile (Einstellungen), über dieselbe Kit-Funktion wie der Lauf
+   *  (`fetchEndpointContext`, mit dem Schlüssel der Zeile). Zwischengespeichert je (URL, Modell), damit das
+   *  Neuzeichnen der Liste nicht jedes Mal fragt; `resetModelContext` leert (Neu laden, Tab schließen). */
+  private readonly contextCache = new Map<string, Promise<ModelContext | null>>();
+
+  modelContext(entry: EndpointConfig): Promise<ModelContext | null> {
+    const cfg = this.withKey(entry);
+    const key = this.contextKey(cfg);
+    let hit = this.contextCache.get(key);
+    if (hit === undefined) {
+      hit = fetchEndpointContext(cfg.url, cfg.model ?? "", cfg.apiKey);
+      this.contextCache.set(key, hit);
+    }
+    return hit;
+  }
+
+  resetModelContext(entry?: EndpointConfig): void {
+    if (entry === undefined) this.contextCache.clear();
+    else this.contextCache.delete(this.contextKey(entry));
+  }
+
+  private contextKey(cfg: EndpointConfig): string {
+    return `${normalizeEndpoint(cfg.url)}\n${cfg.model ?? ""}`;
+  }
+
   /** Die normalisierte URL des ersten erreichbaren Eintrags — für die Rollenzeile im
    *  Editor („aktiv" vs. „Bereitschaft — Platz 2"). */
   async resolveActive(): Promise<string | null> {
@@ -375,6 +401,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       first,
       { transport: xhrSseTransport, fallbackTransport: requestUrlTransport },
       new RequestUrlJsonTransport(),
+      fetchEndpointContext,
       this.clock,
       { callTimeoutMs: this.settings.callTimeoutS * 1000, stallTimeoutMs: this.settings.stallTimeoutS * 1000 },
     );
