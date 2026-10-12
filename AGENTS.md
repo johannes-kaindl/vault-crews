@@ -41,12 +41,7 @@ Fehler. Genau das war bis 0.9.1 der Fall, und getroffen wurde ausgerechnet der F
 die Klasse eingeführt wurde: ein gehosteter Endpunkt mit fehlendem oder falschem API-Schlüssel
 (401/403). Gefunden hat es der Consumer-Sweep, nicht das Gate.
 
-**Der Wächter, der das ab jetzt verhindert:** `tests/i18n-status-keys.test.ts` hält ein
-`Record<EndpointStatusKind, true>` — bringt ein Kit-Update eine weitere Klasse mit, bricht
-der `typecheck:test`, bevor der rohe Schlüssel in die Oberfläche gelangt (per Gegenprobe
-belegt: fiktive Klasse eingesetzt → TS2741 an genau dieser Zeile). Wer eine neue
-Kit-Aufzählung an `t()` anschließt, zieht diesen Wächter mit. Verbindlich als
-**CORE-TEST-04**; Referenz-Implementierung `obsidian-transmute/tests/i18n-status-keys.test.ts`.
+**Seit obsidian-kit 0.56.0 (Welle 18, 2026-10-12) kommen die Sätze zu den Statusklassen und Eingabe-Hinweisen aus dem Kit:** `endpointStatusText`/`endpointWarningText` (`src/vendor/kit-obsidian/endpoint-status-text.ts`, über `LLM_CONNECTION_STRINGS_EN/DE.endpointList` in `src/obsidian/settings.ts`), EN und DE. Die eigene Zuordnung (`endpoint-labels.ts`, die Wörterbuchzeilen `settings.endpoint.*`) und der Wächter `tests/i18n-status-keys.test.ts` sind weg. **Der Wächter ist jetzt der Kit-Test `tests/endpoint-status-text.test.ts` in obsidian-kit** (je Marke und Sprache vorhanden und verschieden von „unknown“, mit Mutationsprobe). Die Begründung bleibt: ein Schlüssel, der still ausfällt, sieht in der Oberfläche wie ein plausibler String aus. Wer eine Kit-Aufzählung an `t()` anschließt, zieht einen Wächter mit (**CORE-TEST-04**); das Muster steht in `obsidian-transmute/tests/i18n-status-keys.test.ts`.
 
 **Dieselbe Naht existiert ein zweites Mal — bei den Fehlerklassen (seit 2026-08-18).** `ErrorKind`
 ist ein Core-Typ, die Sätze dazu führt die Obsidian-Schicht über `t("notice.errorKind." + kind)`

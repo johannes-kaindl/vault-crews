@@ -6,7 +6,7 @@
 // Schluessel auf den SCHLUESSEL zurueck, nicht auf EN. In der Fehlerkarte stuende dann
 // `notice.errorKind.output_truncated` und saehe aus wie ein plausibler String.
 //
-// Schwester-Waechter: tests/i18n-status-keys.test.ts (Kit-Statusklassen).
+// Schwester-Waechter: die Statusklassen bewacht seit obsidian-kit 0.56.0 der Kit-Test tests/endpoint-status-text.test.ts.
 import { describe, expect, it } from "vitest";
 import { DE, EN } from "../src/i18n/strings";
 import { ERROR_KINDS } from "../src/core/run-log";
