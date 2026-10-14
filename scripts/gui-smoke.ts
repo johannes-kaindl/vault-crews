@@ -1369,8 +1369,9 @@ const P_ABBRECHEN = "Panel — Abbrechen-Knopf liegt während eines Laufs im Lea
  *  zeichnet den Bereich in den ersten 0,42 s dreimal neu (bei etwa 12, 15 und 416 ms, bei 19 bis 340 Zeichen „Warte auf Ausgabe …“
  *  bzw. den ersten Stücken), danach bis zum Schluss-Draw nicht mehr. Ein Beobachter, der vor dem dritten Wechsel hängt, bekäme
  *  ihn als Neuaufbau und wäre „nichts gemessen“ (so geschehen: Absatz-Strom, dritter Wechsel 100 ms nach der Stabilitätsbedingung).
- *  Ein Wechsel im Strom selbst bliebe ein Befund. Zu klären beim Dach: ob `messeFolge` einen Elementwechsel VOR „bereit“ (Überlauf
- *  ≥ 80 px) als Anlauf werten soll. */
+ *  Ein Wechsel im Strom selbst bliebe ein Befund. Dieser Workaround entfällt, wenn `messeFolge` einen Elementwechsel VOR „bereit“
+ *  (Überlauf ≥ 80 px) als Anlauf wertet und das Element neu bindet (Entscheidung des Masters 2026-10-14, Task für Welle 22 im
+ *  Dach-Cockpit; kuro-gamification hatte denselben Fall). */
 async function starteLaufUndWarteAufBereich(cdp: Cdp, id: string): Promise<void> {
   await cdp.evaluate(`window.__vcBereich = { el: null, t: 0, start: performance.now() }; ${PLUGIN}.runCrew(${JSON.stringify(id)}); return true;`);
   await pollUntil<boolean>(cdp, `
