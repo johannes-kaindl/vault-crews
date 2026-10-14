@@ -152,7 +152,6 @@ Writing your own teams and agents is plain Markdown in the vault — see
 | **Undo history depth** | 15 | How many run snapshots of the current day are kept. Older days thin out: one snapshot per day for a week, then per week (4 weeks) and per month (6 months), none after that |
 | **Call timeout** | 300 s | Hard limit per model call — generous, because just-in-time model loading takes a while |
 | **Stall timeout** | 60 s | Aborts if no new token arrives; only checked after the first data chunk, so loading is never mistaken for a stall |
-| **Verbose logging** | off | Reserved — the setting persists but nothing reads it yet (see V1 limitations) |
 
 If the **LLM Endpoint Manager** plugin is installed, the endpoint (and its API key and model) comes from there and the settings show the manager's picker instead of the list above; without it, the list above is used as before.
 
@@ -272,10 +271,6 @@ Documented rather than silently missing:
   feeds the test-fixture corpus of real broken model outputs and is written under the
   run directory — it is never counted as a vault write, never touches `max_writes`, and
   is not snapshotted for undo. Successful runs write no artifacts at all.
-- **`verboseLogging` (Settings → Advanced) is reserved, not yet wired.** The setting
-  exists and persists, but nothing currently reads it; full raw-output recording of
-  *every* call (success or failure) — beyond the failure-case `artifacts/` capture
-  above — is not implemented.
 - **The failure log opens `run.md` at the top, not scrolled to the failed task.**
   "View failure" opens the run's log file via `workspace.getLeaf().openFile()` with
   no ephemeral scroll state — you land at the top of the note and scroll to the

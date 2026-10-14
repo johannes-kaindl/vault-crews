@@ -218,6 +218,8 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     // 409 grüne Tests sahen es nicht (sie prüften die Migrationsfunktion, nicht den
     // Ladepfad). Gleiches Muster wie `lastRuns` weiter unten.
     delete (this.settings as unknown as Record<string, unknown>).defaultModel;
+    // Dasselbe für das gestrichene `verboseLogging` (ohne Leser, Welle 22).
+    delete (this.settings as unknown as Record<string, unknown>).verboseLogging;
     this.settings.choice = sanitizeChoice(this.settings.choice);
     // Die gespeicherten Anfrage-Einstellungen sind handeditierbar: was die Prüfung nicht besteht,
     // fällt auf das Profil zurück — und wird gemeldet, statt still zu verschwinden.

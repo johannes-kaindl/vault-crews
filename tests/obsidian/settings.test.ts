@@ -177,7 +177,6 @@ describe("DEFAULT_SETTINGS", () => {
       callTimeoutS: 300,
       stallTimeoutS: 60,
       undoHistoryDepth: 15,
-      verboseLogging: false,
     });
   });
 });
@@ -192,7 +191,7 @@ describe("SettingsTab.display()", () => {
 
     // Jede `new Setting(containerEl)` legt über containerEl.createDiv(...) ein Kind an.
     // Connection: 1 Heading + 1 Endpunkt-Block + 1 Sperrliste = 3 · Crews 4 · Safety 4 ·
-    // Advanced 4 = 14. Die Fähigkeiten-Zeile fehlt hier, weil ohne aufgelösten Endpunkt
+    // Advanced 3 = 13 (seit Welle 22 ohne „Verbose logging“). Die Fähigkeiten-Zeile fehlt hier, weil ohne aufgelösten Endpunkt
     // nichts zu sagen ist.
     //
     // Seit dem Umbau auf `getSettingDefinitions()` (2026-08-17) ist der Kit-Endpunkt-Editor
@@ -200,7 +199,8 @@ describe("SettingsTab.display()", () => {
     // zum leeren Block gemacht hat, statt direkt in den Container zu zeichnen.
     // +1 seit 0.11.0: die Hilfe-Zeile steht als erstes Element vor den Gruppen.
     // +1 seit 0.13.0: die Zeile „Request" (Kit-Abschnitt Anfrage) sitzt in der Gruppe Connection.
-    expect(tab.containerEl.children.length).toBe(17);
+    // −1 seit Welle 22: der Schalter „Verbose logging“ ist gestrichen.
+    expect(tab.containerEl.children.length).toBe(16);
   });
 
   it("gibt dem Kit-Endpunkt-Editor eine Zeile, die er auch füllt", () => {

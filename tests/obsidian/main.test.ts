@@ -318,6 +318,18 @@ describe("VaultCrewsPlugin.loadSettings — Migration", () => {
     expect(s.endpoints).toEqual([{ url: "http://a:1", model: "altes-modell" }]);
     expect("defaultModel" in s).toBe(false);
   });
+
+  it("laesst das gestrichene verboseLogging nicht im Settings-Objekt zurueck", async () => {
+    const plugin = makePlugin();
+    (plugin as unknown as { loadData(): Promise<unknown> }).loadData = () =>
+      Promise.resolve({ verboseLogging: true, maxWrites: 7 });
+
+    await plugin.loadSettings();
+
+    const s = (plugin as unknown as { settings: Record<string, unknown> }).settings;
+    expect(s.maxWrites).toBe(7);
+    expect("verboseLogging" in s).toBe(false);
+  });
 });
 
 // Zwei der drei stummen Panel-Zustaende haengen an der Wiring-Schicht, nicht am ViewModel:

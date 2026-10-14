@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The "Model not found" notice no longer sends you to a "default model" that does not exist: it now says to choose a model on the active endpoint row, or to check the model field in the agent note.
+
+### Removed
+
+- The setting **Verbose logging** (Settings → Advanced) is gone. It promised extra output in the developer console, but nothing ever read it. An old value in `data.json` is dropped on the next load.
+
 ## [0.18.0] — 2026-10-12
 
 ### Added

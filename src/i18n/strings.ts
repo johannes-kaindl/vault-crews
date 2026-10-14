@@ -104,9 +104,6 @@ export const EN: Record<string, string> = {
   "settings.advanced.stallTimeoutS.name": "Stall timeout (seconds)",
   "settings.advanced.stallTimeoutS.desc":
     "Aborts a call if no new token arrives for this long. Only checked after the first token, so just-in-time model loading is never mistaken for a stall.",
-  "settings.advanced.verboseLogging.name": "Verbose logging",
-  "settings.advanced.verboseLogging.desc":
-    "Log extra detail to the developer console — useful when troubleshooting a run.",
 
   // --- Notices — install --------------------------------------------------
   "notice.install.ok": "Example crews installed ({0} file(s)).",
@@ -132,7 +129,7 @@ export const EN: Record<string, string> = {
   // used to fill the "{1}" of notice.run.failed/refused with one actionable line.
   "notice.errorKind.endpoint_unreachable": "Start LM Studio, then run again.",
   "notice.errorKind.endpoint_error": "The server rejected the call — see the run log for details.",
-  "notice.errorKind.model_missing": "Model not found — check the default model or the team's model field.",
+  "notice.errorKind.model_missing": "Model not found — choose a model on the active endpoint row, or check the model field in the agent note.",
   "notice.errorKind.timeout": "The call took too long and was stopped.",
   "notice.errorKind.stalled": "The model stopped producing tokens.",
   "notice.errorKind.invalid_output": "The model's output could not be parsed, even after one repair attempt.",
@@ -370,9 +367,6 @@ export const DE: Record<string, string> = {
   "settings.advanced.stallTimeoutS.name": "Stillstand-Timeout (Sekunden)",
   "settings.advanced.stallTimeoutS.desc":
     "Bricht einen Aufruf ab, wenn so lange kein neues Token kommt. Wird erst nach dem ersten Token scharf geschaltet, damit Just-in-Time-Laden nicht als Stillstand gilt.",
-  "settings.advanced.verboseLogging.name": "Ausführliches Logging",
-  "settings.advanced.verboseLogging.desc":
-    "Schreibt zusätzliche Details in die Entwicklerkonsole — hilfreich zur Fehlersuche.",
 
   // --- Notices — Installation ---------------------------------------------
   "notice.install.ok": "Beispiel-Crews installiert ({0} Datei(en)).",
@@ -397,7 +391,7 @@ export const DE: Record<string, string> = {
   // --- Notices — Fehlerklassen-Text (1:1 zu core-ErrorKind, Spec §7) ------
   "notice.errorKind.endpoint_unreachable": "LM Studio starten, dann erneut ausführen.",
   "notice.errorKind.endpoint_error": "Der Server hat den Aufruf abgelehnt — Details im Run-Log.",
-  "notice.errorKind.model_missing": "Modell nicht gefunden — Standardmodell oder Modell-Feld des Teams prüfen.",
+  "notice.errorKind.model_missing": "Modell nicht gefunden — ein Modell in der aktiven Endpunkt-Zeile wählen oder das Modell-Feld der Agenten-Notiz prüfen.",
   "notice.errorKind.timeout": "Der Aufruf hat zu lange gedauert und wurde abgebrochen.",
   "notice.errorKind.stalled": "Das Modell hat aufgehört, Token zu erzeugen.",
   "notice.errorKind.invalid_output": "Die Ausgabe des Modells ließ sich auch nach einem Reparatur-Versuch nicht parsen.",

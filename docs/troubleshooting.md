@@ -31,9 +31,9 @@ Local servers almost always need a port, for example `http://localhost:1234/v1`.
 
 ## Model not found
 
-> Notiz-Tagger: run refused — Model not found — check the default model or the team's model field.
+> Notiz-Tagger: run refused — Model not found — choose a model on the active endpoint row, or check the model field in the agent note.
 
-**Cause:** the active endpoint has no model chosen (the dropdown of its row reads **— (server picks)**), or the chosen model is not loaded on the server. (The plugin has no global "default model" any more — the model belongs to the endpoint row. The notice text still says "default model"; it means that row.) The run log names the model: "Modell nicht geladen: …" or "Für diesen Endpunkt ist kein Modell gewählt".
+**Cause:** the active endpoint has no model chosen (the dropdown of its row reads **— (server picks)**), or the chosen model is not loaded on the server. (The plugin has no global "default model" — the model belongs to the endpoint row.) The run log names the model: "Modell nicht geladen: …" or "Für diesen Endpunkt ist kein Modell gewählt".
 
 **Fix:** in **Settings → Vault Crews → Connection** choose the model in the dropdown of the active row, press **Refresh model list** if it is missing, and load it on the server. An agent note may pin its own `model:` — that only counts when the active endpoint carries that model, otherwise the row's model is used.
 

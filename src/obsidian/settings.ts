@@ -44,7 +44,6 @@ export interface PluginSettings {
   callTimeoutS: number;
   stallTimeoutS: number;
   undoHistoryDepth: number;
-  verboseLogging: boolean;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -59,7 +58,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   callTimeoutS: 300,
   stallTimeoutS: 60,
   undoHistoryDepth: 15,
-  verboseLogging: false,
 };
 
 /**
@@ -301,11 +299,6 @@ export class SettingsTab extends PluginSettingTab {
             desc: t("settings.advanced.stallTimeoutS.desc"),
             control: { type: "number", key: "stallTimeoutS" },
           },
-          {
-            name: t("settings.advanced.verboseLogging.name"),
-            desc: t("settings.advanced.verboseLogging.desc"),
-            control: { type: "toggle", key: "verboseLogging" },
-          },
         ],
       },
     ];
@@ -347,8 +340,6 @@ export class SettingsTab extends PluginSettingTab {
         return s.callTimeoutS;
       case "stallTimeoutS":
         return s.stallTimeoutS;
-      case "verboseLogging":
-        return s.verboseLogging;
       default:
         return undefined;
     }
@@ -385,9 +376,6 @@ export class SettingsTab extends PluginSettingTab {
         break;
       case "stallTimeoutS":
         s.stallTimeoutS = asInt(s.stallTimeoutS);
-        break;
-      case "verboseLogging":
-        s.verboseLogging = Boolean(value);
         break;
       default:
         return;

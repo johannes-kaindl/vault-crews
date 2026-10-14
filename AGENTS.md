@@ -169,8 +169,7 @@ Kurzfassung von README.md „V1 limitations" — bei Rückfragen dort das Detail
 - Crash-Recovery geht von EINEM Gerät aus; zwei gleichzeitig laufende
   Obsidian-Desktops auf demselben gesyncten Vault sind out of scope (Spec §10
   Risiko 8).
-- `verboseLogging` (Settings → Advanced) ist reserviert, aber noch nicht
-  verdrahtet — nichts liest den Wert.
+- Der Schalter `verboseLogging` ist seit Welle 22 gestrichen (er hatte keinen Leser); `loadSettings` entfernt das Feld aus alten `data.json`.
 - „Fehlerstelle ansehen" öffnet `run.md` am Dateianfang (kein Ephemeral-Scroll
   zum fehlgeschlagenen Task).
 - Endpunkt- und Timeout-Änderungen wirken mit dem nächsten Lauf: `executeRunFor()` baut den `LlmClient` am Start jedes Laufs frisch aus den aktuellen Settings (`buildLlmClient`, `src/main.ts`); ein Plugin-Reload ist nicht nötig (gemessen am Code 2026-09-26, vorher stand hier das Gegenteil).
