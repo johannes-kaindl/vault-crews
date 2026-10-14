@@ -1,3 +1,5 @@
+import { localDate } from '../vendor/kit/local-stamp';
+
 /** Pfad-Guards des pure-Layers. Jede Schreib-/Leseaktion der Agenten läuft hier durch —
  *  die Denylist überstimmt jede write_scope-Whitelist (Spec §4.4). */
 
@@ -56,6 +58,5 @@ export function isDenied(path: string, denylist: string[]): boolean {
 /** Einziger Target-Platzhalter: {{today}} → lokales YYYY-MM-DD (deterministisch aus nowMs). */
 export function expandTarget(template: string, nowMs: number): string {
 	const d = new Date(nowMs);
-	const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-	return template.replaceAll('{{today}}', iso);
+	return template.replaceAll('{{today}}', localDate(d));
 }

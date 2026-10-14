@@ -173,6 +173,12 @@ describe('executeRun — ok (happy triage path)', () => {
     expect(result.undoable).toBe(true);
     expect(result.writes).toBe(1);
     expect(result.runId).toMatch(/^\d{4}-\d{2}-\d{2}-\d{4}-task-triage$/);
+  });
+
+  it('Run-Id trägt den LOKALEN Tag und die lokale Uhrzeit (YYYY-MM-DD-HHmm-<team>)', async () => {
+    const h = await harness({ clock: new FakeClock(new Date(2026, 9, 3, 0, 5).getTime()) });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.runId).toBe('2026-10-03-0005-task-triage');
 
     // Snapshot: der geänderte Pfad wurde vor dem Write erfasst + der Lauf finalisiert.
     expect(h.snapshot.finalized).toEqual([result.runId]);

@@ -18,6 +18,7 @@ import { buildCrewParams } from './crew-request';
 import { redactKeysInValue } from '../vendor/kit/redact';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { resolveActiveEndpointConfig, type EndpointConfig } from '../vendor/kit/endpoint_config';
+import { localDate, localParts } from '../vendor/kit/local-stamp';
 import type { ClockPort } from '../vendor/kit/clock';
 import { checkResponse, type BackendId, type FamilyId, type RequestSettings, type ThinkingLevel } from '../vendor/kit/sampling-profiles';
 import { LlmCallError } from './ports';
@@ -644,8 +645,8 @@ function slugFromPath(path: string): string {
 
 function formatRunId(nowMs: number, teamId: string): string {
 	const d = new Date(nowMs);
-	const p = (n: number): string => String(n).padStart(2, '0');
-	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}-${teamId}`;
+	const p = localParts(d);
+	return `${localDate(d)}-${p.hour}${p.minute}-${teamId}`;
 }
 
 function mergeSlugTables(inputs: Artifact[]): Record<string, SlugTableData> {
