@@ -18,6 +18,8 @@ der Kopf der Datei hat die Befehle für dieses Repo. Danach den Stand bauen und 
 OBSIDIAN_PLUGIN_DIR="$STAGING_VAULTS_DIR/vault-crews/.obsidian/plugins/vault-crews" npm run deploy
 ```
 
+> ⚠️ **In einer Welle mit Strom-Regel („kein Lauf lädt oder rechnet ein Modell“) immer mit `--ohne-modell`.** Ohne den Flag schickt der Punkt „echtes Modell“ (w11) ein POST an `http://localhost:1234` und lädt dort ein Modell (gemessen 2026-10-14, Welle 22: zwei Läufe luden `qwen2.5-coder-7b` in LM Studio). Der Punkt zählt mit dem Flag als „nichts gemessen“ und gehört in die gesammelte Modell-Runde: `npm run smoke:gui -- --vault vault-crews --port <port>` ohne Flag, erwartet grün.
+
 > **Das Fenster muss sichtbar sein — und zwar unverdeckt.** macOS meldet ein vollständig
 > verdecktes Fenster als *occluded*, und Chromium macht daraus `visibilityState: "hidden"`;
 > der DOM misst dann nichts. Der Treiber holt das verbundene Fenster selbst nach vorn
