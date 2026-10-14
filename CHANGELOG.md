@@ -14,6 +14,8 @@ All notable changes to this project are documented here. The format follows
 
 - The "Model not found" notice no longer sends you to a "default model" that does not exist: it now says to choose a model on the active endpoint row, or to check the model field in the agent note.
 
+- The dialog that offers to finish a run after a crash no longer promises a commit. It says what happens: the run is marked as aborted, what it wrote stays in the vault, and “Undo last run” can take it back.
+
 ### Removed
 
 - The setting **Verbose logging** (Settings → Advanced) is gone. It promised extra output in the developer console, but nothing ever read it. An old value in `data.json` is dropped on the next load.

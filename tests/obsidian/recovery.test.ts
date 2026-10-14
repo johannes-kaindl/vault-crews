@@ -12,7 +12,7 @@ import type { App } from "obsidian";
 import { InMemoryVaultPort } from "../helpers/in-memory-vault";
 import { buildStateJson } from "../../src/core/run-log";
 import type { RunState } from "../../src/core/types";
-import { registerI18n } from "../../src/i18n/strings";
+import { DE, EN, registerI18n } from "../../src/i18n/strings";
 import { setLang } from "../../src/vendor/kit/i18n";
 import { checkOrphanedRun, RecoveryModal } from "../../src/obsidian/recovery";
 
@@ -164,5 +164,16 @@ describe("recovery.ts — no innerHTML", () => {
     const { readFileSync } = await import("node:fs");
     const src = readFileSync(new URL("../../src/obsidian/recovery.ts", import.meta.url), "utf8");
     expect(src).not.toMatch(/\.innerHTML\s*=/);
+  });
+});
+
+describe("Wortlaut des Wiederherstellungsdialogs", () => {
+  it("verspricht keinen Commit (der Abschluss schreibt nur den Status, das Rückgängig läuft über den Undo-Befehl)", () => {
+    for (const text of [EN["recovery.explain"], DE["recovery.explain"]]) {
+      expect(text).toBeDefined();
+      expect(text).not.toMatch(/commit/i);
+    }
+    expect(EN["recovery.explain"]).toContain(EN["cmd.undoLastRun"]);
+    expect(DE["recovery.explain"]).toContain(DE["cmd.undoLastRun"]);
   });
 });

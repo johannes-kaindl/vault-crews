@@ -213,7 +213,7 @@ export const EN: Record<string, string> = {
   "recovery.title": "Recover interrupted run",
   "recovery.finish": "Finish orphaned run (keep partial changes)",
   "recovery.explain":
-    "Obsidian closed unexpectedly during a run of “{0}”. Finishing commits everything written so far, so nothing is lost.",
+    "Obsidian closed unexpectedly during a run of “{0}”. Finishing marks the run as aborted. What it already wrote stays in your vault, and you can undo it with “Undo last run”.",
   // Abschnitt „Anfrage" (Modus structured) — Wortlaut aus lingotuner/src/i18n/strings.ts, 2026-09-30
   "request.desc": "What a run sends with each model call: sampling values and thinking level, per model family.",
   "request.personaHint": "Values in an agent persona (temperature, max_tokens, thinking) override the settings here for that agent.",
@@ -477,7 +477,7 @@ export const DE: Record<string, string> = {
   "recovery.title": "Unterbrochenen Lauf wiederherstellen",
   "recovery.finish": "Verwaisten Lauf abschließen (Teilstand behalten)",
   "recovery.explain":
-    "Obsidian wurde während eines Laufs von „{0}“ unerwartet beendet. Der Abschluss committet alles bisher Geschriebene, damit nichts verloren geht.",
+    "Obsidian wurde während eines Laufs von „{0}“ unerwartet beendet. Der Abschluss markiert den Lauf als abgebrochen. Was er schon geschrieben hat, bleibt im Vault, und du kannst es mit „Letzten Lauf rückgängig machen“ zurücknehmen.",
   // Abschnitt „Anfrage" (Modus structured) — Wortlaut aus lingotuner/src/i18n/strings.ts, 2026-09-30
   "request.desc": "Was ein Lauf mit jedem Modellaufruf sendet: Sampling-Werte und Denkstufe, je Modellfamilie.",
   "request.personaHint": "Werte in einer Agenten-Persona (temperature, max_tokens, thinking) überschreiben die Einstellungen hier für diesen Agenten.",
