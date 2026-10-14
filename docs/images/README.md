@@ -58,20 +58,12 @@ Maintainers. Prüfung: `npm run shots:check`.
 
 ## Reproduktion
 
-⚠️ **Vor dem Quit koordinieren — Obsidian ist geteilte Infrastruktur.** Dieses Rezept
-braucht den frischen Start (ein Bild pro Start, jeder Lauf hinterlässt Zustand); Mitnutzen ist
-hier keine Alternative. Aber Obsidian ist Single-Instance: der Quit trifft die Instanz, an der
-möglicherweise eine andere Session arbeitet, und zerstört deren Zustand. Der eigene Lauf ist
-danach sauber grün; der Schaden fällt nicht auf.
-
-```bash
-lsof -nP -iTCP:9222 -sTCP:LISTEN >/dev/null && echo "belegt — erst fragen, wem"
-```
-
-Hört der Port, hängt jemand dran: **erst fragen, dann quitten.** ⚠️ Und die Prüfung ersetzt die
-Frage nicht — sie zeigt aktive CDP-Treiber, aber nicht, wer ein Fenster offen hält oder auf den
-Port wartet; am 2026-08-30 hätte sie einen zwei Stunden alten Reindex nicht gezeigt, denn der
-hing an Ollama, nicht am Port.
+⚠️ **Die Aufnahme läuft in einer Zweitinstanz, nie in der regulären Instanz.** Obsidian ist geteilte
+Infrastruktur: ein `quit` oder `activate` trifft die Instanz, an der möglicherweise eine andere Session
+arbeitet. Das Startrezept (eigenes `--user-data-dir`, eigener Port, aktuelle `.asar`,
+Vertrauensdialog) steht im Kopf von `tools/obsidian-cdp/cdp.ts`, in der `AGENTS.md` des Dachs
+(§ Staging-Vaults) und in der README der Brücke (§ Zweitinstanz und Obsidian-CLI) und wird hier nicht
+kopiert; der Kopf von `scripts/shots.ts` hat die Befehle für dieses Repo.
 
 ```bash
 # STAGING_VAULTS_DIR muss gesetzt sein (~/.zshenv; kanonischer Ort steht in
@@ -79,18 +71,15 @@ hing an Ollama, nicht am Port.
 # ein zweiter Ort in der Doku gabelt die Konvention.
 npm run build && npm run shots -- --setup         # Vault aus dem Fixture bauen
 
-osascript -e 'quit app "Obsidian"'
-open -a Obsidian --args --remote-debugging-port=9222
-#   ... den Aufnahme-Vault öffnen und einmalig als vertrauenswürdig markieren
-
-osascript -e 'tell application "Obsidian" to activate' && npm run shots
-npm run shots -- --only hero.png                  # ein Bild nachziehen
+#   Zweitinstanz starten (Rezept s. o.), Aufnahme-Vault einmalig als vertrauenswürdig markieren
+npm run shots -- --port <port>
+npm run shots -- --port <port> --only hero.png    # ein Bild nachziehen
 npm run shots -- --list                           # Vertrag anzeigen
 ```
 
 Das Fenster muss dabei **sichtbar und unverdeckt** sein — macOS meldet ein verdecktes
 Fenster als occluded, Chromium macht daraus `visibilityState: "hidden"`, und der DOM misst
-dann nichts. Deshalb `activate` und Lauf in einem Befehl.
+dann nichts. Das Rezept holt das verbundene Fenster selbst nach vorn (`requireVisible`).
 
 ## Was die Aufnahme über das Plugin ergeben hat
 

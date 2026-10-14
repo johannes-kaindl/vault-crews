@@ -30,6 +30,8 @@
  * python3 ~/.claude/hooks/obsidian-cdp-lock.py release
  * ```
  *
+ * `--folge-gegenprobe` hängt einen Beobachter an den Strombereich, der nach jeder Änderung ans Ende scrollt (ein Plugin, das das
+ * Hochscrollen überschreibt): erwartet ist genau der Punkt „Hochscrollen wird respektiert“ rot, alle anderen unverändert.
  * `--ohne-modell` lässt den Punkt „echtes Modell“ (w11, POST an :1234) aus und führt ihn als nichts gemessen (Wellen-Regel:
  * kein Lauf schickt eine Anfrage an LM Studio/Ollama). `--keep` lässt `data.json.smoke-rettung` liegen — vor dem nächsten Lauf löschen,
  * sonst meldet „Keine liegen gebliebene Rettungskopie“ rot.
@@ -38,8 +40,11 @@
  */
 
 import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { attachTo, bereiteInstanzVor, Cdp, entferneFakeManager, installFakeManager, clearNotices, notices, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
+import { join } from "node:path";
+import { cwd } from "node:process";
+import { AbbruchAusnahme, attachTo, beimAbbruch, bereiteInstanzVor, Cdp, entferneFakeManager, installFakeManager, clearNotices, istAbgebrochen, ladePluginNeu, notices, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
 import { createBilanz, parseArgs, runDriver, Vorbedingung } from "../../tools/obsidian-cdp/bilanz.js";
+import { messeFolge, zeichneFolge } from "../../tools/obsidian-cdp/folge.js";
 import { startLlmStub, type LlmStub } from "../../tools/obsidian-cdp/llm-stub.js";
 import { capture } from "../../tools/obsidian-cdp/shot.js";
 
@@ -50,6 +55,9 @@ const PORT = Number(args.value("port") ?? "");
 const VAULT = args.has("vault") ? (args.value("vault") ?? "") : undefined;
 const KEEP = args.has("keep");
 const OHNE_MODELL = args.has("ohne-modell");
+/** Gegenprobe der Folge-Messung (README der Brücke § Folge-Messung): ein Beobachter setzt nach jeder Änderung `scrollTop = scrollHeight`,
+ *  wie ein Plugin, das ein Hochscrollen überschreibt. Erwartet: genau der Punkt „Hochscrollen wird respektiert“ wird rot. */
+const FOLGE_GEGENPROBE = args.has("folge-gegenprobe");
 
 // --- Prüfpunkte --------------------------------------------------------------
 
@@ -65,6 +73,7 @@ const P_TIMEOUT = "Welle 11 — Server schweigt von Anfang an: harter Gesamt-Tim
 const P_STALL = "Welle 11 — Server bricht nach dem ersten Chunk ab: Stall-Detektor meldet stalled";
 const P_FOLGE = "Welle 20 — Folge-Regel: Hochscrollen mitten im Strom wird respektiert";
 const P_KONTROLLE = "Welle 20 — Folge-Regel (Kontrolle): ohne Störung folgt der Strom dem Ende";
+const P_WIEDERAUFNAHME = "Welle 20 — Folge-Regel (Wiederaufnahme): steht der Nutzer wieder unten, folgt der Strom wieder";
 const P_DENKBLOCK = "Welle 20 — Denkblock live: der Denktext wächst während des Stroms, die Zusammenfassung zählt mit";
 const P_KONTROLLE_ABSATZ = "Welle 20 — Folge-Regel (Kontrolle, absatzgroße Stücke): der Strom folgt auch bei Stücken über der Schwelle";
 const N1_PUNKT = "N1 Abschnitt Request ist vorhanden, klappt auf und zeigt die Felder";
@@ -97,6 +106,7 @@ const PUNKTE = [
   "Panel — Abbrechen-Knopf liegt während eines Laufs im Leaf-Rechteck",
   P_FOLGE,
   P_KONTROLLE,
+  P_WIEDERAUFNAHME,
   P_DENKBLOCK,
   P_KONTROLLE_ABSATZ,
   "Welle 20 — Abschnitt lief bis zum Ende",
@@ -174,11 +184,11 @@ const alleUebersprungen = (namen: readonly Punktname[], reason: string): void =>
 
 /** Plugin neu laden, ohne Obsidian anzufassen — das ist der Pfad, auf dem `loadSettings`
  *  und damit die Migration läuft. */
-async function pluginNeuLaden(cdp: Cdp): Promise<void> {
+async function pluginNeuLaden(cdp: Cdp, beruhigungMs = 900): Promise<void> {
   await cdp.evaluate(`
     await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
     await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
-    await new Promise((r) => setTimeout(r, 900));
+    ${beruhigungMs > 0 ? `await new Promise((r) => setTimeout(r, ${beruhigungMs}));` : ""}
     return true;
   `);
 }
@@ -299,7 +309,7 @@ async function abschnittMigration(cdp: Cdp, dataPfad: string): Promise<void> {
 async function abschnittEinstellungen(cdp: Cdp): Promise<void> {
   const ui = await einstellungenOeffnen(cdp);
   if (!ui) {
-    skipped("Einstellungs-Tab öffnet", "Tab nicht greifbar");
+    unmeasured("Einstellungs-Tab öffnet", "Tab nicht greifbar — Gegenstand nicht erreicht");
     return;
   }
   record("Einstellungs-Tab öffnet", true, "Tab aktiv");
@@ -351,7 +361,7 @@ async function abschnittEinstellungen(cdp: Cdp): Promise<void> {
 
   const text = await tabText(ui);
   if (text === null) {
-    skipped("Kein roher Übersetzungs-Schlüssel im Tab", "Tab-Inhalt nicht gefunden");
+    unmeasured("Kein roher Übersetzungs-Schlüssel im Tab", "Tab-Inhalt nicht gefunden — Gegenstand nicht erreicht");
   } else {
     // Ein fehlender i18n-Schlüssel ist in diesem Plugin NICHT leer: `t()` fällt auf den
     // Schlüssel zurück, und `settings.connection.role.active` sieht im Tab aus wie Text.
@@ -401,7 +411,7 @@ async function abschnittDrittanbieter(cdp: Cdp): Promise<void> {
       `)
     : null;
   if (hinweis === null) {
-    skipped("Schlüssel führt zum Drittanbieter-Hinweis", "Tab-Inhalt nicht gefunden");
+    unmeasured("Schlüssel führt zum Drittanbieter-Hinweis", "Tab-Inhalt nicht gefunden — Gegenstand nicht erreicht");
   } else {
     record(
       "Schlüssel führt zum Drittanbieter-Hinweis",
@@ -642,6 +652,7 @@ async function abschnittPanel(cdp: Cdp): Promise<void> {
     await panelMessungen(cdp);
     record("Panel — Abschnitt lief bis zum Ende", true, "kein Abbruch");
   } catch (e) {
+    if (e instanceof AbbruchAusnahme || istAbgebrochen()) throw e;   // ein Abbruch ist kein Befund und wird nicht als „rot“ verbucht
     // Gemessen 2026-09-02: ein Absturz mitten im Abschnitt liess drei Pruefpunkte weg, und
     // die Schlusszeile meldete trotzdem „20/20 gemessene Pruefpunkte gruen". Nicht erreicht
     // ist nicht dasselbe wie bestanden.
@@ -733,7 +744,7 @@ async function panelMessungen(cdp: Cdp): Promise<void> {
   record("Panel — Wechsel auf den Verlauf zeichnet ihn, der inaktive Tab ist leer, zurück zeichnet die Crews neu",
     wechsel.verlauf && wechsel.crewsLeer && wechsel.zurueck,
     `Verlauf gezeichnet ${wechsel.verlauf} · Crews-Panel leer ${wechsel.crewsLeer} · Crews wieder da ${wechsel.zurueck}`);
-  // Der Abbrechen-Knopf existiert nur während eines Laufs: er wird in `w20Strom` gemessen (Lauf gegen den zentralen Stub).
+  // Der Abbrechen-Knopf existiert nur während eines Laufs: er wird in `w20Lauf` gemessen (Lauf gegen den zentralen Stub).
 
   // Ausgangslage: ohne Anlass kein Hinweis. Ohne diese Messung wäre ein Hinweis, der
   // IMMER steht, von einem korrekt erschienenen nicht zu unterscheiden.
@@ -817,6 +828,7 @@ async function abschnittWelle8(cdp: Cdp): Promise<void> {
     await w11ChatClient(cdp);
     record("Welle 8 — Abschnitt lief bis zum Ende", true, "kein Abbruch");
   } catch (e) {
+    if (e instanceof AbbruchAusnahme || istAbgebrochen()) throw e;   // ein Abbruch ist kein Befund und wird nicht als „rot“ verbucht
     record("Welle 8 — Abschnitt lief bis zum Ende", false, `abgebrochen: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
@@ -880,7 +892,7 @@ async function w8Ausblenden(cdp: Cdp): Promise<void> {
       const el = document.querySelector(${JSON.stringify(regel)});
       return el ? getComputedStyle(el).display : "kein-Explorer-Knoten";
     `);
-    if (dom === "kein-Explorer-Knoten") skipped("Welle 8 — Crew-Ordner im Explorer tatsächlich unsichtbar", "Datei-Explorer nicht offen/Ordner nicht gerendert");
+    if (dom === "kein-Explorer-Knoten") unmeasured("Welle 8 — Crew-Ordner im Explorer tatsächlich unsichtbar", "Datei-Explorer nicht offen/Ordner nicht gerendert — Gegenstand nicht erreicht");
     else record("Welle 8 — Crew-Ordner im Explorer tatsächlich unsichtbar", dom === "none", `display: ${dom}`);
     // Pop-out (Kit `folder-hide`): das aktive Dokument ist NICHT das Hauptfenster; die Regel muss
     // trotzdem im Hauptfenster stehen und darf im Pop-out nichts hinterlassen. Danach Neuladen bei
@@ -1343,6 +1355,7 @@ async function abschnittWelle14(cdp: Cdp): Promise<void> {
     await w14Abschnitt(cdp);
     record("Welle 14 — Abschnitt lief bis zum Ende", true, "kein Abbruch");
   } catch (e) {
+    if (e instanceof AbbruchAusnahme || istAbgebrochen()) throw e;   // ein Abbruch ist kein Befund und wird nicht als „rot“ verbucht
     record("Welle 14 — Abschnitt lief bis zum Ende", false, `abgebrochen: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
@@ -1350,6 +1363,24 @@ async function abschnittWelle14(cdp: Cdp): Promise<void> {
 // --- Welle 20: der Strom im Panel, gemessen gegen den zentralen Stub ---------------------------------------------
 
 const P_ABBRECHEN = "Panel — Abbrechen-Knopf liegt während eines Laufs im Leaf-Rechteck";
+
+/** Startet den Lauf und wartet, bis der Strombereich steht: mindestens 900 ms seit dem Start, dasselbe Element 300 ms lang und
+ *  schon Text darin. Gemessen 2026-10-14 (Elementwechsel von `.okit-stream-body` nach dem Start, zwei Läufe): das Panel
+ *  zeichnet den Bereich in den ersten 0,42 s dreimal neu (bei etwa 12, 15 und 416 ms, bei 19 bis 340 Zeichen „Warte auf Ausgabe …“
+ *  bzw. den ersten Stücken), danach bis zum Schluss-Draw nicht mehr. Ein Beobachter, der vor dem dritten Wechsel hängt, bekäme
+ *  ihn als Neuaufbau und wäre „nichts gemessen“ (so geschehen: Absatz-Strom, dritter Wechsel 100 ms nach der Stabilitätsbedingung).
+ *  Ein Wechsel im Strom selbst bliebe ein Befund. Zu klären beim Dach: ob `messeFolge` einen Elementwechsel VOR „bereit“ (Überlauf
+ *  ≥ 80 px) als Anlauf werten soll. */
+async function starteLaufUndWarteAufBereich(cdp: Cdp, id: string): Promise<void> {
+  await cdp.evaluate(`window.__vcBereich = { el: null, t: 0, start: performance.now() }; ${PLUGIN}.runCrew(${JSON.stringify(id)}); return true;`);
+  await pollUntil<boolean>(cdp, `
+    const el = ${PANEL}.querySelector(".okit-stream-body");
+    const w = window.__vcBereich;
+    const jetzt = performance.now();
+    if (!el) { w.el = null; return null; }
+    if (w.el !== el) { w.el = el; w.t = jetzt; return null; }
+    return jetzt - w.t >= 300 && jetzt - w.start >= 900 && (el.textContent || "").length > 40 ? true : null;`, 15_000, 100);
+}
 
 /** Welle 20 — die vier Punkte, die ohne Modell nie messbar waren (Dach-Task „Stream-Stub für GUI-Smokes“):
  *  (1) der Abbrechen-Knopf der Statuszeile liegt WÄHREND eines Laufs im Rechteck des Leaf (UI-STANDARD §4),
@@ -1362,7 +1393,7 @@ const P_ABBRECHEN = "Panel — Abbrechen-Knopf liegt während eines Laufs im Lea
  *  (Schwelle `followThreshold` 40 px plus 40 px Spielraum), und nach der Störung kommen mindestens zwei weitere Stücke.
  *  Gemessen wird `scrollTop` nach der Störung gegen `scrollTop` zur Störungszeit, nicht die Schwelle als Position; der
  *  Stub hält die Verbindung nach dem letzten Stück offen (`nachlaufMs`), Messungen nach dem Schluss-Draw zählen nicht. */
-async function w20Strom(cdp: Cdp): Promise<void> {
+async function w20Lauf(cdp: Cdp): Promise<void> {
   const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
   const id = "zz-w20";
   const ordner = "zz-w20-ordner";
@@ -1373,7 +1404,7 @@ async function w20Strom(cdp: Cdp): Promise<void> {
   const TAKT = 40;
   const zeilen = (praefix: string, n: number): string =>
     Array.from({ length: n }, (_, i) => `${praefix} ${String(i + 1).padStart(2, "0")} — ein Satz, der Platz im Strom braucht.\n`).join("");
-  const text = zeilen("Zeile", 40);
+  const text = zeilen("Zeile", 60);   // lang genug für drei Phasen (Kontrolle, Störung, Wiederaufnahme); der Hebel ist die Stublänge, nie die Schwelle
   const stub = await startLlmStub({
     models: ["fake-modell"], takt: TAKT, laenge: 10, nachlaufMs: 4 * TAKT,
     standard: { reasoning: zeilen("Denkzeile", 12), text },
@@ -1407,64 +1438,64 @@ async function w20Strom(cdp: Cdp): Promise<void> {
     // Das Crews-Panel muss der aktive Tab sein (der Fast-Path zeichnet nur dort).
     await cdp.evaluate(`${PANEL}.querySelector('.okit-hub-tab[data-tab="crews"]')?.click(); await new Promise((r) => setTimeout(r, 300)); return true;`);
 
-    // Der Lauf und die Messschleife laufen im Renderer (eine CDP-Rundreise je Sample wäre selbst ein Takt).
+    // Abbrechen-Knopf und Denkblock misst die Schleife im Renderer (eine CDP-Rundreise je Sample wäre selbst ein Takt); die
+    // Folge-Regel misst `messeFolge` der Brücke im selben Strom. Die Schleife stört den Bereich nicht (kein `scrollTop`).
     await cdp.evaluate(`
       window.__vcW20 = { fertig: false };
       (async () => {
         const w = window.__vcW20;
         const leaf = ${PANEL};
         const warte = (ms) => new Promise((r) => setTimeout(r, ms));
-        const erwartet = ${JSON.stringify(text.length)};
-        w.denk = []; w.summary = []; w.nachher = []; w.kontrolle = null; w.stoerung = null; w.cancel = null; w.gestartet = false;
-        let letzterTail = -1;
-        ${PLUGIN}.runCrew(${JSON.stringify(id)});
+        w.denk = []; w.summary = []; w.cancel = null; w.kontrolle = null; w.gestartet = false;
         const t0 = Date.now();
-        while (Date.now() - t0 < 26000) {
+        while (Date.now() - t0 < 60000) {
           if (${PLUGIN}.runActive === true) w.gestartet = true;
           if (w.gestartet && ${PLUGIN}.runActive === false) break;
           const body = leaf.querySelector(".okit-stream-body");
-          const tail = leaf.querySelector(".okit-stream-tail");
           const pre = leaf.querySelector(".okit-stream-reasoning pre");
           const sum = leaf.querySelector(".okit-stream-reasoning summary");
           if (pre && ${PLUGIN}.runActive === true) {
             const n = pre.textContent.length;
             if (w.denk[w.denk.length - 1] !== n) { w.denk.push(n); w.summary.push(sum ? sum.textContent : ""); }
           }
-          if (body && tail) {
-            const laenge = tail.textContent.length;
-            const ueberlauf = body.scrollHeight - body.clientHeight;
-            if (w.stoerung === null && ueberlauf >= 80 && laenge < erwartet) {
-              // Kontrolle: ohne Störung steht der Strom am Ende (Abstand zum Ende in px)
-              w.kontrolle = { abstand: ueberlauf - body.scrollTop, ueberlauf };
-              // Abbrechen-Knopf im Leaf-Rechteck, jetzt, wo der Inhalt groß ist
-              const knopf = leaf.querySelector(".vault-crews-cancel");
-              if (knopf) {
-                const k = knopf.getBoundingClientRect(), l = leaf.getBoundingClientRect();
-                w.cancel = { k: [k.left, k.top, k.right, k.bottom].map(Math.round), l: [l.left, l.top, l.right, l.bottom].map(Math.round),
-                  sichtbar: k.width > 0 && k.height > 0 };
-              } else { w.cancel = { fehlt: true }; }
-              // Störung: der Nutzer scrollt hoch
-              body.scrollTop = 0;
-              w.stoerung = { ueberlauf, scrollTop: body.scrollTop, laenge };
-              letzterTail = laenge;
-            } else if (w.stoerung !== null && laenge < erwartet && laenge !== letzterTail) {
-              w.nachher.push({ laenge, scrollTop: body.scrollTop, ueberlauf });
-              letzterTail = laenge;
-            }
+          if (body && w.cancel === null && body.scrollHeight - body.clientHeight >= 80) {
+            w.kontrolle = { ueberlauf: body.scrollHeight - body.clientHeight };
+            // Abbrechen-Knopf im Leaf-Rechteck, jetzt, wo der Inhalt groß ist
+            const knopf = leaf.querySelector(".vault-crews-cancel");
+            if (knopf) {
+              const k = knopf.getBoundingClientRect(), l = leaf.getBoundingClientRect();
+              w.cancel = { k: [k.left, k.top, k.right, k.bottom].map(Math.round), l: [l.left, l.top, l.right, l.bottom].map(Math.round),
+                sichtbar: k.width > 0 && k.height > 0 };
+            } else { w.cancel = { fehlt: true }; }
           }
           await warte(40);
         }
         w.fertig = true;
       })();
       return true;`);
+    let fehlerFolge = "";
+    if (FOLGE_GEGENPROBE) {
+      await cdp.evaluate(`
+        window.__vcGegenprobe?.disconnect();
+        window.__vcGegenprobe = new MutationObserver(() => {
+          const el = ${PANEL}?.querySelector(".okit-stream-body");
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+        window.__vcGegenprobe.observe(document.body, { childList: true, characterData: true, subtree: true });
+        return true;`);
+    }
+    await starteLaufUndWarteAufBereich(cdp, id);
+    const folge = await messeFolge(cdp, {
+      ausdruck: `${PANEL}.querySelector(".okit-stream-body")`,
+      laeuft: () => cdp.evaluate<boolean>(`return ${PLUGIN}.runActive === true;`),
+      wiederaufnahme: true,
+    }).catch((e: unknown) => { fehlerFolge = e instanceof Error ? e.message : String(e); return null; });
     const w = await pollUntil<{
       gestartet: boolean;
       denk: number[]; summary: string[];
-      kontrolle: { abstand: number; ueberlauf: number } | null;
-      stoerung: { ueberlauf: number; scrollTop: number; laenge: number } | null;
-      nachher: { laenge: number; scrollTop: number; ueberlauf: number }[];
+      kontrolle: { ueberlauf: number } | null;
       cancel: { k?: number[]; l?: number[]; sichtbar?: boolean; fehlt?: boolean } | null;
-    }>(cdp, `return window.__vcW20?.fertig ? window.__vcW20 : null;`, 40_000, 500).catch(() => null);
+    }>(cdp, `return window.__vcW20?.fertig ? window.__vcW20 : null;`, 70_000, 500).catch(() => null);
     const fertig = await wartetAuf(cdp, `${PLUGIN}.lastRuns[${JSON.stringify(id)}] && ${PLUGIN}.runActive === false`, 20000);
     if (fertig) {
       const info = await cdp.evaluate<{ runId: string }>(`return ${PLUGIN}.lastRuns[${JSON.stringify(id)}];`);
@@ -1494,19 +1525,11 @@ async function w20Strom(cdp: Cdp): Promise<void> {
         `${w.denk.length} Samples, Denktext ${w.denk[0]} → ${w.denk[w.denk.length - 1]} Zeichen · Zusammenfassung „${String(w.summary[0])}“ → „${String(w.summary[w.summary.length - 1])}“`);
     }
 
-    // (3)/(4) Folge-Regel. Ohne Überlauf ≥ 80 px zur Störungszeit ist nichts gemessen.
-    if (!w || w.kontrolle === null || w.stoerung === null) {
-      unmeasured(P_KONTROLLE, w ? "der Überlauf erreichte 80 px nie, solange noch Stücke kamen" : keinLauf);
-      unmeasured(P_FOLGE, w ? "der Überlauf erreichte 80 px nie, solange noch Stücke kamen" : keinLauf);
+    // (3)/(4)/(5) Folge-Regel: Kontrolle, Störung, Wiederaufnahme. Ungültige Messung ist „nichts gemessen“ (CORE-TEST-22).
+    if (folge === null) {
+      for (const n of [P_KONTROLLE, P_FOLGE, P_WIEDERAUFNAHME] as const) unmeasured(n, `Folge-Messung nicht zustande gekommen: ${fehlerFolge || keinLauf}`);
     } else {
-      record(P_KONTROLLE, w.kontrolle.abstand <= 5, `Abstand zum Ende ${Math.round(w.kontrolle.abstand)} px bei Überlauf ${Math.round(w.kontrolle.ueberlauf)} px (Soll ≤ 5)`);
-      if (w.nachher.length < 2) {
-        unmeasured(P_FOLGE, `nach der Störung kamen nur ${w.nachher.length} Stück(e) (mindestens 2 nötig)`);
-      } else {
-        const wanderte = w.nachher.filter((n) => n.scrollTop > w.stoerung!.scrollTop + 2);
-        record(P_FOLGE, wanderte.length === 0,
-          `Störung bei Überlauf ${Math.round(w.stoerung.ueberlauf)} px (scrollTop ${w.stoerung.scrollTop}); danach ${w.nachher.length} Stücke, scrollTop ${w.nachher.map((n) => Math.round(n.scrollTop)).join("/")}`);
-      }
+      zeichneFolge(bilanz, { kontrolle: P_KONTROLLE, folge: P_FOLGE, wiederaufnahme: P_WIEDERAUFNAHME }, folge);
     }
   } finally {
     await stub.stop();
@@ -1519,6 +1542,7 @@ async function w20Strom(cdp: Cdp): Promise<void> {
       }
       delete ${PLUGIN}.lastRuns[${JSON.stringify(id)}];
       delete window.__vcW20;
+      window.__vcGegenprobe?.disconnect(); delete window.__vcGegenprobe;
       return true;`).catch(() => undefined);
   }
 }
@@ -1528,7 +1552,7 @@ async function w20Strom(cdp: Cdp): Promise<void> {
  *  dem ersten solchen Stück auf zu folgen (Befund kuro-w20) — auf dem Pin 0.57.0 ist dieser Punkt deshalb ROT (erwartet),
  *  ab 0.59.0 grün: er belegt, dass der Kit-Fix im Plugin ankommt. Gültig erst, wenn der Überlauf ≥ 80 px erreicht ist und
  *  danach mindestens drei weitere Stücke kamen; gemessen wird der Abstand zum Ende NACH jedem Stück (Soll ≤ 5 px). */
-async function w20Absatz(cdp: Cdp): Promise<void> {
+async function w20AbsatzLauf(cdp: Cdp): Promise<void> {
   const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
   const id = "zz-w20a";
   const ordner = "zz-w20a-ordner";
@@ -1562,49 +1586,22 @@ async function w20Absatz(cdp: Cdp): Promise<void> {
       return true;`);
     await wartetAuf(cdp, `app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(teamPfad)}))?.frontmatter && app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(agentPfad)}))?.frontmatter`, 8000);
     await cdp.evaluate(`${PANEL}.querySelector('.okit-hub-tab[data-tab="crews"]')?.click(); await new Promise((r) => setTimeout(r, 300)); return true;`);
-    await cdp.evaluate(`
-      window.__vcW20a = { fertig: false, proben: [], gueltigAb: null, gestartet: false };
-      (async () => {
-        const w = window.__vcW20a;
-        const leaf = ${PANEL};
-        const erwartet = ${JSON.stringify(stuecke.join("").length)};
-        let letzter = -1;
-        ${PLUGIN}.runCrew(${JSON.stringify(id)});
-        const t0 = Date.now();
-        while (Date.now() - t0 < 20000) {
-          if (${PLUGIN}.runActive === true) w.gestartet = true;
-          if (w.gestartet && ${PLUGIN}.runActive === false) break;
-          const body = leaf.querySelector(".okit-stream-body");
-          const tail = leaf.querySelector(".okit-stream-tail");
-          if (body && tail) {
-            const laenge = tail.textContent.length;
-            const ueberlauf = body.scrollHeight - body.clientHeight;
-            if (laenge !== letzter && laenge < erwartet) {
-              letzter = laenge;
-              if (w.gueltigAb === null && ueberlauf >= 80) w.gueltigAb = laenge;
-              if (w.gueltigAb !== null) w.proben.push({ laenge, abstand: Math.round(ueberlauf - body.scrollTop) });
-            }
-          }
-          await new Promise((r) => setTimeout(r, 30));
-        }
-        w.fertig = true;
-      })();
-      return true;`);
-    const w = await pollUntil<{ gestartet: boolean; gueltigAb: number | null; proben: { laenge: number; abstand: number }[] }>(
-      cdp, `return window.__vcW20a?.fertig ? window.__vcW20a : null;`, 30_000, 500).catch(() => null);
+    // Nur die Kontrolle: absatzgroße Stücke (jedes über der Folge-Schwelle), ohne Störung und Wiederaufnahme — die misst
+    // `w20Lauf` am selben Bereich mit tokengroßen Stücken.
+    let fehlerFolge = "";
+    await starteLaufUndWarteAufBereich(cdp, id);
+    const folge = await messeFolge(cdp, {
+      ausdruck: `${PANEL}.querySelector(".okit-stream-body")`,
+      laeuft: () => cdp.evaluate<boolean>(`return ${PLUGIN}.runActive === true;`),
+      stoerung: false,
+    }).catch((e: unknown) => { fehlerFolge = e instanceof Error ? e.message : String(e); return null; });
     const fertig = await wartetAuf(cdp, `${PLUGIN}.lastRuns[${JSON.stringify(id)}] && ${PLUGIN}.runActive === false`, 20000);
     if (fertig) {
       const info = await cdp.evaluate<{ runId: string }>(`return ${PLUGIN}.lastRuns[${JSON.stringify(id)}];`);
       runDir = `${root}/runs/${info.runId}`;
     }
-    if (!w || !w.gestartet) unmeasured(P_KONTROLLE_ABSATZ, "kein Lauf zustande gekommen");
-    else if (w.gueltigAb === null || w.proben.length < 3) {
-      unmeasured(P_KONTROLLE_ABSATZ, `der Überlauf erreichte 80 px nicht, oder weniger als drei Stücke danach (${w.proben.length})`);
-    } else {
-      const weg = w.proben.filter((x) => x.abstand > 5);
-      record(P_KONTROLLE_ABSATZ, weg.length === 0,
-        `${w.proben.length} Stücke nach Überlauf ≥ 80 px, Abstand zum Ende ${w.proben.map((x) => x.abstand).join("/")} px (Soll ≤ 5)`);
-    }
+    if (folge === null) unmeasured(P_KONTROLLE_ABSATZ, `Folge-Messung nicht zustande gekommen: ${fehlerFolge || "kein Lauf"}`);
+    else zeichneFolge(bilanz, { kontrolle: P_KONTROLLE_ABSATZ }, folge);
   } finally {
     await stub.stop();
     await cdp.evaluate(`
@@ -1622,10 +1619,11 @@ async function w20Absatz(cdp: Cdp): Promise<void> {
 
 async function abschnittWelle20(cdp: Cdp): Promise<void> {
   try {
-    await w20Strom(cdp);
-    await w20Absatz(cdp);
+    await w20Lauf(cdp);
+    await w20AbsatzLauf(cdp);
     record("Welle 20 — Abschnitt lief bis zum Ende", true, "kein Abbruch");
   } catch (e) {
+    if (e instanceof AbbruchAusnahme || istAbgebrochen()) throw e;   // ein Abbruch ist kein Befund und wird nicht als „rot“ verbucht
     record("Welle 20 — Abschnitt lief bis zum Ende", false, `abgebrochen: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
@@ -1849,6 +1847,7 @@ async function abschnittWelle15(cdp: Cdp, dataPfad: string): Promise<void> {
     await w15Laeufe(cdp);
     record("Welle 15 — Abschnitt lief bis zum Ende", true, "kein Abbruch");
   } catch (e) {
+    if (e instanceof AbbruchAusnahme || istAbgebrochen()) throw e;   // ein Abbruch ist kein Befund und wird nicht als „rot“ verbucht
     record("Welle 15 — Abschnitt lief bis zum Ende", false, `abgebrochen: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
@@ -1897,6 +1896,20 @@ async function main(): Promise<void> {
     await requireVisible(cdp);
   } catch (e) {
     cdp.close();
+    if (e instanceof AbbruchAusnahme) throw e;
+    throw new Vorbedingung(e instanceof Error ? e.message : String(e));
+  }
+
+  // Läuft dieser Lauf gegen den eigenen Stand? Der Store-Build trägt dieselbe Versionsnummer; `ladePluginNeu` prüft mit
+  // `repoMainJs` vor dem Reload, dass `main.js` im Vault der frisch gebaute Repo-Stand ist (CORE-TEST-08 a), und stellt
+  // danach die Version auf der Platte neben die im Speicher (Obsidian hält den zuvor geladenen Stand).
+  try {
+    const neu = await ladePluginNeu(cdp, PLUGIN_ID, { repoMainJs: join(cwd(), "main.js") });
+    console.log(neu.hinweis);
+    if (!neu.geladen || !neu.aktuell) throw new Error(neu.hinweis);
+  } catch (e) {
+    cdp.close();
+    if (e instanceof AbbruchAusnahme) throw e;
     throw new Vorbedingung(e instanceof Error ? e.message : String(e));
   }
 
@@ -1929,46 +1942,47 @@ async function main(): Promise<void> {
   const vorwert = existsSync(dataPfad) ? readFileSync(dataPfad) : null;
   if (vorwert) copyFileSync(dataPfad, rettung);
 
-  // Die Rettungskopie oben ist die Absicherung GEGEN einen SIGKILL/Absturz (von Hand
-  // wiederherstellbar); dieser Handler ist die Absicherung FUER den haeufigeren Fall SIGINT
-  // (Ctrl-C) — er schreibt automatisch zurueck, statt nur eine Kopie liegen zu lassen, die
-  // jemand erst finden und von Hand einspielen muss. `writeFileSync` ist synchron und lief
-  // schon VOR diesem Handler unbedingt — das Risiko ist also nicht die Datei selbst, sondern
-  // dass ohne Handler NIEMAND automatisch zurueckschreibt.
-  let signalCleanupRunning = false;
-  const onAbortSignal = (signal: NodeJS.Signals): void => {
-    if (signalCleanupRunning) return;
-    signalCleanupRunning = true;
-    console.log(`\n\nAbbruch durch ${signal} — schreibe data.json zurueck...`);
+  // Alles, was dieser Lauf am Wirt verändert, räumt EIN Schritt zurück: der Normalweg im `finally` (`zustand.schliesse()`),
+  // Ctrl-C/SIGTERM über das Abbruch-Modul der Brücke (Hauptzweig gesperrt, dieser Schritt darf noch senden, danach Bilanz,
+  // Exit 130). Die Rettungskopie oben bleibt die Absicherung GEGEN SIGKILL/Absturz (von Hand einspielbar).
+  // Vier Sorten Zustand: data.json (Node-Seite, Migrations-Fixtur), Plugin-Einstellungen im Speicher (der Reload aus der
+  // zurückgeschriebenen data.json), neue Dateien und Ordner im Vault (alles, was nach dem Start dazukam: Teams, Agents,
+  // Notizen, Läufe) und der Fake-Manager im Slot. Der Hauptzweig kann nach dem Signal nicht mehr schreiben (Sperre), der alte
+  // zweite Vergleich „NACH dem Reload“ entfällt. Im Abbruch wird nicht gewartet (Frist je Schritt 1 s).
+  const dateienVorher = await cdp.evaluate<string[]>(`return app.vault.getAllLoadedFiles().map((f) => f.path);`);
+  const zustandZurueck = async (): Promise<void> => {
+    const imAbbruch = istAbgebrochen();
+    await entferneFakeManager(cdp).catch(() => undefined);
+    // Ein Crew-Lauf, der beim Signal im Plugin läuft, schreibt nach dem Ende des Treibers weiter (run.md, `lastRuns` und, über
+    // `saveSettings` der alten Instanz, die Stub-Endpunkte in data.json) und überschriebe die Rückstellung. Gemessen 2026-10-14:
+    // kill -INT im Strom-Abschnitt, danach stand `lastRuns.zz-w20` und die Stub-URL in data.json. Deshalb zuerst abbrechen und
+    // höchstens 400 ms auf das Ende des Laufs warten (Frist des Schritts 1 s).
+    await cdp.evaluate(`
+      const p = ${PLUGIN};
+      if (p && p.runActive) {
+        p.abortCurrentRun();
+        for (let i = 0; i < 16 && p.runActive; i++) await new Promise((r) => setTimeout(r, 25));
+      }
+      return true;`).catch(() => undefined);
+    await cdp.evaluate(`
+      const vorher = new Set(${JSON.stringify(dateienVorher)});
+      const neu = app.vault.getAllLoadedFiles().filter((f) => f.path !== "/" && !vorher.has(f.path)).map((f) => f.path)
+        .sort((a, b) => b.length - a.length);
+      for (const p of neu) {
+        const f = app.vault.getAbstractFileByPath(p);
+        if (f) await app.vault.delete(f, true);
+      }
+      app.setting.close();
+      return neu.length;`).catch(() => undefined);
     if (vorwert) {
       writeFileSync(dataPfad, vorwert);
-      const jetzt = readFileSync(dataPfad);
-      console.log(jetzt.equals(vorwert) ? "data.json zurueckgeschrieben: byte-gleich" : "data.json ABWEICHUNG — Rettungskopie bleibt liegen: " + rettung);
+      await pluginNeuLaden(cdp, imAbbruch ? 0 : 900).catch(() => undefined);
+      const gleich = existsSync(dataPfad) && readFileSync(dataPfad).equals(vorwert);
+      console.log(gleich ? "\ndata.json zurueckgeschrieben: byte-gleich" : "\ndata.json ABWEICHUNG — Rettungskopie bleibt liegen: " + rettung);
+      if (gleich && !KEEP && existsSync(rettung)) rmSync(rettung);
     }
-    void (async () => {
-      // Der try-Zweig kann NACH dem synchronen writeFileSync oben noch weiterlaufen (er
-      // merkt vom Signal nichts, bis der Node-Event-Loop wieder frei ist) — schreibt
-      // abschnittMigration in diesem Zeitfenster seine Fixtur erneut nach data.json, waere
-      // die Rettungskopie schon geloescht, waehrend die Datei erneut kaputt ist. Deshalb
-      // NACH dem await hier nochmal gegen `vorwert` pruefen und im Zweifel ERNEUT
-      // zurueckschreiben; geloescht wird die Rettungskopie nur, wenn der Endzustand passt
-      // (gemeldeter Fund: Master-Review 2026-09-17, ctrlc-w7b).
-      await pluginNeuLaden(cdp).catch(() => undefined);
-      if (vorwert) {
-        const nochmal = existsSync(dataPfad) ? readFileSync(dataPfad) : null;
-        if (nochmal === null || !nochmal.equals(vorwert)) {
-          writeFileSync(dataPfad, vorwert);
-          console.log("data.json erneut zurueckgeschrieben (try lief nach dem Signal weiter)");
-        }
-        const endstand = readFileSync(dataPfad);
-        if (endstand.equals(vorwert) && !KEEP && existsSync(rettung)) rmSync(rettung);
-      }
-      cdp.close();
-      process.exit(130);
-    })();
   };
-  process.on("SIGINT", onAbortSignal);
-  process.on("SIGTERM", onAbortSignal);
+  const zustand = beimAbbruch(zustandZurueck, "Wirt-Zustand zurücksetzen (data.json, Plugin neu laden, neue Vault-Dateien, Fake-Manager)");
 
   try {
     if (vorwert) {
@@ -1997,20 +2011,9 @@ async function main(): Promise<void> {
     await abschnittWelle15(cdp, dataPfad);
     await abschnittWelle20(cdp);
   } finally {
-    // Zurueckschreiben und das Ergebnis MESSEN statt darauf vertrauen.
-    if (vorwert) {
-      writeFileSync(dataPfad, vorwert);
-      await pluginNeuLaden(cdp);
-      const jetzt = readFileSync(dataPfad);
-      const gleich = jetzt.equals(vorwert);
-      console.log(
-        gleich
-          ? "\ndata.json zurueckgeschrieben: byte-gleich"
-          : "\ndata.json ABWEICHUNG — Rettungskopie bleibt liegen: " + rettung,
-      );
-      if (gleich && !KEEP && existsSync(rettung)) rmSync(rettung);
-    }
-    await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
+    // Zurueckschreiben und das Ergebnis MESSEN statt darauf vertrauen; nach einem Abbruch räumt das Modul auf.
+    await zustand.schliesse();
+    if (istAbgebrochen()) return;
 
     // Die Abschlusszeile trägt alle vier Zustände: ein übersprungener oder nie gemessener Punkt
     // gehört IN sie, sonst wird aus „13/13 grün" beim Zitieren ein bestandener Smoke, obwohl ein
@@ -2021,10 +2024,6 @@ async function main(): Promise<void> {
     }
     void ende;
     cdp.close();
-    // Abmelden, sonst haengt ein SPAETES Signal (nach normalem Abschluss, cdp schon zu) den
-    // Prozess in onAbortSignal an einer toten Verbindung auf.
-    process.off("SIGINT", onAbortSignal);
-    process.off("SIGTERM", onAbortSignal);
   }
 }
 

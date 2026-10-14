@@ -6,41 +6,27 @@ mechanisch entscheidbar ist; „sieht gut aus" bleibt beim Menschen.
 
 ## Automatisiert — `npm run smoke:gui -- --vault <name>`
 
-⚠️ **Zuerst prüfen, wer sonst an Obsidian hängt.** Obsidian ist Single-Instance — ein
-`quit` trifft die Instanz, an der möglicherweise eine andere Session arbeitet, und zerstört
-deren Zustand. Der eigene Lauf ist danach sauber grün; der Schaden entsteht woanders und
-fällt nicht auf.
+⚠️ **Der Smoke läuft in einer Zweitinstanz, nie in der regulären Instanz.** Obsidian ist geteilte
+Infrastruktur: ein `quit` oder `activate` trifft die Instanz, an der möglicherweise eine andere Session
+arbeitet. Das Startrezept (eigenes `--user-data-dir`, eigener Port, aktuelle `.asar`,
+Vertrauensdialog) steht im Kopf von `tools/obsidian-cdp/cdp.ts`, in der `AGENTS.md` des Dachs
+(§ Staging-Vaults) und in der README der Brücke (§ Zweitinstanz und Obsidian-CLI) und wird hier nicht
+kopiert. Der Treiber (`scripts/gui-smoke.ts`) hängt sich per Chrome DevTools Protocol an diese Instanz;
+der Kopf der Datei hat die Befehle für dieses Repo. Danach den Stand bauen und einspielen:
 
 ```bash
-lsof -nP -iTCP:9222 -sTCP:LISTEN >/dev/null && echo "läuft bereits — NICHT beenden"
-```
-
-Hört der Port schon, dann **mitnutzen statt neu starten**: ein eigenes Fenster per
-`vault-open` über IPC öffnen, dann `attachTo("workspace", port, vault)` — der Vault-Name
-wählt, nicht die Reihenfolge. ⚠️ Die Port-Prüfung ersetzt die Frage nicht: sie zeigt aktive
-CDP-Treiber, aber nicht, wer ein Fenster offen hält oder auf den Port wartet.
-
-Erst wenn nichts läuft — oder nach Absprache mit dem, der es benutzt — gilt das Rezept unten.
-
-Der Treiber (`scripts/gui-smoke.ts`) hängt sich per Chrome DevTools Protocol an ein
-**laufendes** Obsidian. Voraussetzung:
-
-```bash
-osascript -e 'quit app "Obsidian"'
-open -a Obsidian --args --remote-debugging-port=9222
-OBSIDIAN_PLUGIN_DIR="<vault>/.obsidian/plugins/vault-crews" npm run deploy
+OBSIDIAN_PLUGIN_DIR="$STAGING_VAULTS_DIR/vault-crews/.obsidian/plugins/vault-crews" npm run deploy
 ```
 
 > **Das Fenster muss sichtbar sein — und zwar unverdeckt.** macOS meldet ein vollständig
 > verdecktes Fenster als *occluded*, und Chromium macht daraus `visibilityState: "hidden"`;
-> der DOM misst dann nichts. Ein Terminal im Vollbild über Obsidian genügt dafür. Der
-> Treiber bricht in dem Fall **mit Ansage ab** (Exit-Code 2) statt rote Prüfpunkte zu
-> melden — „ich konnte nicht messen" ist kein Befund am Prüfling. Deshalb `activate` und
-> Lauf in **einem** Befehl, nicht in zweien:
->
-> ```bash
-> osascript -e 'tell application "Obsidian" to activate' && sleep 3 && npm run smoke:gui -- --vault 10_Pallas
-> ```
+> der DOM misst dann nichts. Der Treiber holt das verbundene Fenster selbst nach vorn
+> (`requireVisible`) und bricht, wenn das nicht gelingt, **mit Ansage ab** (Exit-Code 2)
+> statt rote Prüfpunkte zu melden — „ich konnte nicht messen" ist kein Befund am Prüfling.
+> Der Treiber prüft außerdem vor dem ersten Punkt, dass `main.js` im Vault der gebaute
+> Repo-Stand ist (`ladePluginNeu` mit `repoMainJs`); sonst bricht er ebenfalls ab.
+> Ctrl-C räumt auf (Abbruch-Modul der Brücke): `data.json` zurück, neue Vault-Dateien weg,
+> Bilanz mit „nichts gemessen“ für die nicht erreichten Punkte, Exit 130.
 
 > **Den Exit-Code des Deploys prüfen.** `npm run deploy` baut mit `tsc --noEmit` davor:
 > bei einem Typfehler bricht es ab und die **alte** `main.js` bleibt im Vault liegen — der

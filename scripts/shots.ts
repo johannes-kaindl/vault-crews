@@ -51,6 +51,7 @@ import {
   closeExtraLeaves,
   openExisting,
   pollUntil,
+  requireUntil,
   requireVisible,
   setAppConfig,
   setPluginSetting,
@@ -342,10 +343,11 @@ const SHOTS: Shot[] = [
       }
       // Die Zeile lädt ihre Modell-Liste beim Öffnen selbst; auf Ruhe warten statt auf
       // eine Sekundenzahl.
-      await pollUntil<boolean>(ui, `
+      // Ohne Ruhe wäre das Bild ein halb gezeichneter Tab: ein Timeout bricht ab (requireUntil), er nimmt nicht auf.
+      await requireUntil(ui, `(() => {
         const box = document.querySelector(".okit-ep-row, .vertical-tab-content");
         return !!box && box.getBoundingClientRect().height > 100;
-      `, 15_000, 300);
+      })()`, "Einstellungs-Tab nicht zur Ruhe gekommen (Box-Höhe <= 100)");
       const box = await boxOf(ui, ".vertical-tab-content", 0);
       if (!box) return null;
       // Nur der obere Teil: die Verbindungs-Gruppe ist die Aussage, die restliche Seite
@@ -420,11 +422,15 @@ const SHOTS: Shot[] = [
       await setAppConfig(cdp, "propertiesInDocument", "source");
       if (!(await openExisting(cdp, log, "source"))) return null;
       await closeExtraLeaves(cdp);
-      await pollUntil<boolean>(cdp, `
+      // Die Aussage ist das ABGESCHLOSSENE Protokoll (status, writes, llm_calls, duration_s): `status:` steht schon im Frontmatter
+      // eines laufenden Laufs (`status: running`, `llm_calls: 0`), `ended:` erst nach dem Ende. Gemessen 2026-10-14: im vollen
+      // Lauf nimmt `hero.png` einen Lauf auf, der beim Bild `run-log.png` noch läuft, und die Bedingung `status:` wurde sofort wahr.
+      // Ein Timeout bricht ab (requireUntil) statt ein unfertiges Bild zu nehmen.
+      await requireUntil(cdp, `(() => {
         const el = [...document.querySelectorAll(".markdown-source-view")]
           .filter((e) => e.getBoundingClientRect().width > 1)[0];
-        return !!el && el.textContent.includes("status:");
-      `, 15_000, 300);
+        return !!el && el.textContent.includes("ended:");
+      })()`, "run.md trägt kein ended: — der Lauf ist nicht zu Ende", 60_000, 500);
       const rahmen = await boxOf(cdp, ".workspace-split.mod-root", 0);
       if (!rahmen) return null;
       // Auf das Seitenverhaeltnis der Klasse begrenzen (feature: H/B <= 1.6). Die Kante
