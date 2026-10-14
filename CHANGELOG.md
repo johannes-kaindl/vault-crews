@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Kit pins raised to `obsidian-kit` 0.60.1 and `code-kit` 0.27.1 (from 0.59.1 and 0.24.0). Visible effects of the skipped releases (obsidian-kit 0.60.0, 0.60.1; code-kit 0.25.0, 0.26.0, 0.27.0, 0.27.1): a hint about discarded request settings lists them sorted instead of in stored order; the endpoint picker keeps the reason when an explicitly chosen endpoint is switched off or has no token (see the notice change below). Nothing else in the copied building blocks reaches this plugin.
+
 ### Added
 
 - **Command "Show crew folder in the file explorer".** Takes you to the crew root so you can share a crew by copying its files (a crew is Markdown; there is no import or export dialog by design). If the folder is hidden by the "Hide crew folder" setting, or does not exist yet, the command says so.
