@@ -18,7 +18,7 @@ import {
   type App,
   type WorkspaceLeaf,
 } from "obsidian";
-import { pickLang, setLang, t } from "./vendor/kit/i18n";
+import { pickLang, setLang, getLang, t } from "./vendor/kit/i18n";
 import { normalizeEndpoint } from "./vendor/kit/endpoint";
 import type { ModelContext } from "./vendor/kit/model-context";
 import {
@@ -45,6 +45,7 @@ import {
   type RunSummary,
 } from "./obsidian/panel";
 import { runNoticeText } from "./obsidian/panel-view-model";
+import { managerErrorText, resolveLlmConnectionStrings } from "./vendor/kit-obsidian/llm-connection-strings";
 import { RecoveryModal, checkOrphanedRun } from "./obsidian/recovery";
 import { revealCrewFolder } from "./obsidian/reveal-crew-folder";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
@@ -357,6 +358,13 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     return [r.model !== "" ? { ...r.config, model: r.model } : r.config];
   }
 
+  /** Der Grund, aus dem der Manager keinen Endpunkt liefert (`no-endpoint`, `not-found`, `disabled`, `secret-missing`,
+   *  `unreachable`) — nur wenn er wirklich keinen geliefert hat. */
+  private managerRefusalReason(): string | null {
+    const s = this.managerSource;
+    return s !== null && s.config === null && s.reason !== undefined ? s.reason : null;
+  }
+
   /** Was der Abschnitt „Anfrage" über Familie, Backend und gesendetes Modell sagt: was der letzte
    *  Lauf (oder `refreshRequestSource`) aufgelöst hat. Vor dem ersten Lauf ist es leer. */
   requestSectionState(): RequestSectionState {
@@ -505,6 +513,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
         crewRoot: this.settings.crewRoot,
         configDir: this.app.vault.configDir,
         endpoints: await this.effectiveEndpoints(),
+        ...(this.managerRefusalReason() ? { endpointHint: this.managerRefusalReason() as string } : {}),
         deniedEndpoints: this.settings.deniedEndpoints,
         limits: this.buildLimits(),
         undoHistoryDepth: this.settings.undoHistoryDepth,
@@ -560,7 +569,8 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
   /** Notice nach dem Lauf, mit Klick-Weg zum Protokoll (run.md) dieses Laufs — ohne den
    *  sieht „0 Dateien“ gleich aus, egal ob die Quelle leer war oder das Modell schwieg. */
   private showRunNotice(teamId: string, result: RunResult): void {
-    const text = runNoticeText(this.teamName(teamId), result);
+    const reason = this.managerRefusalReason();
+    const text = runNoticeText(this.teamName(teamId), result, reason ? managerErrorText(resolveLlmConnectionStrings({ lang: getLang() === "de" ? "de" : "en" }), reason) : null);
     new Notice(noticeWithLink(text, t("notice.run.openLog"), () => { this.openCrewLog(teamId); }), NOTICE_WITH_LINK_MS);
   }
 

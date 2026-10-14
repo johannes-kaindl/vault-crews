@@ -44,6 +44,8 @@ export interface RunDeps {
 		crewRoot: string;
 		configDir: string;
 		endpoints: EndpointConfig[];
+		/** Warum der LLM Endpoint Manager keinen Endpunkt liefert (z. B. `secret-missing`); nur Protokolltext. */
+		endpointHint?: string;
 		deniedEndpoints: string[];
 		limits: RunLimits;
 		undoHistoryDepth: number;
@@ -173,7 +175,10 @@ class RunFsm {
 		const denied = new Set(this.deps.settings.deniedEndpoints.map(normalizeEndpoint));
 		const candidates = this.deps.settings.endpoints.filter((e) => !denied.has(normalizeEndpoint(e.url)));
 		const active = await resolveActiveEndpointConfig(candidates, (cfg) => this.deps.llm.ping(cfg));
-		if (active === null) return { kind: 'endpoint_unreachable', message: 'Kein erreichbarer LLM-Endpoint' };
+		if (active === null) {
+			const hint = this.deps.settings.endpointHint;
+			return { kind: 'endpoint_unreachable', message: hint ? `Kein erreichbarer LLM-Endpoint (${hint})` : 'Kein erreichbarer LLM-Endpoint' };
+		}
 		this.activeEndpoint = active;
 		// Das Modell, auf dem der Lauf standardmäßig rechnet — es gehört jetzt zur Leitung,
 		// nicht mehr zu einem globalen Feld. Einzelne Tasks können davon abweichen, wenn ihr

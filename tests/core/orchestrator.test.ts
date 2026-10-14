@@ -483,6 +483,14 @@ describe('executeRun — preflight refusals', () => {
     expect(h.snapshot.finalized).toEqual([]);
   });
 
+  it('Grund des Managers (endpointHint) steht im Protokoll der Verweigerung', async () => {
+    const h = await harness({ settings: { endpoints: [], endpointHint: 'secret-missing' } });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.errorKind).toBe('endpoint_unreachable');
+    const runMd = await h.vault.read(`_crews/runs/${result.runId}/run.md`);
+    expect(runMd).toContain('Kein erreichbarer LLM-Endpoint (secret-missing)');
+  });
+
   it('model missing → refused model_missing', async () => {
     const h = await harness({ settings: { endpoints: [{ url: 'http://localhost:1234', model: 'ghost-model' }] } });
     const result = await executeRun(h.teamPath, h.deps);

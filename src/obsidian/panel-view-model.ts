@@ -347,8 +347,11 @@ function lastRunReason(last: { status: RunStatus; errorKind?: ErrorKind | null; 
 /** Text der Notice nach einem Lauf. Ein Lauf ohne Schreibvorgang, dessen Collector nichts
  *  fand, nennt diese Ursache statt „0 Dateien geschrieben“ — sonst sieht „Quelle leer“
  *  aus wie „Modell hat sich enthalten“. */
-export function runNoticeText(teamName: string, result: RunResult): string {
-  const reason = result.errorKind !== null ? t(`notice.errorKind.${result.errorKind}`) : t("notice.errorKind.io");
+export function runNoticeText(teamName: string, result: RunResult, endpointReason?: string | null): string {
+  // `endpointReason`: der Grund, den der LLM Endpoint Manager für „kein Endpunkt“ nennt (Text je Fehlercode, Kit
+  // `managerErrorText`). Er ersetzt nur die allgemeine Zeile „Start LM Studio …“, nie die Ursache eines anderen Fehlers.
+  const generic = result.errorKind !== null ? t(`notice.errorKind.${result.errorKind}`) : t("notice.errorKind.io");
+  const reason = result.errorKind === "endpoint_unreachable" && endpointReason ? endpointReason : generic;
   switch (result.status) {
     case "ok":
     case "partial":

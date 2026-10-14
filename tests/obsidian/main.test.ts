@@ -14,6 +14,7 @@ import { executeRun } from "../../src/core/orchestrator";
 import type { RunResult } from "../../src/core/types";
 import type { LlmClient } from "../../src/core/ports";
 import VaultCrewsPlugin from "../../src/main";
+import { LLM_CONNECTION_STRINGS_EN, managerErrorText } from "../../src/vendor/kit-obsidian/llm-connection-strings";
 
 vi.mock("../../src/core/orchestrator", () => ({ executeRun: vi.fn() }));
 
@@ -501,3 +502,45 @@ describe("VaultCrewsPlugin — API-Schluessel im Schluesselbund", () => {
     expect(passed).toEqual([expect.objectContaining({ url: "http://gw:1", apiKey: KEY, model: "m" })]);
   });
 });
+
+describe("Grund des LLM Endpoint Managers in der Verweigerung", () => {
+  function fakeManager(over: Record<string, unknown>) {
+    const m = {
+      version: 1, list: () => [], get: () => null, models: async () => [], importEndpoints: async () => ({ added: [], merged: [], skipped: [] }),
+      on: () => () => {}, resolve: async () => ({ error: "no-endpoint" }), materialize: async () => ({ error: "no-endpoint" }), ...over,
+    };
+    return m;
+  }
+  async function pluginWith(manager: unknown, choice: { endpointId?: string } = {}) {
+    const app = makeFakeApp() as unknown as { plugins: unknown };
+    app.plugins = { plugins: { "llm-endpoint-manager": { api: manager } } };
+    const plugin = new VaultCrewsPlugin(app as unknown as App, MANIFEST);
+    await plugin.onload();
+    (plugin as unknown as { settings: { choice: unknown } }).settings.choice = choice;
+    await plugin.effectiveEndpoints();
+    return plugin as unknown as { managerRefusalReason(): string | null; showRunNotice(id: string, r: RunResult): void };
+  }
+  const refused: RunResult = { runId: "r1", status: "refused", undoable: false, writes: 0, durationS: 0, errorTask: null, errorKind: "endpoint_unreachable", alwaysOnThinker: false };
+
+  it.each([
+    ["no-endpoint", { resolve: async () => ({ error: "no-endpoint" }) }, {}],
+    ["secret-missing", { materialize: async () => ({ error: "secret-missing" }) }, { endpointId: "e1" }],
+    ["disabled", { materialize: async () => ({ error: "disabled" }) }, { endpointId: "e1" }],
+  ])("%s: der Notice nennt den Grund des Managers statt „Start LM Studio“", async (code, over, choice) => {
+    const plugin = await pluginWith(fakeManager(over), choice);
+    expect(plugin.managerRefusalReason()).toBe(code);
+    plugin.showRunNotice("team", refused);
+    const msg = String(Notice.instances.at(-1)?.message ?? "");
+    expect(msg).not.toContain("Start LM Studio");
+    expect(msg).toContain(managerErrorText(LLM_CONNECTION_STRINGS_EN, code));
+  });
+
+  it("ohne Manager bleibt es bei der allgemeinen Zeile", async () => {
+    const plugin = new VaultCrewsPlugin(makeFakeApp() as App, MANIFEST);
+    await plugin.onload();
+    await plugin.effectiveEndpoints();
+    (plugin as unknown as { showRunNotice(id: string, r: RunResult): void }).showRunNotice("team", refused);
+    expect(String(Notice.instances.at(-1)?.message ?? "")).toContain("Start LM Studio");
+  });
+});
+

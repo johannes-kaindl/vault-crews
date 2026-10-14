@@ -312,6 +312,16 @@ describe("runNoticeText — Ursache statt „0 Dateien“", () => {
     expect(runNoticeText("T", okResult({ writes: 2, emptyCollector: "x" }))).toBe("T: run completed — 2 file(s) written.");
   });
 
+  it("endpoint_unreachable mit Grund des Managers: der Grund ersetzt die allgemeine Zeile, andere Fehlerklassen bleiben unberührt", () => {
+    const grund = "The endpoint has no API key.";
+    const text = runNoticeText("T", okResult({ status: "refused", writes: 0, errorKind: "endpoint_unreachable" }), grund);
+    expect(text).toContain(grund);
+    expect(text).not.toContain("Start LM Studio");
+    const other = runNoticeText("T", okResult({ status: "refused", writes: 0, errorKind: "model_missing" }), grund);
+    expect(other).not.toContain(grund);
+    expect(runNoticeText("T", okResult({ status: "refused", writes: 0, errorKind: "endpoint_unreachable" }), null)).toContain("Start LM Studio");
+  });
+
   it("verweigert: Klartext der Fehlerklasse, nie der rohe Schlüssel", () => {
     const text = runNoticeText("T", okResult({ status: "refused", writes: 0, errorKind: "endpoint_unreachable" }));
     expect(text).toContain("run refused");

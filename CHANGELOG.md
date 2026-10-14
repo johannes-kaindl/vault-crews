@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **A run refused because of the LLM Endpoint Manager now says why.** Instead of "Start LM Studio, then run again", the notice names the manager's reason: no endpoint available, a missing API key, a switched-off endpoint, or one that does not answer (a text per reason, English and German, each saying where to fix it). The run log carries the manager's code in brackets. Without the manager nothing changes.
 - Kit pins raised to `obsidian-kit` 0.60.1 and `code-kit` 0.27.1 (from 0.59.1 and 0.24.0). Visible effects of the skipped releases (obsidian-kit 0.60.0, 0.60.1; code-kit 0.25.0, 0.26.0, 0.27.0, 0.27.1): a hint about discarded request settings lists them sorted instead of in stored order; the endpoint picker keeps the reason when an explicitly chosen endpoint is switched off or has no token (see the notice change below). Nothing else in the copied building blocks reaches this plugin.
 
 ### Added

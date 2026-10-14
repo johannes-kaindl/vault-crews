@@ -14,7 +14,9 @@ Each entry starts with what you see — the wording is the plugin's own English 
 
 > Notiz-Tagger: run refused — Start LM Studio, then run again.
 
-**Cause:** the plugin found no reachable endpoint. It tries the endpoints in the order of the list, skips the denied ones (port 8080 by default) and uses the first that answers.
+**With the LLM Endpoint Manager installed,** the notice names the manager's reason instead of "Start LM Studio": for example that the endpoint you chose has no API key, is switched off, or answers nothing. Each message says where to fix it (in the manager's settings), and the run log (`run.md`) carries the manager's code in brackets, such as `(secret-missing)`.
+
+**Cause (without the manager):** the plugin found no reachable endpoint. It tries the endpoints in the order of the list, skips the denied ones (port 8080 by default) and uses the first that answers.
 
 **Fix:** start the server and load a model, then open **Settings → Vault Crews → Connection** and press **Check connections**. Each row says why it fails:
 
