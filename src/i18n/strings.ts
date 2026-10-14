@@ -19,6 +19,10 @@ export const EN: Record<string, string> = {
   "cmd.openPanel": "Open crews panel",
   "cmd.openLastRunLog": "Open last run log",
   "cmd.installExamples": "Install example crews",
+  "cmd.showCrewFolder": "Show crew folder in the file explorer",
+  "notice.crewFolder.hidden": "The crew folder is hidden in the file explorer — turn off \"Hide crew folder in the file explorer\" in the Vault Crews settings to see it.",
+  "notice.crewFolder.missing": "There is no crew folder yet — run \"Install example crews\" or create the folder named in the settings.",
+  "notice.crewFolder.noExplorer": "The file explorer is not available — enable the core plugin \"Files\".",
 
   // --- Settings — Help row (UI-STANDARD §8, Hilfe-Zeile; Vorgabe-Texte aus obsidian-kit 0.43.0) ---
   "settings.help.name": "Help",
@@ -282,6 +286,10 @@ export const DE: Record<string, string> = {
   "cmd.openPanel": "Crews-Panel öffnen",
   "cmd.openLastRunLog": "Letztes Lauf-Protokoll öffnen",
   "cmd.installExamples": "Beispiel-Crews installieren",
+  "cmd.showCrewFolder": "Crew-Ordner im Datei-Explorer zeigen",
+  "notice.crewFolder.hidden": "Der Crew-Ordner ist im Datei-Explorer versteckt — in den Vault-Crews-Einstellungen „Crew-Ordner im Datei-Explorer ausblenden“ ausschalten, um ihn zu sehen.",
+  "notice.crewFolder.missing": "Es gibt noch keinen Crew-Ordner — „Beispiel-Crews installieren“ ausführen oder den Ordner aus den Einstellungen anlegen.",
+  "notice.crewFolder.noExplorer": "Der Datei-Explorer ist nicht verfügbar — das Kern-Plugin „Dateien“ aktivieren.",
 
   // --- Settings — Hilfe-Zeile ---
   "settings.help.name": "Hilfe",

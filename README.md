@@ -294,6 +294,12 @@ A crew is Markdown in the vault: a **team** (`crew-kind: team`) as a pipeline of
 the body). The crews that ship with the plugin (command "Install example crews") are
 editable examples — copy them and adjust.
 
+**Sharing crews:** a crew is just Markdown files, so sharing is a file copy — no import or export
+dialog. The command **"Show crew folder in the file explorer"** takes you to the crew root
+(`_crews` by default) so you can copy a team file out, or drop one in. A team needs its agent
+notes with it: copy the team file from `teams/` together with the agents it names from `agents/`.
+The command tells you if the folder is hidden by the "Hide crew folder" setting.
+
 ### Model settings of an agent (`temperature`, `max_tokens`, `thinking`)
 
 An agent note can set three model values in its frontmatter; all are optional and override the plugin's **Request** settings for that agent.

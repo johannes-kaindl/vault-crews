@@ -74,6 +74,7 @@ describe("VaultCrewsPlugin.onload — wiring", () => {
       "open-crews-panel",
       "open-last-run-log",
       "install-example-crews",
+      "show-crew-folder",
     ]) {
       expect(ids).toContain(id);
     }

@@ -46,6 +46,7 @@ import {
 } from "./obsidian/panel";
 import { runNoticeText } from "./obsidian/panel-view-model";
 import { RecoveryModal, checkOrphanedRun } from "./obsidian/recovery";
+import { revealCrewFolder } from "./obsidian/reveal-crew-folder";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
 import { installExampleCrews } from "./obsidian/install-examples";
 import { findEndpointManager } from "./vendor/kit-obsidian/endpoint-source";
@@ -428,7 +429,15 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     this.addCommand({ id: "undo-last-run", name: t("cmd.undoLastRun"), callback: () => { this.undoLastRun(); } });
     this.addCommand({ id: "open-crews-panel", name: t("cmd.openPanel"), callback: () => { void this.activatePanel(); } });
     this.addCommand({ id: "open-last-run-log", name: t("cmd.openLastRunLog"), callback: () => { this.openLog(); } });
+    this.addCommand({ id: "show-crew-folder", name: t("cmd.showCrewFolder"), callback: () => { this.showCrewFolder(); } });
     this.addCommand({ id: "install-example-crews", name: t("cmd.installExamples"), callback: () => { void this.installExamples(); } });
+  }
+
+  private showCrewFolder(): void {
+    const result = revealCrewFolder(this.app, this.settings.crewRoot, this.settings.hideCrewFolder);
+    if (result === "revealed") return;
+    const key = { hidden: "notice.crewFolder.hidden", missing: "notice.crewFolder.missing", "no-explorer": "notice.crewFolder.noExplorer" } as const;
+    new Notice(t(key[result]));
   }
 
   /** Dynamische Per-Team-Commands mit stabiler ID aus dem Datei-Slug (§6.1,

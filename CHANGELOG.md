@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Command "Show crew folder in the file explorer".** Takes you to the crew root so you can share a crew by copying its files (a crew is Markdown; there is no import or export dialog by design). If the folder is hidden by the "Hide crew folder" setting, or does not exist yet, the command says so.
+
 ### Fixed
 
 - The "Model not found" notice no longer sends you to a "default model" that does not exist: it now says to choose a model on the active endpoint row, or to check the model field in the agent note.
