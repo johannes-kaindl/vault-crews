@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-10-14
+
 ### Changed
 
 - **A run refused because of the LLM Endpoint Manager now says why.** Instead of "Start LM Studio, then run again", the notice names the manager's reason: no endpoint available, a missing API key, a switched-off endpoint, or one that does not answer (a text per reason, English and German, each saying where to fix it). The run log carries the manager's code in brackets. Without the manager nothing changes.
