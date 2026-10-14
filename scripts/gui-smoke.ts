@@ -1085,6 +1085,9 @@ async function w8LeererCollector(cdp: Cdp): Promise<void> {
  *  (LM Studio); fehlt es, ist der Punkt „nichts gemessen“, nie grün. Die Punkte 2–4 laufen gegen einen
  *  lokalen Fake-Server und brauchen kein Modell. Vorher UND nachher gefahren: der Umbau darf keinen
  *  der vier verändern (Baseline-Regel). */
+/** Das einzige Modell, das der Punkt „echtes Modell“ anfragt (Modell-Runde Welle 22; per `--modell` ueberschreibbar). */
+const MODELL_W11 = args.value("modell") ?? "google/gemma-4-e4b";
+
 async function w11ChatClient(cdp: Cdp): Promise<void> {
   const saved = await cdp.evaluate<{ endpoints: unknown; call: number; stall: number }>(
     `return { endpoints: JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints)), call: ${PLUGIN}.settings.callTimeoutS, stall: ${PLUGIN}.settings.stallTimeoutS };`);
@@ -1096,11 +1099,13 @@ async function w11ChatClient(cdp: Cdp): Promise<void> {
       window.__vcW11 = { done: false };
       (async () => {
         try {
-          ${PLUGIN}.settings.endpoints = [{ url: "http://localhost:1234" }];   // echtes LM Studio, nicht der Fake der Vorpunkte
+          // Das Modell ist ausdruecklich gesetzt, nie „das erste nicht-Embedding-Modell“: /v1/models listet auch NICHT geladene
+          // Modelle, und eine Anfrage mit anderer ID laedt in LM Studio ein weiteres (JIT, Welle 22: ein Lauf hat so ein Modell geladen).
+          ${PLUGIN}.settings.endpoints = [{ url: "http://localhost:1234", model: ${JSON.stringify(MODELL_W11)} }];   // echtes LM Studio, nicht der Fake der Vorpunkte
           const c = ${PLUGIN}.buildLlmClient();
           const ids = await c.listModels();
-          const model = ids.find((m) => /gemma-4-e2b|qwen2\.5-coder-7b/.test(m)) ?? ids.find((m) => !/embed/i.test(m));
-          if (!model) { window.__vcW11 = { done: true, skip: "kein Modell am Endpunkt (" + ids.length + " Modelle)" }; return; }
+          const model = ids.includes(${JSON.stringify(MODELL_W11)}) ? ${JSON.stringify(MODELL_W11)} : null;
+          if (!model) { window.__vcW11 = { done: true, skip: "Modell ${MODELL_W11} nicht am Endpunkt gelistet (" + ids.length + " Modelle)" }; return; }
           let calls = 0, text = "";
           const r = await c.stream([{ role: "user", content: "Zähle auf Deutsch von eins bis zehn, durch Kommas getrennt." }],
             { model, sentModel: model, params: { temperature: 0, max_tokens: 200 }, thinkingLevel: "off" },
