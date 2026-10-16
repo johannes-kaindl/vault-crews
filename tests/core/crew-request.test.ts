@@ -21,7 +21,8 @@ const OFF: Record<string, Record<string, number | string>> = {
 	'qwen3.6|lmstudio': { temperature: 0.1, top_p: 0.95, top_k: 20, reasoning_effort: 'none', max_tokens: 2048 },
 	'qwen3.6|openwebui': { temperature: 0.1, top_p: 0.95, top_k: 20, reasoning_effort: 'none', max_tokens: 2048 },
 	'qwen3.6|unknown': { temperature: 0.1, top_p: 0.95, reasoning_effort: 'none', max_tokens: 2048 },
-	'gemma4|lmstudio': { temperature: 0.1, top_p: 0.95, top_k: 64, reasoning_effort: 'none', max_tokens: 2048 },
+	// LM Studio ignoriert `none` bei Gemma 4 und legt das Denken ohne Kennung in `content`: der Kit sendet dort die niedrigste Stufe (code-kit 0.28.0).
+	'gemma4|lmstudio': { temperature: 0.1, top_p: 0.95, top_k: 64, reasoning_effort: 'low', max_tokens: 2048 },
 	'gemma4|openwebui': { temperature: 0.1, top_p: 0.95, top_k: 64, reasoning_effort: 'none', max_tokens: 2048 },
 	'gemma4|unknown': { temperature: 0.1, top_p: 0.95, reasoning_effort: 'none', max_tokens: 2048 },
 	// gpt-oss lässt sich nicht abschalten: die niedrigste Stufe ist „minimal", nie „none".
