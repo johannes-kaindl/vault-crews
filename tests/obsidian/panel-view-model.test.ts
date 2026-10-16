@@ -175,6 +175,19 @@ describe("buildPanelViewModel — crews body", () => {
     }
   });
 
+  it("contentReset leert den Antworttext des laufenden Tasks und lässt das Denken stehen (Gemma 4 ohne Öffner)", () => {
+    const s = drive({ kind: "idle" }, [
+      { type: "runStarted", runId: "r1", teamId: "t" },
+      { type: "taskStarted", taskId: "analyse", index: 1, total: 1 },
+      { type: "token", taskId: "analyse", isThink: true, text: "Quellen " },
+      { type: "token", taskId: "analyse", isThink: false, text: "Ich wäge die Quellen ab." },
+      { type: "contentReset", taskId: "analyse" },
+      { type: "token", taskId: "analyse", isThink: false, text: "Die Antwort." },
+    ]);
+    expect(s.kind === "running" && s.streamText).toBe("Die Antwort.");
+    expect(s.kind === "running" && s.thinkText).toBe("Quellen ");
+  });
+
   it("task lines use the status-indicator vocabulary: icon + state class + status text per status", () => {
     const statuses = ["waiting", "running", "ok", "failed", "skipped", "stale"] as const;
     const running: RunState = {

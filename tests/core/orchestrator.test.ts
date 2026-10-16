@@ -227,6 +227,26 @@ describe('executeRun — token streaming', () => {
   });
 });
 
+describe('executeRun — Gemma 4 Denkkanal (Welle 23)', () => {
+  it('Familie gemma4: thinkChannel geht an den Client, das Zurücksetzen wird als contentReset-Ereignis gemeldet', async () => {
+    const llm = new ScriptLlmClient([{ content: `Ich denke.<channel|>${TRIAGE_OK}`, resetAfterChars: 'Ich denke.'.length, facts: { status: 200, finishReason: 'stop', content: TRIAGE_OK, reasoning: 'Ich denke.' } }]);
+    const h = await harness({ llm, request: fakeRequestPort({ family: 'gemma4', backend: 'lmstudio' }) });
+    await executeRun(h.teamPath, h.deps);
+    expect((h.llm as ScriptLlmClient).calls[0]!.params.thinkChannel).toBe(true);
+    const resets = h.reporter.events.filter((e) => e.type === 'contentReset');
+    expect(resets).toHaveLength(1);
+    // Die Prüfung der Antwort kennt das Backend: Gemma auf LM Studio kann nicht aus, ihr Denken bei „off“ ist keine Abweichung.
+    expect(h.request.reported.flat().map((d) => d.kind)).not.toContain('thinking-despite-off');
+  });
+
+  it('andere Familien: thinkChannel ist aus, kein contentReset', async () => {
+    const h = await harness({ request: fakeRequestPort({ family: 'qwen3.8', backend: 'lmstudio' }) });
+    await executeRun(h.teamPath, h.deps);
+    expect((h.llm as ScriptLlmClient).calls[0]!.params.thinkChannel).toBe(false);
+    expect(h.reporter.events.some((e) => e.type === 'contentReset')).toBe(false);
+  });
+});
+
 describe('executeRun — repair loop', () => {
   it('repair-ok: invalid then valid → status ok, exactly 2 llm calls', async () => {
     const llm = new ScriptLlmClient([{ content: 'kein json' }, { content: TRIAGE_OK }]);

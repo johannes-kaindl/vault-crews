@@ -319,8 +319,8 @@ class RunFsm {
 		const { params: wire, thinkingLevel } = buildCrewParams({
 			family, backend: this.backend, agent, settings: this.deps.settings.request,
 		});
-		const params: LlmParams = { model: rec.model, sentModel, params: wire, thinkingLevel, restoreContent: schema.outputFormat === 'json' ? 'json' : 'text' };
-		const check = { family, thinking: thinkingLevel };
+		const params: LlmParams = { model: rec.model, sentModel, params: wire, thinkingLevel, thinkChannel: family === 'gemma4', restoreContent: schema.outputFormat === 'json' ? 'json' : 'text' };
+		const check = { family, thinking: thinkingLevel, backend: this.backend };
 		// Das Profil kann das Budget für eine Denkstufe anheben: die Kontextrechnung nimmt, was gesendet wird.
 		const sentMax = typeof wire.max_tokens === 'number' ? wire.max_tokens : agent.maxTokens;
 		const budget = Math.max(1, ctxLen - sentMax - Math.floor(ctxLen * BUDGET_RESERVE));
@@ -527,7 +527,7 @@ class RunFsm {
 
 	private async stream(
 		messages: LlmMessage[], params: LlmParams, taskId: string,
-		check: { family: FamilyId | null; thinking: ThinkingLevel },
+		check: { family: FamilyId | null; thinking: ThinkingLevel; backend: BackendId },
 	): Promise<LlmStreamResult> {
 		if (this.state.llmCalls >= this.limits.maxLlmCalls) {
 			throw new LlmCallError(`LLM-Call-Limit erreicht (${this.limits.maxLlmCalls})`, 'http');
@@ -539,6 +539,7 @@ class RunFsm {
 				messages, params,
 				(text, isThink) => this.deps.reporter.emit({ type: 'token', taskId, isThink, text }),
 				this.deps.abort,
+				() => this.deps.reporter.emit({ type: 'contentReset', taskId }),
 			);
 			// Abweichungen zwischen Profil und Antwort gehören in die Sitzung — kein stiller Wiederholversuch.
 			if (result.facts) this.deps.request.report(checkResponse(check, result.facts));

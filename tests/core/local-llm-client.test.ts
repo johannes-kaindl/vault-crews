@@ -204,6 +204,44 @@ describe('LocalLlmClient.stream', () => {
 		expect(content).not.toContain('inner'); // <think> gehört NICHT in Content
 	});
 
+	it('Gemma 4 ohne Öffner: Denken in content bis <channel|>, danach die Antwort; onContentReset leert den Anzeigetext (Alias ohne Familienhinweis im Namen)', async () => {
+		const { client, sse, clock } = make();
+		const shown: string[] = [];
+		const thought: string[] = [];
+		let resets = 0;
+		const params: LlmParams = { ...PARAMS, model: 'verdigado-pro', sentModel: 'verdigado-pro', thinkChannel: true };
+		const p = client.stream(
+			[{ role: 'user', content: 'q' }], params,
+			(t, isThink) => { if (isThink) thought.push(t); else shown.push(t); },
+			new AbortController().signal,
+			() => { resets++; shown.length = 0; },
+		);
+		await tickAsync(clock, 1);
+		sse.emit('data: {"choices":[{"delta":{"content":"Ich wäge erst "}}]}\n\n');
+		sse.emit('data: {"choices":[{"delta":{"content":"die Quellen ab.<channel|>Die fertige "}}]}\n\n');
+		sse.emit('data: {"choices":[{"delta":{"content":"Antwort."},"finish_reason":"stop"}]}\n\n');
+		sse.end(200);
+		const r = await p;
+		expect(r.content).toBe('Die fertige Antwort.');
+		expect(shown.join('')).toBe('Die fertige Antwort.');
+		expect(thought.join('')).toContain('wäge');
+		expect(resets).toBe(1);
+		expect(r.thinkTokens).toBeGreaterThan(0);
+	});
+
+	it('ohne thinkChannel und ohne Familie im Modellnamen bleibt <channel|> Text (ein anderes Modell kann es schreiben)', async () => {
+		const { client, sse, clock } = make();
+		const shown: string[] = [];
+		const params: LlmParams = { ...PARAMS, model: 'verdigado-pro', sentModel: 'verdigado-pro' };
+		const p = client.stream([{ role: 'user', content: 'q' }], params, (t, isThink) => { if (!isThink) shown.push(t); }, new AbortController().signal);
+		await tickAsync(clock, 1);
+		sse.emit('data: {"choices":[{"delta":{"content":"a<channel|>b"},"finish_reason":"stop"}]}\n\n');
+		sse.end(200);
+		const r = await p;
+		expect(r.content).toBe('a<channel|>b');
+		expect(shown.join('')).toBe('a<channel|>b');
+	});
+
 	it('400 mit pretty-printed JSON-Body → lesbare einzeilige Message (nicht "{")', async () => {
 		const { client, sse, clock } = make();
 		const p = client.stream([{ role: 'user', content: 'q' }], PARAMS, () => {}, new AbortController().signal);

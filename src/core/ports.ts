@@ -38,6 +38,8 @@ export interface LlmParams {
 	thinkingLevel: ThinkingLevel;
 	/** Wie der Client geschwärzte Werte in die Antwort zurücksetzt: `json` maskiert sie für JSON-Zeichenketten
 	 *  (Schema mit JSON-Ausgabe), `text` setzt sie wörtlich ein (Markdown-Ausgabe). Fehlt das Feld, gilt `json`. */
+	/** Das Denken dieses Modells steht ohne Öffner in `content` und endet mit `<channel|>` (Gemma 4): der Client liest den Kanal. */
+	thinkChannel?: boolean;
 	restoreContent?: 'text' | 'json';
 }
 export interface LlmStreamResult {
@@ -77,7 +79,9 @@ export interface LlmClient {
 	setEndpoint(cfg: EndpointConfig): void;
 	listModels(): Promise<string[]>;
 	modelInfo(model: string): Promise<ModelInfo | null>;
-	stream(messages: LlmMessage[], params: LlmParams, onToken: (t: string, isThink: boolean) => void, signal: AbortSignal): Promise<LlmStreamResult>;
+	/** `onContentReset` (optional): der Client hat Text, den er schon als Antwort gemeldet hatte, als Denken erkannt (Gemma 4 ohne
+	 *  Öffner schreibt das Denken in `content`, der Schluss `<channel|>` kommt zuletzt). Wer die Antwort anzeigt, leert sie dann. */
+	stream(messages: LlmMessage[], params: LlmParams, onToken: (t: string, isThink: boolean) => void, signal: AbortSignal, onContentReset?: () => void): Promise<LlmStreamResult>;
 }
 
 /** Typisierter LLM-Call-Fehler: der Orchestrator entscheidet Fehlerpfade über `kind`
@@ -131,6 +135,8 @@ export type RunEvent =
 	| { type: 'runStarted'; runId: string; teamId: string }
 	| { type: 'taskStarted'; taskId: string; index: number; total: number }
 	| { type: 'token'; taskId: string; isThink: boolean; text: string }
+	/** Der bisher gestreamte Antworttext war Denken (Gemma 4 ohne Öffner): die Anzeige der Antwort wird geleert. */
+	| { type: 'contentReset'; taskId: string }
 	| { type: 'taskFinished'; taskId: string; status: 'ok' | 'failed' | 'skipped' }
 	| { type: 'actionApplied'; outcome: ActionOutcome }
 	| { type: 'runFinished'; result: RunResult };

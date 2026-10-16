@@ -108,6 +108,7 @@ export class LocalLlmClient implements LlmClient {
 		params: LlmParams,
 		onToken: (t: string, isThink: boolean) => void,
 		signal: AbortSignal,
+		onContentReset?: () => void,
 	): Promise<LlmStreamResult> {
 		// Harter Gesamt-Timer: den kennt das Kit nicht (dort misst die Frist Stille, nicht Dauer). Er bricht
 		// über ein eigenes Signal ab; das Ergebnis heißt dann `aborted` — und `budgetFired` unterscheidet es
@@ -133,6 +134,10 @@ export class LocalLlmClient implements LlmClient {
 				signal: ctrl.signal,
 				onToken: (t) => onToken(t, false),
 				onReasoning: (t) => onToken(t, true),
+				// Gemma 4 ohne Öffner: das Denken kommt in `content` an und wird erst am `<channel|>` erkannt — der Kit-Client meldet
+				// dann, dass der Anzeigetext zurückgesetzt gehört. Ohne Familienangabe rät er am Modellnamen (ein Alias trüge sie nicht).
+				...(params.thinkChannel !== undefined ? { thinkChannel: params.thinkChannel } : {}),
+				...(onContentReset ? { onContentReset } : {}),
 			});
 		} finally {
 			this.clock.clearTimeout(budget);

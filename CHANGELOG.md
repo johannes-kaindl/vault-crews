@@ -6,10 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Gemma 4 on LM Studio: the model's thinking no longer shows up as the answer in the panel.** It writes its thinking into the answer text without an opening marker and closes it with `<channel|>`; the panel now moves that text into the collapsible thinking block and shows only the answer. A model family or alias the plugin cannot tell from its name is handled through the family the plugin already knows. A thinking-despite-off warning no longer appears for Gemma 4 on LM Studio, where thinking cannot be switched off.
+
 ### Changed
 
 - **Kit pins raised to `obsidian-kit` 0.61.0 and `code-kit` 0.28.0** (from 0.60.1 and 0.27.1). Visible effects of the skipped releases (obsidian-kit 0.60.2, 0.60.3, 0.61.0; code-kit 0.27.2, 0.28.0): with a Gemma 4 model on LM Studio, "thinking off" now sends the lowest effort (`low`) instead of `none`, because LM Studio ignores `none` for that model and would put the thinking into the answer without a marker; the model thinks a little, the answer stays clean, and the request view says that off is not fully possible there. A backend or model family this plugin does not know yet no longer raises an error: the request view names it and falls back to the standard fields. Nothing else in the copied building blocks reaches this plugin.
-
 - **The task rows in the crew panel show their state with the shared status icons instead of special characters.** Running tasks show the spinning loader, finished ones a check mark, failed ones a cross, stale ones a warning triangle; waiting and skipped tasks get a neutral dashed or minus circle. Colour is never the only signal: every icon carries the status text as its label, and the row text still names the status. With reduced motion switched on, the loader stands still.
 
 ## [0.19.0] — 2026-10-14

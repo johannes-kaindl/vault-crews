@@ -121,6 +121,10 @@ export function reduceRun(state: RunState, e: RunEvent): RunState {
         }
       }
       return state;
+    case "contentReset":
+      // Der bisher als Antwort gezeigte Text war Denken (Gemma 4 ohne Öffner); das Denken kommt über `onReasoning`.
+      if (state.kind === "running") state.streamText = "";
+      return state;
     case "taskFinished":
       if (state.kind === "running") {
         const line = state.lines.find((l) => l.taskId === e.taskId);
