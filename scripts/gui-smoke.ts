@@ -76,6 +76,7 @@ const P_KONTROLLE = "Welle 20 — Folge-Regel (Kontrolle): ohne Störung folgt d
 const P_WIEDERAUFNAHME = "Welle 20 — Folge-Regel (Wiederaufnahme): steht der Nutzer wieder unten, folgt der Strom wieder";
 const P_DENKBLOCK = "Welle 20 — Denkblock live: der Denktext wächst während des Stroms, die Zusammenfassung zählt mit";
 const P_STATUSSYMBOLE = "Welle 23 — Aufgabenzeilen: Status-Symbol mit Zustandsklasse, Textalternative und bewegtem Lauf-Symbol";
+const P_GEMMA = "Welle 23 — Gemma 4 ohne Öffner: der Denktext steht im Denkblock, nicht im Anzeigetext der Antwort";
 const P_KONTROLLE_ABSATZ = "Welle 20 — Folge-Regel (Kontrolle, absatzgroße Stücke): der Strom folgt auch bei Stücken über der Schwelle";
 const N1_PUNKT = "N1 Abschnitt Request ist vorhanden, klappt auf und zeigt die Felder";
 const PUNKTE = [
@@ -110,6 +111,7 @@ const PUNKTE = [
   P_WIEDERAUFNAHME,
   P_DENKBLOCK,
   P_STATUSSYMBOLE,
+  P_GEMMA,
   P_KONTROLLE_ABSATZ,
   "Welle 20 — Abschnitt lief bis zum Ende",
   "Panel — kein Streuner-Hinweis ohne Anlass",
@@ -1648,10 +1650,82 @@ async function w20AbsatzLauf(cdp: Cdp): Promise<void> {
   }
 }
 
+/** Gemma 4 auf LM Studio (Welle 23, Gegenprobe zu `onContentReset`): schreibt das Denken OHNE Öffner in `content` und
+ *  beendet es mit `<channel|>`; die Antwort folgt. Der Stub streamt genau das (Denken ohne Öffner, `<channel|>`, Antwort) und
+ *  hält die Verbindung nach dem letzten Stück offen (`nachlaufMs`), damit der Anzeigetext vor dem Schluss-Draw lesbar bleibt.
+ *  Gemessen wird der ANZEIGETEXT (`.okit-stream-body`): ohne Kanal-Leser und `onContentReset` bliebe der Denktext samt
+ *  `<channel|>` darin stehen. Das Denken gehört in den ausklappbaren Block (`.okit-stream-reasoning`). */
+async function w23GemmaLauf(cdp: Cdp): Promise<void> {
+  const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
+  const id = "zz-w23g";
+  const ordner = "zz-w23g-ordner";
+  const GEDANKE = "Ich wäge erst die Quellen ab und prüfe dann den Kontext.";
+  const stub = await startLlmStub({
+    models: ["google/gemma-4-e4b"], takt: 150, nachlaufMs: 4000,
+    standard: { stuecke: [GEDANKE.slice(0, 20), GEDANKE.slice(20) + "<channel|>", "Die fertige ", "Antwort."] },
+  });
+  const team = ["---", "crew-kind: team", "name: ZZ W23g", "version: 1", "description: Smoke", "trigger: manual",
+    "limits:", "  max_writes: 1", "write_scope:", `  - "${ordner}/**/*.md"`, "tasks:",
+    "  - id: collect", "    kind: collector", "    collector: vault.list", "    params:", `      folder: ${ordner}`,
+    "  - id: analyse", "    kind: llm", "    agent: zz-w23g-agent", "    inputs: [collect]", "    instruction: Tue nichts.",
+    "    output_schema: triage-v1", "    on_error: skip",
+    "  - id: apply", "    kind: actions", "    inputs: [analyse]", "    allowed_actions: [frontmatter.patch]", "    allowed_keys: [priority]",
+    "---", "Smoke", ""].join("\n");
+  const agent = ["---", "crew-kind: agent", "name: ZZ W23g", "---", "Du bist ein Test.", ""].join("\n");
+  const teamPfad = `${root}/teams/${id}.md`;
+  const agentPfad = `${root}/agents/zz-w23g-agent.md`;
+  const notePfad = `${ordner}/a.md`;
+  const saved = await cdp.evaluate<{ endpoints: unknown }>(`return { endpoints: JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints)) };`);
+  let runDir = "";
+  try {
+    await cdp.evaluate(`
+      for (const d of [${JSON.stringify(root)}, ${JSON.stringify(root + "/teams")}, ${JSON.stringify(root + "/agents")}, ${JSON.stringify(ordner)}]) {
+        if (!app.vault.getAbstractFileByPath(d)) await app.vault.createFolder(d);
+      }
+      await app.vault.create(${JSON.stringify(teamPfad)}, ${JSON.stringify(team)});
+      await app.vault.create(${JSON.stringify(agentPfad)}, ${JSON.stringify(agent)});
+      await app.vault.create(${JSON.stringify(notePfad)}, "---\\npriority: mittel\\n---\\nInhalt\\n");
+      ${PLUGIN}.settings.endpoints = [{ url: "${stub.urlV1}", model: "google/gemma-4-e4b" }];
+      await ${PLUGIN}.refreshTeams?.();
+      await ${PLUGIN}.activatePanel();
+      return true;`);
+    await wartetAuf(cdp, `app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(teamPfad)}))?.frontmatter && app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(agentPfad)}))?.frontmatter`, 8000);
+    await cdp.evaluate(`${PANEL}.querySelector('.okit-hub-tab[data-tab="crews"]')?.click(); await new Promise((r) => setTimeout(r, 300)); return true;`);
+    await cdp.evaluate(`${PLUGIN}.runCrew(${JSON.stringify(id)}); return true;`);
+    // Gültig erst, wenn die Antwort im Anzeigetext angekommen ist (Stub hält danach 4 s offen): sonst „nichts gemessen“.
+    const g = await pollUntil<{ antwort: string; denken: string; hatBlock: boolean }>(cdp, `
+      const leaf = ${PANEL};
+      const body = leaf?.querySelector(".okit-stream-body");
+      if (!body || !(body.textContent || "").includes("Antwort.")) return null;
+      const pre = leaf.querySelector(".okit-stream-reasoning pre");
+      return { antwort: (body.textContent || "").trim(), denken: pre ? pre.textContent || "" : "", hatBlock: !!pre };`, 20_000, 100).catch(() => null);
+    const fertig = await wartetAuf(cdp, `${PLUGIN}.lastRuns[${JSON.stringify(id)}] && ${PLUGIN}.runActive === false`, 20000);
+    if (fertig) {
+      const info = await cdp.evaluate<{ runId: string }>(`return ${PLUGIN}.lastRuns[${JSON.stringify(id)}];`);
+      runDir = `${root}/runs/${info.runId}`;
+    }
+    if (g === null) unmeasured(P_GEMMA, "die Antwort kam im Anzeigetext nicht an (20 s) — kein Lauf zustande gekommen");
+    else record(P_GEMMA, g.hatBlock && g.antwort === "Die fertige Antwort." && g.denken.includes("wäge") && !g.antwort.includes("wäge") && !g.antwort.includes("channel"),
+      `Anzeigetext „${g.antwort.slice(0, 80)}“ · Denkblock ${g.hatBlock ? `„${g.denken.slice(0, 40)}“` : "fehlt"}`);
+  } finally {
+    await stub.stop();
+    await cdp.evaluate(`
+      ${PLUGIN}.settings.endpoints = ${JSON.stringify(saved.endpoints)};
+      for (const p of [${JSON.stringify(teamPfad)}, ${JSON.stringify(agentPfad)}, ${JSON.stringify(notePfad)}, ${JSON.stringify(ordner)}, ${JSON.stringify(runDir)}]) {
+        if (!p) continue;
+        const f = app.vault.getAbstractFileByPath(p);
+        if (f) await app.vault.delete(f, true);
+      }
+      delete ${PLUGIN}.lastRuns[${JSON.stringify(id)}];
+      return true;`).catch(() => undefined);
+  }
+}
+
 async function abschnittWelle20(cdp: Cdp): Promise<void> {
   try {
     await w20Lauf(cdp);
     await w20AbsatzLauf(cdp);
+    await w23GemmaLauf(cdp);
     record("Welle 20 — Abschnitt lief bis zum Ende", true, "kein Abbruch");
   } catch (e) {
     if (e instanceof AbbruchAusnahme || istAbgebrochen()) throw e;   // ein Abbruch ist kein Befund und wird nicht als „rot“ verbucht
