@@ -32,10 +32,11 @@
  *
  * ## Was hier anders ist als in einem Rendering-Plugin
  *
- * Drei der fünf Bilder zeigen einen **echten Lauf** gegen ein echtes Modell. Das ist
- * teurer als ein Standbild und dauert je nach Modell eine Minute — aber ein nachgestellter
- * Panel-Zustand würde den eigenen Eingriff dokumentieren statt das Plugin. Wenn kein
- * Endpunkt antwortet, meldet der Treiber das und lässt das Bild aus; er erfindet keines.
+ * Drei der fünf Bilder (`hero.png`, `history-undo.png`, `run-log.png`) zeigen einen **echten Lauf des Plugins**
+ * gegen den zentralen LLM-Stub (`tools/obsidian-cdp/llm-stub.ts`), nicht gegen ein geladenes Modell: derselbe Strom bei
+ * jeder Aufnahme, kein JIT-Laden, keine Abhängigkeit von LM Studio. Plugin, Orchestrator und Panel laufen echt; nur die
+ * Antwort des Servers ist festgelegt. Ein nachgestellter Panel-Zustand würde den eigenen Eingriff dokumentieren statt das
+ * Plugin.
  */
 
 import { existsSync } from "node:fs";

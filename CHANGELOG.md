@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Documentation
+
+- The README hero shows the new status icons and the thinking counter.
+
 ## [0.20.0] — 2026-10-16
 
 ### Fixed
