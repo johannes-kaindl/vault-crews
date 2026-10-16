@@ -168,10 +168,34 @@ describe("buildPanelViewModel — crews body", () => {
     const vm = buildPanelViewModel({ navState: "crews", runState: running, teams, latest: null, nowMs: 0 , strayCount: 0 });
     expect(vm.body.kind).toBe("crewsRunning");
     if (vm.body.kind === "crewsRunning") {
-      expect(vm.body.lines[0]?.icon).toBe("✓");
+      expect(vm.body.lines[0]?.icon).toEqual({ name: "circle-check", cls: "is-ok" });
+      expect(vm.body.lines[0]?.statusText).toBe("Ok");
       expect(vm.body.streamText).toBe("");
       expect(vm.body.thinkingLabel).toContain("1");
     }
+  });
+
+  it("task lines use the status-indicator vocabulary: icon + state class + status text per status", () => {
+    const statuses = ["waiting", "running", "ok", "failed", "skipped", "stale"] as const;
+    const running: RunState = {
+      kind: "running", runId: "r", teamId: "t", total: 6, index: 1, currentTaskId: null,
+      lines: statuses.map((status, i) => ({ taskId: `t${i}`, status })),
+      tokenCount: 0, thinkCount: 0, streamText: "", thinkText: "", writes: [], aborting: false,
+    };
+    const vm = buildPanelViewModel({ navState: "crews", runState: running, teams, latest: null, nowMs: 0, strayCount: 0 });
+    expect(vm.body.kind).toBe("crewsRunning");
+    if (vm.body.kind !== "crewsRunning") return;
+    expect(vm.body.lines.map((l) => l.icon)).toEqual([
+      { name: "circle-dashed", cls: "" },
+      { name: "loader", cls: "is-checking" },
+      { name: "circle-check", cls: "is-ok" },
+      { name: "circle-x", cls: "is-error" },
+      { name: "circle-minus", cls: "" },
+      { name: "alert-triangle", cls: "is-warning" },
+    ]);
+    // Textalternative: jede Zeile trägt den Statustext, nie nur ein Zeichen.
+    expect(vm.body.lines.map((l) => l.statusText)).toEqual(["Waiting", "Running", "Ok", "Failed", "Skipped", "Stale"]);
+    for (const l of vm.body.lines) expect(l.label.endsWith(l.statusText)).toBe(true);
   });
 
   it("running body exposes live streamText/thinkText and an empty-placeholder", () => {

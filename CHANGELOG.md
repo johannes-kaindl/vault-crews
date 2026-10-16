@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The task rows in the crew panel show their state with the shared status icons instead of special characters.** Running tasks show the spinning loader, finished ones a check mark, failed ones a cross, stale ones a warning triangle; waiting and skipped tasks get a neutral dashed or minus circle. Colour is never the only signal: every icon carries the status text as its label, and the row text still names the status. With reduced motion switched on, the loader stands still.
+
 ## [0.19.0] — 2026-10-14
 
 ### Changed

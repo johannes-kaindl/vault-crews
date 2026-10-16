@@ -75,6 +75,7 @@ const P_FOLGE = "Welle 20 — Folge-Regel: Hochscrollen mitten im Strom wird res
 const P_KONTROLLE = "Welle 20 — Folge-Regel (Kontrolle): ohne Störung folgt der Strom dem Ende";
 const P_WIEDERAUFNAHME = "Welle 20 — Folge-Regel (Wiederaufnahme): steht der Nutzer wieder unten, folgt der Strom wieder";
 const P_DENKBLOCK = "Welle 20 — Denkblock live: der Denktext wächst während des Stroms, die Zusammenfassung zählt mit";
+const P_STATUSSYMBOLE = "Welle 23 — Aufgabenzeilen: Status-Symbol mit Zustandsklasse, Textalternative und bewegtem Lauf-Symbol";
 const P_KONTROLLE_ABSATZ = "Welle 20 — Folge-Regel (Kontrolle, absatzgroße Stücke): der Strom folgt auch bei Stücken über der Schwelle";
 const N1_PUNKT = "N1 Abschnitt Request ist vorhanden, klappt auf und zeigt die Felder";
 const PUNKTE = [
@@ -108,6 +109,7 @@ const PUNKTE = [
   P_KONTROLLE,
   P_WIEDERAUFNAHME,
   P_DENKBLOCK,
+  P_STATUSSYMBOLE,
   P_KONTROLLE_ABSATZ,
   "Welle 20 — Abschnitt lief bis zum Ende",
   "Panel — kein Streuner-Hinweis ohne Anlass",
@@ -1452,11 +1454,20 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
         const w = window.__vcW20;
         const leaf = ${PANEL};
         const warte = (ms) => new Promise((r) => setTimeout(r, ms));
+        w.ikonen = [];
         w.denk = []; w.summary = []; w.cancel = null; w.kontrolle = null; w.gestartet = false;
         const t0 = Date.now();
         while (Date.now() - t0 < 60000) {
           if (${PLUGIN}.runActive === true) w.gestartet = true;
           if (w.gestartet && ${PLUGIN}.runActive === false) break;
+          if (${PLUGIN}.runActive === true) {
+            for (const ik of leaf.querySelectorAll(".vault-crews-task-icon")) {
+              const svg = ik.querySelector("svg");
+              const probe = { cls: [...ik.classList].filter((c) => c.startsWith("is-")).join(" "), aria: ik.getAttribute("aria-label") ?? "",
+                svg: svg !== null, anim: svg ? getComputedStyle(svg).animationName : "", farbe: getComputedStyle(ik).color };
+              if (!w.ikonen.some((x) => x.cls === probe.cls && x.aria === probe.aria && x.anim === probe.anim)) w.ikonen.push(probe);
+            }
+          }
           const body = leaf.querySelector(".okit-stream-body");
           const pre = leaf.querySelector(".okit-stream-reasoning pre");
           const sum = leaf.querySelector(".okit-stream-reasoning summary");
@@ -1499,6 +1510,7 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
     const w = await pollUntil<{
       gestartet: boolean;
       denk: number[]; summary: string[];
+      ikonen: { cls: string; aria: string; svg: boolean; anim: string; farbe: string }[];
       kontrolle: { ueberlauf: number } | null;
       cancel: { k?: number[]; l?: number[]; sichtbar?: boolean; fehlt?: boolean } | null;
     }>(cdp, `return window.__vcW20?.fertig ? window.__vcW20 : null;`, 70_000, 500).catch(() => null);
@@ -1529,6 +1541,19 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
       const zaehlt = zahl(w.summary[0]) >= 1 && zahl(w.summary[w.summary.length - 1]) >= w.denk.length - 2;
       record(P_DENKBLOCK, waechst && zaehlt,
         `${w.denk.length} Samples, Denktext ${w.denk[0]} → ${w.denk[w.denk.length - 1]} Zeichen · Zusammenfassung „${String(w.summary[0])}“ → „${String(w.summary[w.summary.length - 1])}“`);
+    }
+
+    // (2b) Status-Symbole der Aufgabenzeilen (Welle 23): während des Laufs steht mindestens ein Symbol im Zustand „läuft“ mit
+    // Icon, Zustandsklasse `is-checking`, Textalternative „Running“ UND laufender Animation (die Klasse steht auch ohne die
+    // CSS-Regel da, UI-STANDARD §8: nur `getComputedStyle(svg).animationName` belegt die Bewegung). Ein Endzustand darf stillstehen.
+    if (!w || w.ikonen.length === 0) unmeasured(P_STATUSSYMBOLE, w ? "kein .vault-crews-task-icon während des Laufs gesehen" : keinLauf);
+    else {
+      const lauf = w.ikonen.find((x) => x.cls === "is-checking");
+      const ok = lauf !== undefined && lauf.svg && lauf.aria === "Running" && lauf.anim !== "none" && lauf.anim !== "";
+      const alle = w.ikonen.every((x) => x.svg && x.aria !== "");
+      const farben = new Set(w.ikonen.map((x) => x.farbe)).size;
+      record(P_STATUSSYMBOLE, ok && alle,
+        `${w.ikonen.length} Zustände gesehen: ${w.ikonen.map((x) => `[${x.cls || "–"} „${x.aria}“ anim=${x.anim} ${x.farbe}]`).join(" ")} · ${farben} Farbe(n)`);
     }
 
     // (3)/(4)/(5) Folge-Regel: Kontrolle, Störung, Wiederaufnahme. Ungültige Messung ist „nichts gemessen“ (CORE-TEST-22).

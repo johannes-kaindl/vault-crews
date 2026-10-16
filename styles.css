@@ -135,8 +135,22 @@
 }
 .vault-crews-task-icon {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: var(--size-4-4);
-  text-align: center;
+  color: var(--text-muted);
+}
+.vault-crews-task-icon svg { width: 14px; height: 14px; }
+/* Status-Indikator (UI-STANDARD §8): Zustandsklassen färben, `is-checking` bewegt sich. */
+.vault-crews-task-icon.is-ok { color: var(--text-success); }
+.vault-crews-task-icon.is-error { color: var(--text-error); }
+.vault-crews-task-icon.is-warning { color: var(--text-warning); }
+.vault-crews-task-icon.is-checking { color: var(--text-accent); }
+.vault-crews-task-icon.is-checking svg { animation: vault-crews-spin 1.2s linear infinite; }
+@keyframes vault-crews-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .vault-crews-task-icon.is-checking svg { animation: none; }
 }
 .vault-crews-task-label {
   color: var(--text-normal);

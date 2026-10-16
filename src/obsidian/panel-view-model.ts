@@ -21,11 +21,19 @@ function appendCapped(buf: string, add: string): string {
   return next.length > MAX_LIVE_CHARS ? next.slice(next.length - MAX_LIVE_CHARS) : next;
 }
 
-// Festes Vokabular (Spec §6.2): ⏳ wartet · ▶ läuft · ✓ ok · ✗ fehlgeschlagen ·
-// ↷ übersprungen · ⊘ stale.
+// Status-Indikator nach UI-STANDARD §8: Lucide-Icon (`loader` / `circle-check` / `circle-x` /
+// `alert-triangle`) UND Zustandsklasse (`is-checking` / `is-ok` / `is-error` / `is-warning`) UND
+// ein Text als `aria-label` — Farbe allein trägt nie. Die zwei Zustände, die der Standard nicht
+// kennt (wartet, übersprungen), bekommen neutrale Icons ohne Zustandsklasse.
 export type TaskLineStatus = "waiting" | "running" | "ok" | "failed" | "skipped" | "stale";
-const TASK_ICON: Record<TaskLineStatus, string> = {
-  waiting: "⏳", running: "▶", ok: "✓", failed: "✗", skipped: "↷", stale: "⊘",
+export interface TaskIconVM { name: string; cls: string; }
+const TASK_ICON: Record<TaskLineStatus, TaskIconVM> = {
+  waiting: { name: "circle-dashed", cls: "" },
+  running: { name: "loader", cls: "is-checking" },
+  ok: { name: "circle-check", cls: "is-ok" },
+  failed: { name: "circle-x", cls: "is-error" },
+  skipped: { name: "circle-minus", cls: "" },
+  stale: { name: "alert-triangle", cls: "is-warning" },
 };
 
 export interface TaskLine { taskId: string; status: TaskLineStatus; }
@@ -176,7 +184,7 @@ export interface CrewHistoryRowVM { teamId: string; text: string; }
 
 export type BodyVM =
   | { kind: "crewsIdle"; empty: boolean; emptyText: string; installLabel: string; teams: TeamRowVM[]; strayText: string | null }
-  | { kind: "crewsRunning"; lines: { icon: string; label: string }[]; streamText: string; thinkText: string; streamEmptyText: string; thinkingLabel: string }
+  | { kind: "crewsRunning"; lines: { icon: TaskIconVM; label: string; statusText: string }[]; streamText: string; thinkText: string; streamEmptyText: string; thinkingLabel: string }
   | { kind: "crewsDone"; summary: SummaryVM; backLabel: string }
   | { kind: "history"; empty: boolean; emptyText: string; latest: SummaryVM | null; crewsHeading: string; crews: CrewHistoryRowVM[] };
 
@@ -226,6 +234,7 @@ function buildCrewsBody(runState: RunState, teams: TeamInfo[], nowMs: number, st
       lines: runState.lines.map((l) => ({
         icon: TASK_ICON[l.status],
         label: `${l.taskId} — ${t(`panel.status.${l.status}`)}`,
+        statusText: t(`panel.status.${l.status}`),
       })),
       streamText: runState.streamText,
       thinkText: runState.thinkText,

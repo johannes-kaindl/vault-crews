@@ -179,7 +179,7 @@ describe("RunPanelView — running state & status line", () => {
     expect(host.abortCurrentRun).toHaveBeenCalledTimes(1);
   });
 
-  it("task lines carry the fixed vocabulary icon; the think block stays closed by default", () => {
+  it("task lines carry the status-indicator icon; the think block stays closed by default", () => {
     const host = makeHost();
     const view = new RunPanelView(makeLeaf(), host);
     driveEvents(view, [
@@ -188,7 +188,12 @@ describe("RunPanelView — running state & status line", () => {
       { type: "token", taskId: "collect", isThink: true, text: "th" },
       { type: "taskFinished", taskId: "collect", status: "ok" },
     ]);
-    expect(view.contentEl.textContent).toContain("✓");
+    // Status-Indikator: Lucide-Icon + Zustandsklasse + Statustext als aria-label (kein Sonderzeichen mehr).
+    const [icon] = findAll(view.contentEl, (e) => e.classList.contains("vault-crews-task-icon"));
+    expect(icon?.classList.contains("is-ok")).toBe(true);
+    expect((icon as unknown as { dataset?: Record<string, string> }).dataset?.icon).toBe("circle-check");
+    expect(icon?.getAttribute("aria-label")).toBe("Ok");
+    expect(view.contentEl.textContent).not.toContain("✓");
     // Der Denkblock entsteht lazy (buildStreamArea: kein Ballast vor dem ersten Gedanken) —
     // aber der Token kam vor `taskFinished`, dessen voller Render das Kit-Modul neu baut;
     // reasoningOpen bleibt am Default (zu), solange niemand aufgeklappt hat.

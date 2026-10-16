@@ -225,7 +225,10 @@ export class RunPanelView extends ItemView {
         const list = root.createDiv({ cls: "vault-crews-task-list" });
         for (const line of body.lines) {
           const row = list.createDiv({ cls: "vault-crews-task-row" });
-          row.createSpan({ cls: "vault-crews-task-icon", text: line.icon });
+          // Status-Indikator (UI-STANDARD §8): Form + Farbe + Zustandsklasse + aria-label (Statustext).
+          const icon = row.createSpan({ cls: `vault-crews-task-icon ${line.icon.cls}`.trim() });
+          setIcon(icon, line.icon.name);
+          icon.setAttribute("aria-label", line.statusText);
           row.createSpan({ cls: "vault-crews-task-label", text: line.label });
         }
         // Streaming-Antwortbereich aus dem Kit (UI-STANDARD §8, `buildStreamArea`):
