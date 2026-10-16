@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-10-16
+
 ### Fixed
 
 - **The "Thinking… N tokens" counter in the panel counts tokens, not chunks.** A model that delivers its whole thinking in one piece (Gemma 4 after the reset) showed "1 tokens" above a long thought; the number is now estimated from the text length, the same way the run log estimates it.
