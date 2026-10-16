@@ -89,7 +89,14 @@ describe("reduceRun", () => {
     expect(s.streamText).toBe("Hello");
     expect(s.thinkText).toBe("hmm");
     expect(s.tokenCount).toBe(2);
-    expect(s.thinkCount).toBe(1);
+    expect(s.thinkCount).toBe(1);   // 3 Zeichen → ⌈3 / 3,5⌉ = 1
+    // Ein einziges Stück mit viel Denken zählt nach Zeichen, nicht als „1“ (Gemma 4: das ganze Denken kommt in einem Stück).
+    const einStueck = drive({ kind: "idle" }, [
+      { type: "runStarted", runId: "r1", teamId: "t" },
+      { type: "taskStarted", taskId: "a", index: 1, total: 1 },
+      { type: "token", taskId: "a", isThink: true, text: "x".repeat(140) },
+    ]);
+    expect(einStueck.kind === "running" && einStueck.thinkCount).toBe(40);
   });
 
   it("resets streamText and thinkText on taskStarted", () => {
@@ -171,7 +178,7 @@ describe("buildPanelViewModel — crews body", () => {
       expect(vm.body.lines[0]?.icon).toEqual({ name: "circle-check", cls: "is-ok" });
       expect(vm.body.lines[0]?.statusText).toBe("Ok");
       expect(vm.body.streamText).toBe("");
-      expect(vm.body.thinkingLabel).toContain("1");
+      expect(vm.body.thinkingLabel).toContain("0");   // leeres Denk-Stück: keine Zeichen, keine Token
     }
   });
 
@@ -193,7 +200,7 @@ describe("buildPanelViewModel — crews body", () => {
     const running: RunState = {
       kind: "running", runId: "r", teamId: "t", total: 6, index: 1, currentTaskId: null,
       lines: statuses.map((status, i) => ({ taskId: `t${i}`, status })),
-      tokenCount: 0, thinkCount: 0, streamText: "", thinkText: "", writes: [], aborting: false,
+      tokenCount: 0, thinkCount: 0, thinkChars: 0, streamText: "", thinkText: "", writes: [], aborting: false,
     };
     const vm = buildPanelViewModel({ navState: "crews", runState: running, teams, latest: null, nowMs: 0, strayCount: 0 });
     expect(vm.body.kind).toBe("crewsRunning");

@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- **The "Thinking… N tokens" counter in the panel counts tokens, not chunks.** A model that delivers its whole thinking in one piece (Gemma 4 after the reset) showed "1 tokens" above a long thought; the number is now estimated from the text length, the same way the run log estimates it.
 - **Gemma 4 on LM Studio: the model's thinking no longer shows up as the answer in the panel.** It writes its thinking into the answer text without an opening marker and closes it with `<channel|>`; the panel now moves that text into the collapsible thinking block and shows only the answer. A model family or alias the plugin cannot tell from its name is handled through the family the plugin already knows. A thinking-despite-off warning no longer appears for Gemma 4 on LM Studio, where thinking cannot be switched off.
 
 ### Changed

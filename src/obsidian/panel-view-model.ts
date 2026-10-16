@@ -47,7 +47,10 @@ export interface RunningState {
   currentTaskId: string | null;
   lines: TaskLine[];
   tokenCount: number;
+  /** Geschätzte Denk-Token (Zeichen / 3,5, wie der Client sie für das Ergebnis schätzt) — nicht die Zahl der Stücke: ein Modell,
+   *  das sein ganzes Denken in einem Stück liefert (Gemma 4 nach dem Zurücksetzen), zählte sonst „1“. */
   thinkCount: number;
+  thinkChars: number;
   /** Voller Content-Output des laufenden Tasks (reset pro Task), Tail-gekappt. */
   streamText: string;
   /** Voller Reasoning-Output des laufenden Tasks (reset pro Task), Tail-gekappt. */
@@ -94,7 +97,7 @@ export function reduceRun(state: RunState, e: RunEvent): RunState {
       return {
         kind: "running", runId: e.runId, teamId: e.teamId,
         total: 0, index: 0, currentTaskId: null, lines: [],
-        tokenCount: 0, thinkCount: 0, streamText: "", thinkText: "", writes: [], aborting: false,
+        tokenCount: 0, thinkCount: 0, thinkChars: 0, streamText: "", thinkText: "", writes: [], aborting: false,
       };
     case "taskStarted":
       if (state.kind === "running") {
@@ -103,6 +106,7 @@ export function reduceRun(state: RunState, e: RunEvent): RunState {
         state.currentTaskId = e.taskId;
         state.tokenCount = 0;
         state.thinkCount = 0;
+        state.thinkChars = 0;
         state.streamText = "";
         state.thinkText = "";
         const existing = state.lines.find((l) => l.taskId === e.taskId);
@@ -113,7 +117,8 @@ export function reduceRun(state: RunState, e: RunEvent): RunState {
     case "token":
       if (state.kind === "running") {
         if (e.isThink) {
-          state.thinkCount += 1;
+          state.thinkChars += e.text.length;
+          state.thinkCount = Math.ceil(state.thinkChars / 3.5);
           state.thinkText = appendCapped(state.thinkText, e.text);
         } else {
           state.tokenCount += 1;

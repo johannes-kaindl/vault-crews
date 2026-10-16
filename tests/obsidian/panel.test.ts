@@ -383,14 +383,14 @@ describe("RunPanelView — live streaming (content + think, buildStreamArea)", (
     const summaryText = (): string | undefined =>
       findAll(view.contentEl, (e) => e.tagName === "SUMMARY")[0]?.textContent;
 
+    // Die Zahl schätzt Token aus Zeichen (⌈Zeichen / 3,5⌉), sie zählt keine Stücke.
     view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "a" });
     expect(summaryText()).toBe("Thinking… 1 tokens");
-    view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "b" });
-    view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "c" });
-    expect(summaryText()).toBe("Thinking… 3 tokens");
+    view.handleEvent({ type: "token", taskId: "a", isThink: true, text: "b".repeat(34) });
+    expect(summaryText()).toBe("Thinking… 10 tokens");
     // Content-Token fasst die Zeile nicht an
     view.handleEvent({ type: "token", taskId: "a", isThink: false, text: "x" });
-    expect(summaryText()).toBe("Thinking… 3 tokens");
+    expect(summaryText()).toBe("Thinking… 10 tokens");
   });
 
   it("the reasoning block stays open across the next full re-render once the user opened it (Verhaltenswechsel: bleibt WÄHREND des Streams offen, buildStreamArea steuert per Property statt Attribut)", () => {
