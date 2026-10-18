@@ -41,7 +41,9 @@
         "sse",
         "think-splitter",
         "timeout",
-        "local-stamp"
+        "local-stamp",
+        "rel-path",
+        "folder-scope"
       ]
     },
     {

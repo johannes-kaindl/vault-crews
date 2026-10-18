@@ -10,6 +10,22 @@ describe('normalizeVaultPath', () => {
 		expect(normalizeVaultPath('a//b.md')).toBe('a/b.md');
 	});
 
+	it('verliert das .-Segment (Kit rel-path): ./a und a/./b sind a und a/b, die Denylist sieht beide Schreibweisen gleich', () => {
+		expect(normalizeVaultPath('./a.md')).toBe('a.md');
+		expect(normalizeVaultPath('a/./b.md')).toBe('a/b.md');
+		expect(isDenied(normalizeVaultPath('./.obsidian/x.json'), DENYLIST)).toBe(true);
+	});
+
+	it('wirft bei NUL und bei .. mit Leerraum drumherum (neu abgelehnt)', () => {
+		expect(() => normalizeVaultPath('a\0b.md')).toThrow();
+		expect(() => normalizeVaultPath('a/.. /b.md')).toThrow();
+	});
+
+	it('der Wurzelordner bleibt ein gültiges Ergebnis (leerer Ordner = ganzer Vault)', () => {
+		expect(normalizeVaultPath('')).toBe('');
+		expect(normalizeVaultPath('/')).toBe('');
+	});
+
 	it('wirft bei ..-Segmenten (Escape-Versuch)', () => {
 		expect(() => normalizeVaultPath('../x.md')).toThrow();
 		expect(() => normalizeVaultPath('10_A/../.git/config')).toThrow();

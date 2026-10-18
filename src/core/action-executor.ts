@@ -60,7 +60,7 @@ async function validateAction(action: Action, ctx: ExecutorContext, vault: Vault
 	try {
 		v.path = normalizeVaultPath(action.path);
 	} catch {
-		v.outcome = outcomeOf(action, 'rejected', `Pfad enthält '..': ${action.path}`);
+		v.outcome = outcomeOf(action, 'rejected', `Pfad ungültig ('..' oder NUL): ${action.path}`);
 		return v;
 	}
 	// 2. Denylist überstimmt jede Whitelist

@@ -9,6 +9,8 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - Kit update (obsidian-kit 0.61.0 → 0.63.0, code-kit 0.28.0 → 0.31.0). The thinking block of the run panel has a copy button, and long lines in the live answer wrap instead of running off the right edge.
+- Paths in a crew are checked by the shared kit module `rel-path`: a `.` segment no longer survives (`./a.md` is read as `a.md`, so the deny-list and `write_scope` see both spellings the same), and a path with a NUL byte or a `..` padded with blanks (`".. "`) is now refused like any other `..`.
+- Listing the notes of a folder (the collectors and the crew-folder watcher) uses the shared kit module `folder-scope`: whole folder names only, names that differ only in Unicode normal form (`Ü` as one or two code points) match, and a folder containing `..` holds nothing. An empty `folder` in a collector still means the whole vault; an empty crew folder in the settings still watches nothing.
 - LM Studio: whether a model thinks or sees images now comes from its metadata instead of only its name, so thinking is recognised for more models.
 - The "Request" section shows a button "Set family in the manager" next to the hint "Model family detected", warns when a request would load another model in LM Studio and push a loaded one out (JIT displacement), names the Claude field "Thinking effort (effort)", and has its own wording for a field the backend refuses to take.
 

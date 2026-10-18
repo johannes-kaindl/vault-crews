@@ -69,6 +69,7 @@ import { LocalLlmClient } from "./core/local-llm-client";
 import { executeRun, type RunDeps } from "./core/orchestrator";
 import { parseTeamDef } from "./core/crew-parser";
 import { dueTeams } from "./core/heartbeat";
+import { isInFolder } from "./vendor/kit/folder-scope";
 import { buildDenylist } from "./core/paths";
 import { buildUndoPlan, type UndoPlan } from "./core/undo-plan";
 import type { LlmClient, MetadataPort, RunEvent, RunReporter, SnapshotStore, VaultPort } from "./core/ports";
@@ -716,8 +717,8 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
    *  hinsah, musste es schliessen und wieder oeffnen, um sie zu sehen. */
   private registerCrewWatcher(): void {
     const touched = (path: string): boolean => {
-      const root = this.settings.crewRoot.trim().replace(/\/+$/, "");
-      return root !== "" && path.startsWith(root + "/");
+      // Kit `folder-scope`, Standard: ein leerer Crew-Ordner enthält nichts (kein Wurzel-Watcher aus einem Tippfehler).
+      return isInFolder(path, this.settings.crewRoot.trim());
     };
     const onChange = (file: { path: string }, oldPath?: string): void => {
       if (!touched(file.path) && !(oldPath !== undefined && touched(oldPath))) return;

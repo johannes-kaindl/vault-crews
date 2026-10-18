@@ -1,4 +1,5 @@
 import { localDate } from '../vendor/kit/local-stamp';
+import { normalizeRelPath } from '../vendor/kit/rel-path';
 
 /** Pfad-Guards des pure-Layers. Jede Schreib-/Leseaktion der Agenten läuft hier durch —
  *  die Denylist überstimmt jede write_scope-Whitelist (Spec §4.4). */
@@ -16,13 +17,13 @@ export function buildDenylist(configDir: string, crewRoot: string): string[] {
 	return [`${configDir}/**`, '.git/**', `${root}/**`, '_vaultrag/**', '.*', '**/.*', '**/.*/**'];
 }
 
-/** Vault-relative Pfade vereinheitlichen; `..`-Segmente sind immer ein Fehler (Escape). */
+/** Vault-relative Pfade vereinheitlichen (Kit `rel-path`, seit Welle 24): ein `..`-Segment (auch mit Leerraum drumherum) und ein
+ *  NUL sind Fehler (Escape); `.`- und leere Segmente fallen weg (`./a` ist `a`, die Denylist sieht beide Schreibweisen gleich),
+ *  `\` trennt wie `/`, ein führendes `/` heißt Vault-Wurzel. Der Wurzelordner (`""`) bleibt gültig. */
 export function normalizeVaultPath(p: string): string {
-	const unified = p.trim().replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\//, '');
-	if (unified.split('/').some((seg) => seg === '..')) {
-		throw new Error(`Pfad enthält '..': ${p}`);
-	}
-	return unified;
+	const r = normalizeRelPath(p.trim(), { absolute: 'strip', allowEmpty: true });
+	if (!r.ok) throw new Error(`Pfad ungültig (${r.problem}): ${p}`);
+	return r.path;
 }
 
 /** Minimaler Glob: `**` über Ordnergrenzen, `*` innerhalb eines Segments, sonst literal. */

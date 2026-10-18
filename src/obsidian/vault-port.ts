@@ -1,4 +1,5 @@
 import { normalizePath, TFile, type App } from "obsidian";
+import { pathsInFolder } from "../vendor/kit/folder-scope";
 import type { MetadataPort, VaultPort } from "../core/ports";
 import type { FmValue } from "../core/types";
 
@@ -84,12 +85,9 @@ export class ObsidianMetadataPort implements MetadataPort {
   }
 
   async listMarkdownFiles(folder: string): Promise<string[]> {
-    const prefix = normalizePath(folder);
-    const paths = this.app.vault.getMarkdownFiles().map((f) => f.path);
-    const filtered = prefix === "/" || prefix === ""
-      ? paths
-      : paths.filter((p) => p.startsWith(prefix + "/")); // "+ '/'" verhindert Präfix-Fallen (Foo vs Foo-Archiv)
-    return filtered.sort(); // deterministische Reihenfolge (Determinismus-Zusage §6.3)
+    // Kit `folder-scope`: ganze Segmente (Foo vs Foo-Archiv), Unicode-NFC, UTF-16-Sortierung (Determinismus-Zusage §6.3).
+    // Ein leerer Ordner (und `/`) heißt hier die Vault-Wurzel: `root: true`, weil ein Crew-Collector ohne `folder` alles sammelt.
+    return pathsInFolder(this.app.vault.getMarkdownFiles().map((f) => f.path), folder.trim(), { root: true });
   }
 
   async getFrontmatter(path: string): Promise<Record<string, unknown> | null> {

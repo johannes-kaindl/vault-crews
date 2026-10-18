@@ -111,6 +111,19 @@ describe("ObsidianMetadataPort", () => {
     ]);
   });
 
+  it("listMarkdownFiles: leerer Ordner und / sind die Wurzel, ein Ordner mit .. enthält nichts, Unicode-Normalform zählt nicht", async () => {
+    app.vault.getMarkdownFiles = vi.fn().mockReturnValue([
+      new TFile("b.md"),
+      new TFile("A/a.md"),
+      new TFile("Ü/u.md"), // Ü zusammengesetzt (U+00DC)
+    ]);
+    const port = new ObsidianMetadataPort(app);
+    expect(await port.listMarkdownFiles("")).toEqual(["A/a.md", "b.md", "Ü/u.md"]);
+    expect(await port.listMarkdownFiles("/")).toEqual(["A/a.md", "b.md", "Ü/u.md"]);
+    expect(await port.listMarkdownFiles("A/../A")).toEqual([]);
+    expect(await port.listMarkdownFiles("U\u0308")).toEqual(["Ü/u.md"]); // Ü zerlegt (U + U+0308)
+  });
+
   it("getFrontmatter liefert den Cache-Eintrag oder null", async () => {
     const file = new TFile("a.md");
     app.vault.getAbstractFileByPath = vi.fn().mockReturnValue(file);
