@@ -76,6 +76,10 @@ const P_KONTROLLE = "Welle 20 — Folge-Regel (Kontrolle): ohne Störung folgt d
 const P_WIEDERAUFNAHME = "Welle 20 — Folge-Regel (Wiederaufnahme): steht der Nutzer wieder unten, folgt der Strom wieder";
 const P_DENKBLOCK = "Welle 20 — Denkblock live: der Denktext wächst während des Stroms, die Zusammenfassung zählt mit";
 const P_STATUSSYMBOLE = "Welle 23 — Aufgabenzeilen: Status-Symbol mit Zustandsklasse, Textalternative und bewegtem Lauf-Symbol";
+const P_KOPIE = "Welle 24 — Denkblock kopierbar: der Knopf schreibt den Denktext in die Zwischenablage und quittiert erst danach";
+const P_KOPIE_GEGEN = "Welle 24 — Denkblock kopierbar (Gegenprobe): lehnt die Zwischenablage ab, bleibt die Quittung aus";
+const P_FOKUS = "Welle 24 — Pflichtpunkt Fokus-Erhalt (Skill gui-smoke-setup § 3a)";
+const P_ERREICHBAR = "Welle 24 — Pflichtpunkt Erreichbarkeit der Bedienelemente bei wachsendem Ausgabebereich (Skill gui-smoke-setup § 3a)";
 const P_GEMMA = "Welle 23 — Gemma 4 ohne Öffner: der Denktext steht im Denkblock, nicht im Anzeigetext der Antwort";
 const P_KONTROLLE_ABSATZ = "Welle 20 — Folge-Regel (Kontrolle, absatzgroße Stücke): der Strom folgt auch bei Stücken über der Schwelle";
 const N1_PUNKT = "N1 Abschnitt Request ist vorhanden, klappt auf und zeigt die Felder";
@@ -111,6 +115,10 @@ const PUNKTE = [
   P_WIEDERAUFNAHME,
   P_DENKBLOCK,
   P_STATUSSYMBOLE,
+  P_KOPIE,
+  P_KOPIE_GEGEN,
+  P_FOKUS,
+  P_ERREICHBAR,
   P_GEMMA,
   P_KONTROLLE_ABSATZ,
   "Welle 20 — Abschnitt lief bis zum Ende",
@@ -1403,6 +1411,8 @@ async function starteLaufUndWarteAufBereich(cdp: Cdp, id: string): Promise<void>
  *  (Schwelle `followThreshold` 40 px plus 40 px Spielraum), und nach der Störung kommen mindestens zwei weitere Stücke.
  *  Gemessen wird `scrollTop` nach der Störung gegen `scrollTop` zur Störungszeit, nicht die Schwelle als Position; der
  *  Stub hält die Verbindung nach dem letzten Stück offen (`nachlaufMs`), Messungen nach dem Schluss-Draw zählen nicht. */
+interface KopieProbe { fehlt: boolean; modus?: string; aria: string; n: number; text: string | null; flash: boolean }
+
 async function w20Lauf(cdp: Cdp): Promise<void> {
   const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
   const id = "zz-w20";
@@ -1457,7 +1467,7 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
         const leaf = ${PANEL};
         const warte = (ms) => new Promise((r) => setTimeout(r, ms));
         w.ikonen = [];
-        w.denk = []; w.summary = []; w.cancel = null; w.kontrolle = null; w.gestartet = false;
+        w.denk = []; w.summary = []; w.cancel = null; w.kontrolle = null; w.gestartet = false; w.kopie = null;
         const t0 = Date.now();
         while (Date.now() - t0 < 60000) {
           if (${PLUGIN}.runActive === true) w.gestartet = true;
@@ -1472,6 +1482,29 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
           }
           const body = leaf.querySelector(".okit-stream-body");
           const pre = leaf.querySelector(".okit-stream-reasoning pre");
+          // Kopier-Knopf am Denkblock (obsidian-kit 0.63.0): erst ablehnende Zwischenablage (Quittung muss ausbleiben), dann
+          // aufzeichnende (Text und Quittung müssen kommen). Einmal je Lauf, sobald der Denktext Substanz hat.
+          if (pre && w.kopie === null && pre.textContent.length > 30 && ${PLUGIN}.runActive === true) {
+            w.kopie = "laeuft";
+            (async () => {
+              const probe = async (modus) => {
+                const btn = leaf.querySelector(".okit-stream-reasoning-copy");
+                if (!btn) return { fehlt: true };
+                for (let i = 0; i < 40 && btn.classList.contains("is-copied"); i += 1) await warte(100);
+                const aufrufe = [];
+                // navigator.clipboard ist nicht umdefinierbar; writeText der Instanz überdecken und danach wieder freigeben.
+                const cb = navigator.clipboard;
+                cb.writeText = (t) => { aufrufe.push(t); return modus === "ablehnen" ? Promise.reject(new Error("verweigert")) : Promise.resolve(); };
+                try { btn.click(); await warte(250); } finally { delete cb.writeText; }
+                return { fehlt: false, modus, aria: btn.getAttribute("aria-label") ?? "", n: aufrufe.length, text: aufrufe[0] ?? null, flash: btn.classList.contains("is-copied") };
+              };
+              try {
+                const ablehnen = await probe("ablehnen");
+                const ok = await probe("ok");
+                w.kopie = { ablehnen, ok };
+              } catch (e) { w.kopie = { fehler: String(e && e.message ? e.message : e) }; }
+            })();
+          }
           const sum = leaf.querySelector(".okit-stream-reasoning summary");
           if (pre && ${PLUGIN}.runActive === true) {
             const n = pre.textContent.length;
@@ -1489,6 +1522,7 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
           }
           await warte(40);
         }
+        for (let i = 0; i < 50 && w.kopie === "laeuft"; i += 1) await warte(100);
         w.fertig = true;
       })();
       return true;`);
@@ -1515,6 +1549,7 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
       ikonen: { cls: string; aria: string; svg: boolean; anim: string; farbe: string }[];
       kontrolle: { ueberlauf: number } | null;
       cancel: { k?: number[]; l?: number[]; sichtbar?: boolean; fehlt?: boolean } | null;
+      kopie: "laeuft" | { fehler: string } | { ablehnen: KopieProbe; ok: KopieProbe } | null;
     }>(cdp, `return window.__vcW20?.fertig ? window.__vcW20 : null;`, 70_000, 500).catch(() => null);
     const fertig = await wartetAuf(cdp, `${PLUGIN}.lastRuns[${JSON.stringify(id)}] && ${PLUGIN}.runActive === false`, 20000);
     if (fertig) {
@@ -1557,6 +1592,30 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
       record(P_STATUSSYMBOLE, ok && alle,
         `${w.ikonen.length} Zustände gesehen: ${w.ikonen.map((x) => `[${x.cls || "–"} „${x.aria}“ anim=${x.anim} ${x.farbe}]`).join(" ")} · ${farben} Farbe(n)`);
     }
+
+    // (2c) Kopier-Knopf am Denkblock (Welle 24) samt Gegenprobe mit ablehnender Zwischenablage.
+    const kp = w?.kopie;
+    if (!w || kp === null || kp === "laeuft" || kp === undefined) {
+      const grund = w ? "der Denktext erreichte während des Laufs nie 30 Zeichen oder die Probe wurde nicht fertig" : keinLauf;
+      unmeasured(P_KOPIE, grund);
+      unmeasured(P_KOPIE_GEGEN, grund);
+    } else if ("fehler" in kp) {
+      unmeasured(P_KOPIE, `Probe warf im Renderer: ${kp.fehler}`);
+      unmeasured(P_KOPIE_GEGEN, `Probe warf im Renderer: ${kp.fehler}`);
+    } else if (kp.ok.fehlt || kp.ablehnen.fehlt) {
+      record(P_KOPIE, false, "kein .okit-stream-reasoning-copy am Denkblock");
+      record(P_KOPIE_GEGEN, false, "kein .okit-stream-reasoning-copy am Denkblock");
+    } else {
+      const o = kp.ok, a = kp.ablehnen;
+      record(P_KOPIE, o.aria !== "" && o.n === 1 && (o.text ?? "").includes("Denkzeile") && o.flash,
+        `aria „${o.aria}“ · ${o.n} Aufruf(e) von writeText · Text ${(o.text ?? "—").length} Zeichen, beginnt „${(o.text ?? "").slice(0, 24)}“ · Quittung ${o.flash ? "da" : "fehlt"}`);
+      // Die Gegenprobe gilt nur, wenn der Klick writeText ÜBERHAUPT erreicht hat (sonst bliebe die Quittung auch bei einem Knopf aus, der nichts tut).
+      record(P_KOPIE_GEGEN, a.n === 1 && !a.flash, `${a.n} Aufruf(e) von writeText, abgelehnt · Quittung ${a.flash ? "DA (falsch)" : "bleibt aus"}`);
+    }
+
+    // (2d) Pflichtpunkte aus tools/obsidian-cdp/pflichtpunkte.ts (Skill gui-smoke-setup § 3a): hier nicht anwendbar, mit Grund.
+    skipped(P_FOKUS, "das Panel hat kein Tipp-Feld (nur Knöpfe, Liste und Strombereich); ohne Feld gibt es nichts, dessen Fokus ein Anstrich nehmen könnte");
+    skipped(P_ERREICHBAR, "der Strombereich ist begrenzt (max-height 40vh, eigener Rollbereich) und der einzige Dauer-Knopf (Abbrechen) sitzt außerhalb des Rollbereichs in der Statuszeile — die Gegenprobe ohne Rollbalken könnte kein Element unerreichbar machen (CORE-TEST-01); die Frage deckt „Abbrechen-Knopf liegt während eines Laufs im Leaf-Rechteck“");
 
     // (3)/(4)/(5) Folge-Regel: Kontrolle, Störung, Wiederaufnahme. Ungültige Messung ist „nichts gemessen“ (CORE-TEST-22).
     if (folge === null) {
