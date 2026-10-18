@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-10-18
+
 ### Changed
 
 - Kit update (obsidian-kit 0.61.0 → 0.63.0, code-kit 0.28.0 → 0.31.0). The thinking block of the run panel has a copy button, and long lines in the live answer wrap instead of running off the right edge.
