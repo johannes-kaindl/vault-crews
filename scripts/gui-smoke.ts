@@ -2008,6 +2008,11 @@ async function main(): Promise<void> {
   // Läuft dieser Lauf gegen den eigenen Stand? Der Store-Build trägt dieselbe Versionsnummer; `ladePluginNeu` prüft mit
   // `repoMainJs` vor dem Reload, dass `main.js` im Vault der frisch gebaute Repo-Stand ist (CORE-TEST-08 a), und stellt
   // danach die Version auf der Platte neben die im Speicher (Obsidian hält den zuvor geladenen Stand).
+  // Die Prüfpunkte erwarten die englische Oberfläche („Running“, nicht „Läuft“). `obsidian.json` mit `"language":"en"` reicht
+  // nicht: das Plugin liest die Sprache aus `localStorage.language`, und ein Profil, das sie nie gesetzt hat, fällt auf die
+  // Systemsprache (gemessen 2026-10-18: Statussymbol-Punkt rot mit aria „Läuft“, Plugin fehlerfrei). Setzen VOR dem Neuladen,
+  // weil `onload` sie nur dort liest.
+  await cdp.evaluate(`try { localStorage.setItem("language", "en"); } catch (e) {} return true;`);
   try {
     const neu = await ladePluginNeu(cdp, PLUGIN_ID, { repoMainJs: join(cwd(), "main.js") });
     console.log(neu.hinweis);
