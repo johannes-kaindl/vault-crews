@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Kit update (obsidian-kit 0.61.0 → 0.63.0, code-kit 0.28.0 → 0.31.0). The thinking block of the run panel has a copy button, and long lines in the live answer wrap instead of running off the right edge.
+- LM Studio: whether a model thinks or sees images now comes from its metadata instead of only its name, so thinking is recognised for more models.
+- The "Request" section shows a button "Set family in the manager" next to the hint "Model family detected", warns when a request would load another model in LM Studio and push a loaded one out (JIT displacement), names the Claude field "Thinking effort (effort)", and has its own wording for a field the backend refuses to take.
+
 ### Added
 
 - Crews can run on a schedule: `trigger: interval` with `interval: 30m` (units `m`, `h`, `d`, at least `5m`) starts a team by itself while Obsidian is open. The first run comes one interval after the plugin loads, a tick that meets an active run is skipped, and nothing is caught up after Obsidian was closed. Schema validation, `write_scope`, write cap and undo apply as for a manual run.

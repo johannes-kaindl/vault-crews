@@ -10,6 +10,7 @@ const KEY: Record<DeviationKind, string> = {
   "family-mismatch": "request.dev.familyMismatch",
   "family-detected": "request.dev.familyDetected",
   "rejected": "request.dev.rejected",
+  "override-dropped": "request.dev.overrideDropped",
 };
 
 export function deviationDetail(kind: DeviationKind, detail?: string): string {

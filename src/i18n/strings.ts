@@ -274,6 +274,7 @@ export const EN: Record<string, string> = {
   "request.dev.familyMismatch": "The answer came from a different model family ({0}).",
   "request.dev.familyDetected": "Model family detected: {0}. Set it in the LLM Endpoint Manager.",
   "request.dev.rejected": "The server rejected the request: {0}",
+  "request.dev.overrideDropped": "Left out of the request because this backend refuses them: {0}.",
   "request.dev.seeSettings": "Details in the settings under „Request“.",
 };
 
@@ -538,6 +539,7 @@ export const DE: Record<string, string> = {
   "request.dev.familyMismatch": "Die Antwort kam von einer anderen Modellfamilie ({0}).",
   "request.dev.familyDetected": "Modellfamilie erkannt: {0}. Im LLM Endpoint Manager setzen.",
   "request.dev.rejected": "Der Server hat die Anfrage abgelehnt: {0}",
+  "request.dev.overrideDropped": "Nicht gesendet, weil dieses Backend sie ablehnt: {0}.",
   "request.dev.seeSettings": "Details in den Einstellungen unter „Anfrage“.",
 };
 
