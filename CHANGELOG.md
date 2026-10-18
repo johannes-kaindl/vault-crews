@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Internal: removed the `.nvmrc` file left over from the project template (no other plugin of this author carries one). The Community Store's source review could not install dependencies for 0.21.0; this release is a fresh attempt. Nothing changes in the plugin.
+
 ## [0.21.0] — 2026-10-18
 
 ### Changed
