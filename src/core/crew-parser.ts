@@ -2,6 +2,7 @@
  *  Grundsatz (Spec §2.1/§3.1): ALLE Fehler sammeln, zeilenverständlich melden
  *  (`<datei>: <feld>: <problem>`), und zwar BEVOR irgendein LLM-Call passiert. */
 import { globMatch } from './paths';
+import { MIN_INTERVAL_MINUTES, parseIntervalMinutes } from './heartbeat';
 import type {
 	ActionType, AgentDef, CollectorId, LlmTaskDef, OutputSpec, RunLimits, TaskDef, TeamDef,
 } from './types';
@@ -93,7 +94,14 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 	const name = typeof fm.name === 'string' && fm.name.trim() !== '' ? fm.name.trim() : null;
 	if (name === null) err('name', 'fehlt oder leer');
 	if (fm.version !== 1) err('version', `'${show(fm.version)}' (erwartet 1)`);
-	if (fm.trigger !== 'manual') err('trigger', `'${show(fm.trigger)}' (V1 unterstützt nur 'manual')`);
+	const trigger = fm.trigger === 'interval' ? 'interval' : 'manual';
+	let intervalMinutes: number | null = null;
+	if (fm.trigger === 'interval') {
+		intervalMinutes = parseIntervalMinutes(fm.interval);
+		if (intervalMinutes === null) err('interval', `'${show(fm.interval)}' (erwartet z. B. '30m', '2h', '1d'; mindestens ${MIN_INTERVAL_MINUTES}m)`);
+	} else if (fm.trigger !== 'manual') {
+		err('trigger', `'${show(fm.trigger)}' (erwartet 'manual' oder 'interval')`);
+	}
 	const description = typeof fm.description === 'string' ? fm.description : '';
 
 	const limits = isRecord(fm.limits) ? fm.limits : {};
@@ -198,7 +206,7 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 		ok: true,
 		value: {
 			id: slugFromPath(path), name: name ?? '', version: 1, description,
-			trigger: 'manual', maxWrites, writeScope, tasks, sourcePath: path,
+			trigger, ...(intervalMinutes !== null ? { intervalMinutes } : {}), maxWrites, writeScope, tasks, sourcePath: path,
 		},
 	};
 }

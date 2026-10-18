@@ -106,6 +106,28 @@ describe('parseTeamDef', () => {
 		expect(r.errors.some((e) => e.includes('max_writes'))).toBe(true);
 	});
 
+	it('nimmt trigger: interval mit gültigem Intervall an', () => {
+		const r = parseTeamDef(TEAM_PATH, teamFm({ trigger: 'interval', interval: '2h' }), OPTS);
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		expect(r.value.trigger).toBe('interval');
+		expect(r.value.intervalMinutes).toBe(120);
+	});
+
+	it('trigger: interval braucht ein gültiges interval', () => {
+		for (const interval of [undefined, '1m', 'oft', 30]) {
+			const r = parseTeamDef(TEAM_PATH, teamFm({ trigger: 'interval', interval }), OPTS);
+			expect(r.ok).toBe(false);
+			if (r.ok) continue;
+			expect(r.errors.some((e) => e.includes('interval'))).toBe(true);
+		}
+	});
+
+	it('manual trägt kein Intervall', () => {
+		const r = parseTeamDef(TEAM_PATH, teamFm(), OPTS);
+		expect(r.ok && r.value.intervalMinutes).toBeFalsy();
+	});
+
 	it('sammelt ALLE Fehler statt first-fail', () => {
 		const r = parseTeamDef(TEAM_PATH, teamFm({
 			version: 2,

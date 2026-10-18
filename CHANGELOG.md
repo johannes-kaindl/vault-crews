@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Crews can run on a schedule: `trigger: interval` with `interval: 30m` (units `m`, `h`, `d`, at least `5m`) starts a team by itself while Obsidian is open. The first run comes one interval after the plugin loads, a tick that meets an active run is skipped, and nothing is caught up after Obsidian was closed. Schema validation, `write_scope`, write cap and undo apply as for a manual run.
+
 ## [0.20.1] — 2026-10-16
 
 ### Documentation

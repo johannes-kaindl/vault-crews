@@ -68,6 +68,7 @@ import { AdapterSnapshotStore } from "./obsidian/snapshot-store";
 import { LocalLlmClient } from "./core/local-llm-client";
 import { executeRun, type RunDeps } from "./core/orchestrator";
 import { parseTeamDef } from "./core/crew-parser";
+import { dueTeams } from "./core/heartbeat";
 import { buildDenylist } from "./core/paths";
 import { buildUndoPlan, type UndoPlan } from "./core/undo-plan";
 import type { LlmClient, MetadataPort, RunEvent, RunReporter, SnapshotStore, VaultPort } from "./core/ports";
@@ -110,6 +111,8 @@ interface TeamListEntry {
   /** Erste Meldung, falls parseTeamDef scheitert — die Zeile bleibt startbar, deutet den
    *  Fehler aber schon in der Liste an, statt ihn erst im Preflight zu zeigen. */
   problem: string | null;
+  /** Gesetzt bei `trigger: interval` (Heartbeat), sonst null. */
+  intervalMinutes: number | null;
 }
 
 export default class VaultCrewsPlugin extends Plugin implements SettingsHost, PanelHost {
@@ -466,10 +469,33 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       await this.refreshTeams();
       this.registerTeamCommands();
       this.registerCrewWatcher();
+      this.registerHeartbeat();
       await this.checkRecovery();
     } catch {
       // Best-effort Hintergrund-Init: bei einem Fehler bleibt die Team-Liste leer,
       // ein Reload versucht es erneut. Kein UI-Lärm.
+    }
+  }
+
+  // ── Heartbeat (`trigger: interval`) ─────────────────────────────────────────
+
+  private heartbeatLastStart = new Map<string, number>();
+
+  /** Minütlicher Takt. Ein fälliger Lauf geht durch denselben Ein-Lauf-Mutex wie ein Klick:
+   *  ist gerade etwas aktiv, fällt der Takt still aus (kein Rückstau, keine Notice). Der
+   *  erste Takt zählt ab dem Plugin-Start, es läuft nie sofort beim Laden. */
+  private registerHeartbeat(): void {
+    this.registerInterval(window.setInterval(() => { this.heartbeatTick(Date.now()); }, 60_000));
+  }
+
+  heartbeatTick(now: number): void {
+    const teams = this.teamCache.flatMap((tm) =>
+      tm.intervalMinutes !== null && tm.problem === null ? [{ id: tm.id, intervalMinutes: tm.intervalMinutes }] : []);
+    for (const id of dueTeams(teams, this.heartbeatLastStart, now)) {
+      // Auch ein übersprungener Takt setzt den Anfang neu: kein Rückstau, der nach dem Lauf nachholt.
+      this.heartbeatLastStart.set(id, now);
+      if (this.runActive) continue;
+      this.runCrew(id);
     }
   }
 
@@ -759,7 +785,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       const fm = await this.meta.getFrontmatter(path);
       const parsed = parseTeamDef(path, fm, { knownAgents: agentIds, maxima: limits, denylist });
       if (parsed.ok) {
-        return { id, name: parsed.value.name, description: parsed.value.description, problem: null };
+        return { id, name: parsed.value.name, description: parsed.value.description, problem: null, intervalMinutes: parsed.value.intervalMinutes ?? null };
       }
       // Genau die erste Meldung: der Tooltip soll den Einstieg geben, nicht das ganze
       // Protokoll — das steht im Preflight.
@@ -767,13 +793,13 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       if (fm !== null) {
         const name = typeof fm.name === "string" && fm.name.trim() !== "" ? fm.name.trim() : id;
         const description = typeof fm.description === "string" ? fm.description : "";
-        return { id, name, description, problem };
+        return { id, name, description, problem, intervalMinutes: null };
       }
-      return { id, name: id, description: "", problem };
+      return { id, name: id, description: "", problem, intervalMinutes: null };
     } catch {
       // rohes Lesen fehlgeschlagen → Slug-Fallback
     }
-    return { id, name: id, description: "", problem: null };
+    return { id, name: id, description: "", problem: null, intervalMinutes: null };
   }
 
   private async checkRecovery(): Promise<void> {

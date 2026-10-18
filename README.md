@@ -351,6 +351,10 @@ narrowly as possible — and point the collector's `folder` and `write_scope` at
 folder, otherwise proposals outside the write scope are discarded. The plugin-wide limit
 "Max writes per run" caps every team's `max_writes` on top of that.
 
+### Recurring runs (`trigger: interval`)
+
+A team with `trigger: interval` and `interval: 30m` (units `m`, `h`, `d`; at least `5m`) starts by itself while Obsidian is open. The first run comes one interval after the plugin loads, never at start-up. A due run goes through the same one-run lock as a click: if another run is active, that tick is skipped silently and the next interval counts from there. Nothing is made up after Obsidian was closed. Everything that protects a manual run still applies: schema validation, `write_scope`, the write cap and the undo snapshot.
+
 ## Documentation
 
 - [Documentation index](https://github.com/johannes-kaindl/vault-crews/blob/main/docs/README.md) — all guides in one place.

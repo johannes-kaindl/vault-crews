@@ -54,7 +54,9 @@ export interface TeamDef {
 	name: string;
 	version: number;
 	description: string;
-	trigger: 'manual';
+	trigger: 'manual' | 'interval';
+	/** Nur bei `trigger: interval` gesetzt (Minuten, Heartbeat). */
+	intervalMinutes?: number;
 	maxWrites: number;
 	writeScope: string[];
 	tasks: TaskDef[];

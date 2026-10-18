@@ -361,6 +361,10 @@ so eng wie möglich — und lass `collector`-`folder` und `write_scope` auf dens
 Ordner zeigen, sonst werden Vorschläge außerhalb der Schreibfreigabe verworfen. Das
 Plugin-Limit „Max. Schreibvorgänge pro Lauf" deckelt zusätzlich jeden `max_writes`-Wert.
 
+### Wiederkehrende Läufe (`trigger: interval`)
+
+Ein Team mit `trigger: interval` und `interval: 30m` (Einheiten `m`, `h`, `d`; mindestens `5m`) startet von selbst, solange Obsidian offen ist. Der erste Lauf kommt ein Intervall nach dem Laden des Plugins, nie beim Start. Ein fälliger Lauf geht durch dieselbe Ein-Lauf-Sperre wie ein Klick: ist gerade ein Lauf aktiv, fällt dieser Takt still aus und das nächste Intervall zählt von dort. Nach geschlossenem Obsidian wird nichts nachgeholt. Alles, was einen manuellen Lauf schützt, gilt weiter: Schema-Prüfung, `write_scope`, Schreibgrenze und Undo-Schnappschuss.
+
 ## Dokumentation
 
 - [Dokumentations-Index](https://github.com/johannes-kaindl/vault-crews/blob/main/docs/README.md) — alle Anleitungen an einem Ort (englisch).

@@ -544,3 +544,44 @@ describe("Grund des LLM Endpoint Managers in der Verweigerung", () => {
   });
 });
 
+
+describe("VaultCrewsPlugin — Heartbeat", () => {
+  function withIntervalTeam(plugin: VaultCrewsPlugin, intervalMinutes: number): void {
+    (plugin as unknown as { teamCache: unknown[] }).teamCache = [
+      { id: "heartbeat", name: "Heartbeat", description: "", problem: null, intervalMinutes },
+      { id: "manuell", name: "Manuell", description: "", problem: null, intervalMinutes: null },
+    ];
+  }
+
+  it("startet nur das fällige Intervall-Team, nie beim ersten Takt, und sonst keines", async () => {
+    vi.mocked(executeRun).mockReturnValue(new Promise<RunResult>(() => { /* bleibt aktiv */ }));
+    const plugin = makePlugin();
+    await plugin.onload();
+    withIntervalTeam(plugin, 10);
+    const MIN = 60_000;
+
+    plugin.heartbeatTick(0);
+    expect(vi.mocked(executeRun)).not.toHaveBeenCalled();
+    plugin.heartbeatTick(9 * MIN);
+    expect(vi.mocked(executeRun)).not.toHaveBeenCalled();
+    plugin.heartbeatTick(10 * MIN);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(vi.mocked(executeRun)).toHaveBeenCalledTimes(1);
+  });
+
+  it("lässt einen Takt still ausfallen, solange ein Lauf aktiv ist (keine Notice)", async () => {
+    vi.mocked(executeRun).mockReturnValue(new Promise<RunResult>(() => { /* bleibt aktiv */ }));
+    const plugin = makePlugin();
+    await plugin.onload();
+    withIntervalTeam(plugin, 5);
+    void plugin.runCrew("manuell");
+    await Promise.resolve();
+    await Promise.resolve();
+    Notice.instances.length = 0;
+    plugin.heartbeatTick(0);
+    plugin.heartbeatTick(5 * 60_000);
+    expect(vi.mocked(executeRun)).toHaveBeenCalledTimes(1);
+    expect(Notice.instances).toHaveLength(0);
+  });
+});
