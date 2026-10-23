@@ -83,8 +83,10 @@ deshalb grün, während `endpoints` der rohe String `"http://kaputt"` war. Seitd
 Läuft **immer** gegen einen Vault, in dem Datenverlust verschmerzbar ist. Der
 Snapshot-Undo braucht seit 0.2.0 kein git-Repo mehr.
 
+Der Build wird per `OBSIDIAN_PLUGIN_DIR=<Vault>/.obsidian/plugins/vault-crews npm run deploy` in den Klon kopiert. Wer den Installationsweg statt des Builds smoken will, nimmt den `anysource-sideloader` (er kann Gitea/Forgejo nachweislich); ob BRAT eine Nicht-GitHub-Forge bedient, ist ungeprüft. Der Wegwerf-Klon entsteht mit `scripts/clone-vault.sh`, das den Quell-Vault nur liest.
+
 1. Command **„Install example crews"** ausführen.
-2. **BEIDE** Beispiel-Crews laufen lassen (Task-Triage **und** Daily-Briefing).
+2. **Mehrere** Beispiel-Crews laufen lassen (es gibt vier: Task-Triage, Daily-Briefing, Notiz-Tagger, Reifegrad-Tagger — nicht nur eine).
 3. **Undo** testen (Panel → Verlauf → Rückgängig): geänderte Notizen im Vorzustand,
    erzeugte Notizen im Papierkorb. Der Snapshot-Ordner unter
    `.obsidian/plugins/vault-crews/undo/<runId>/` existiert nach dem Lauf und verschwindet

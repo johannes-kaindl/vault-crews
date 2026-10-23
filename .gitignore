@@ -5,7 +5,8 @@ main.js.map
 data.json
 # styles.css bleibt TRACKED (Release-Asset)
 node_modules/
-.claude/
+.claude/*
+!.claude/rules/
 
 # macOS
 .DS_Store

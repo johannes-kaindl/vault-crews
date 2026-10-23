@@ -2,191 +2,54 @@
 
 Conventions for AI assistants working in this repo.
 
-> **Workspace-Standards (maintainer-lokal):** Die verbindliche Leitkonvention steht in `_docs/CONVENTIONS.md`
-> im Multi-Projekt-Workspace des Maintainers, `../../workspace/_docs` relativ zu diesem Repo — nicht Teil dieses Repos,
-> ignorieren falls im Klon nicht vorhanden. Modell comply-or-explain.
+> **Workspace-Standards (maintainer-lokal):** Die verbindliche Leitkonvention steht in `_docs/CONVENTIONS.md` im Multi-Projekt-Workspace des Maintainers, `../../workspace/_docs` relativ zu diesem Repo — nicht Teil dieses Repos, ignorieren falls im Klon nicht vorhanden. Modell comply-or-explain.
 
-## What this is
-Obsidian-Plugin **Vault Crews** (`vault-crews`): autonome lokale LLM-Agenten-Teams
-(LM Studio, `localhost:1234`) laufen als deterministische Pipelines auf dem Vault —
-collector → llm → actions, constrain-then-verify, ein git-freies Snapshot-Undo pro Lauf
-(write-ahead Pre-Images über die Vault-/Adapter-API, kein `child_process`/`node:fs`).
+## Project character
 
-## Historische Spezifikation (eingefroren, weiter gültig als Referenz)
+Obsidian-Plugin **Vault Crews** (`vault-crews`): autonome lokale LLM-Agenten-Teams (LM Studio, `localhost:1234`) laufen als deterministische Pipelines auf dem Vault — collector → llm → actions, constrain-then-verify, ein git-freies Snapshot-Undo pro Lauf (write-ahead Pre-Images über die Vault-/Adapter-API, kein `child_process`/`node:fs`).
 
-Die V1-Design-Grundlagen liegen nicht mehr im Repo: Specs und Pläne liegen im Vault-Cockpit unter `_SDD/` (CORE-META-14), eingefroren, aber als Referenz für Architektur-Entscheidungen weiter gültig; neue SDD-Artefakte gehen ebenfalls dorthin. In dieser Reihenfolge lesen:
+## Architecture principles
 
-1. Spec: `_SDD/2026-07-02-vault-crews-design.md`
-2. Interface-Skelett (bindende Pfade/Typen/Signaturen): `_SDD/2026-07-02-vault-crews-v1-interfaces.md`
-3. Implementierungsplan (19 Tasks): `_SDD/2026-07-02-vault-crews-v1.md` + Detail-Anhänge `_SDD/tasks-09-11-executor-gitplan-runlog.md` und `_SDD/tasks-14-15-gitport-adapter.md`
-
-## Workflow conventions
-- **Gate (vor jedem Commit grün):** `npm run gate` = lint + typecheck + test + check:pure.
-  Exit-Code prüfen, nicht grep-Ausgabe (grep maskiert Fehlschläge).
-- **Tests:** Vitest node-env; Obsidian-Mock via vitest `resolve.alias` →
-  `tests/__mocks__/obsidian.ts` (Re-Export des gevendorten Kit-Mocks `tests/vendor/kit/obsidian-mock.ts`; ein Test, der `app.secretStorage` nicht haben soll, löscht es in seinem Plugin-Fake). TDD: erst fehlschlagender Test.
-- **Commit style:** Conventional Commits + Trailer
-  `Co-Authored-By: <Modell> <noreply@anthropic.com>`.
-- **Deploy:** `npm run deploy` (Copy nach `$OBSIDIAN_PLUGIN_DIR`), nie Symlink/BRAT als Primärweg.
-
-## Architecture notes (Invarianten + Gotchas)
-
-**Statusklassen kommen aus dem Kit, die Sätze dazu aus diesem Repo — die Naht ist ungesichert
-(erledigt 2026-08-17, 0.9.1, bleibt als Begründung stehen).** Der vendorte
-`endpoint_diagnostics.ts` führt die Klassen (Kit 0.24.0), dieses Repo formuliert sie selbst
-über `t()`. Fällt dabei ein Schlüssel aus, ist das **unsichtbar**: `t()` fällt bei unbekanntem
-Schlüssel auf den **Schlüssel** zurück, nicht auf EN — in der Oberfläche stünde
-``settings.endpoint.status.unauthorized`` und sähe aus wie ein plausibler String, nicht wie ein
-Fehler. Genau das war bis 0.9.1 der Fall, und getroffen wurde ausgerechnet der Fall, für den
-die Klasse eingeführt wurde: ein gehosteter Endpunkt mit fehlendem oder falschem API-Schlüssel
-(401/403). Gefunden hat es der Consumer-Sweep, nicht das Gate.
-
-**Seit obsidian-kit 0.56.0 (Welle 18, 2026-10-12) kommen die Sätze zu den Statusklassen und Eingabe-Hinweisen aus dem Kit:** `endpointStatusText`/`endpointWarningText` (`src/vendor/kit-obsidian/endpoint-status-text.ts`, über `LLM_CONNECTION_STRINGS_EN/DE.endpointList` in `src/obsidian/settings.ts`), EN und DE. Die eigene Zuordnung (`endpoint-labels.ts`, die Wörterbuchzeilen `settings.endpoint.*`) und der Wächter `tests/i18n-status-keys.test.ts` sind weg. **Der Wächter ist jetzt der Kit-Test `tests/endpoint-status-text.test.ts` in obsidian-kit** (je Marke und Sprache vorhanden und verschieden von „unknown“, mit Mutationsprobe). Die Begründung bleibt: ein Schlüssel, der still ausfällt, sieht in der Oberfläche wie ein plausibler String aus. Wer eine Kit-Aufzählung an `t()` anschließt, zieht einen Wächter mit (**CORE-TEST-04**); das lebende Muster ist `tests/i18n-error-kinds.test.ts` in diesem Repo (`Record<…, true>` plus Abgleich gegen die Quelle) und der Kit-Test `tests/endpoint-status-text.test.ts`.
-
-**Dieselbe Naht existiert ein zweites Mal — bei den Fehlerklassen (seit 2026-08-18).** `ErrorKind`
-ist ein Core-Typ, die Sätze dazu führt die Obsidian-Schicht über `t("notice.errorKind." + kind)`
-(`main.ts`, `panel-view-model.ts`). Ein neuer Kind ohne Satz fällt genauso still auf den rohen
-Schlüssel zurück. Wächter: `tests/i18n-error-kinds.test.ts` — `Record<ErrorKind, true>` (Typ-Ebene)
-plus ein Abgleich gegen `ERROR_KINDS` aus `run-log.ts`, weil run.md und Oberfläche sonst
-auseinanderlaufen können, ohne dass irgendwo etwas bricht. Beide Stufen sind per Gegenprobe belegt
-(TS2741 bzw. „EN fehlt: notice.errorKind.…"). **Wer einen `ErrorKind` hinzufügt, fasst drei Stellen
-an: `types.ts`, `run-log.ts` und beide Sprachblöcke in `strings.ts`** — der Wächter erzwingt genau das.
-
-**`finishReason` ist ein echter Wert, kein Platzhalter (seit 2026-08-18).** Der Streaming-Pfad gab
-lange hart `'stop'` zurück, obwohl `LlmStreamResult` seit jeher `'length'` kennt — der Zweig war tot,
-weil die vendorte `sse.ts` auf Kit 0.2.0 stand und `finish_reason` verwarf. Beides ist behoben (Kopie
-auf 0.3.0, beide Client-Pfade lesen den Wert). Folge für den Orchestrator: **abgeschnitten ist nicht
-automatisch kaputt** — `'length'` wird erst zum Fehler (`output_truncated`), wenn die Validierung
-zusätzlich fehlschlägt; dann aber ohne Repair-Runde, weil die dieselbe Grenze träfe. Gemessen an
-LM Studio: `finish_reason` steht im letzten Chunk, dessen `delta` leer ist.
-- **Der Settings-Tab ist zweigleisig — und beide Gleise müssen bedient bleiben.**
-  `getSettingDefinitions()` IST die Struktur (Obsidian ≥ 1.13 rendert daraus und ruft
-  `display()` nie); der vendorte Kit-Walker zeichnet dieselbe Struktur mit der klassischen
-  `Setting`-API nach, solange Obsidian älter ist. `minAppVersion` bleibt deshalb 1.8.7.
-  Drei Regeln, deren Verletzung **still** ist: (1) jede Zeile braucht `control` ODER
-  `render` — eine Zeile ohne Regler überspringt der native Renderer wortlos; (2) bedingte
-  Zeilen werden **weggelassen**, nie per `visible` versteckt (das wertet er nicht aus);
-  (3) `display()` nie intern aufrufen (Deprecation ab 1.13) — der Rebuild liegt in
-  `renderImperative()`. Wächter: `tests/obsidian/settings-definitions.test.ts` (Unit) und
-  der Abschnitt „Deklarative Settings-API" in `scripts/gui-smoke.ts` (gegen echtes 1.13).
-  **Wer hier einen ESLint-Override stundet, macht `npm run lint` für genau die Store-Warnung
-  blind, die er stundet** — beim Ablösen gehört er im selben Zug entfernt, sonst ist die
-  Ablösung unbelegt.
-- `src/core/**` und `src/vendor/**` importieren NIE `obsidian` (CI-Gate `check:pure`).
-  Ports injiziert (`src/core/ports.ts`); Obsidian-Adapter nur in `src/obsidian/`.
-- **Vendoring statt git-Deps:** obsidian-kit-Module liegen kopiert in `src/vendor/kit/`
-  mit Herkunfts-Header (`vendored from obsidian-kit#0.2.0, <pfad>`). KEINE
-  `git+https`-npm-Dependencies — die Community-Review-Sandbox bricht daran
-  (LESSONS.md 2026-07-01). Updates manuell nachziehen; Smoke-Tests in
-  `tests/vendor/kit.test.ts` pinnen die Verträge.
-- **Slug-Schnitt:** `Schema.validate` prüft Slugs und lässt sie stehen;
-  das byte-genaue Rück-Mapping auf Emoji-Originale macht der ActionExecutor
-  (`ExecutorContext.slugTables`, Stufe-2-Verteidigung).
-- **Denylist:** `buildDenylist(configDir)` — configDir wird injiziert
-  (`Vault#configDir`, obsidianmd-Lint). `**/.*/**` deckt Inhalte unter
-  Dot-Ordnern (Property-Test-Fund).
-- **Endpunkte tragen ihren Schlüssel und ihr Modell** (`EndpointConfig[]`, Kit
-  `endpoint_config`): es gibt **kein globales Modellfeld** — ein Modellname existiert nur
-  auf dem Endpunkt, der ihn in `/v1/models` meldet. Ein Agenten-`model:` gilt, solange der
-  aktive Endpunkt es führt, sonst das Modell der Zeile (`resolveTaskModel`). Der Client
-  nimmt den ganzen Eintrag (`setEndpoint(cfg)`), nie URL und Schlüssel getrennt: der
-  Resolver liefert die **normalisierte** URL, der gespeicherte Eintrag bleibt roh, ein
-  Vergleich über die URL greift also bei jedem `/v1`-Suffix daneben.
-  Das gilt für die lokale Liste; ist das Plugin `llm-endpoint-manager` installiert, kommen Endpunkt, Schlüssel und Modell von dort (`VaultCrewsPlugin.effectiveEndpoints()` über Kit `endpoint-source`, Wahl im Feld `choice`), und ein Manager-Fehler ergibt eine leere Liste, keinen Rückfall auf lokal.
+- `src/core/**` und `src/vendor/**` importieren NIE `obsidian` (CI-Gate `check:pure`). Ports injiziert (`src/core/ports.ts`); Obsidian-Adapter nur in `src/obsidian/`.
+- **Vendoring statt git-Deps:** obsidian-kit- und code-kit-Module liegen kopiert in `src/vendor/` mit Herkunfts-Header, nie von Hand ändern. KEINE `git+https`-npm-Dependencies — die Community-Review-Sandbox bricht daran (Lesson 2026-07-01, `docs/internal/decisions.md`). Updates mit `node ../tools/kit-sync/kit-sync.mjs` (Pins in `tools/kit-sync.json`); Smoke-Tests in `tests/vendor/kit.test.ts` pinnen die Verträge.
 - **Schlüssel dürfen nie in den Vault:** `redactKeysInValue` (Kit `redact`, code-kit 0.18.0; die plugin-eigene `src/core/redact.ts` ist seit Welle 16 weg) läuft an genau einer Stelle (`persist()` im Orchestrator, bevor run.md/state.json geschrieben werden). Wer eine neue Ausgabe hinzufügt, die Text aus dem Netzweg trägt, muss durch dieselbe Stelle. Die Kit-Funktion wirft fail-closed (Zirkel, BigInt, kein JSON-Abbild): `persist()` macht daraus `RedactionFailed`, `run()` beendet den Lauf als `failed`/`io` ohne weiteres `persist()` und gibt den Lock frei.
-- **Kit-Zeilen-Editor, zwei Consumer-Pflichten:** `SettingsTab.hide()` MUSS
-  `cache.clear()` rufen (sonst bleibt ein einmal als unerreichbar gemessener Endpunkt die
-  ganze Sitzung so stehen), und `clientFor` braucht **ausgeschriebene Rückgabetypen** —
-  die Options-Signatur ist eine Intersection zweier `probe()`-Formen, ein Objekt-Literal
-  ohne Annotation erfüllt keine davon.
-- **Live-Token-Streaming braucht CORS am LLM-Server** (gemessen 2026-08-17 bei der
-  README-Bebilderung): Der Ticker läuft als `XMLHttpRequest` aus dem Renderer und sendet
-  zwingend `Origin: app://obsidian.md`. Ohne CORS lehnt LM Studio schon den Preflight ab
-  (`OPTIONS` → 400), das Plugin fällt still auf den Non-Streaming-Pfad über `requestUrl`
-  zurück (Hauptprozess, sendet keinen Origin) — der Lauf gelingt, das Panel zeigt bis zum
-  Ende „Warte auf Ausgabe …". Für Ollama war das als `OLLAMA_ORIGINS` schon notiert; es
-  gilt für **jeden** Anbieter. `lms server start --cors` schaltet es ein.
-- **LM Studio / Ollama:** Kontextlänge aus `/api/v0/models` (LM Studio) oder
-  `POST /api/show` (Ollama, unter `model_info["<arch>.context_length"]`);
-  die Denkstufe und die Sampling-Felder kommen seit Welle 14 aus der Profil-Tabelle (nächster Punkt);
-  bei Ollama ggf. `OLLAMA_ORIGINS` für Streaming, sonst greift der Non-Stream-Fallback;
-  Stall-Timeout erst NACH dem ersten Chunk (JIT-TTFB). NIE Port 8080 als Backend
-  (OpenClaw-Mono-Consumer-Lock).
-- **Der Chat-Client ist seit Welle 11 der Kit-Client (`createChatClient`, `src/vendor/kit/chat-client.ts`), `LocalLlmClient` bleibt die Fassade.** Der Kit-Client liegt in `src/vendor/kit/`, weil er kein `obsidian` importiert; die Transporte (`xhrSseTransport`, `requestUrlTransport`, `src/vendor/kit-obsidian/chat-transport.ts`) werden in `main.ts` injiziert. Das Kit kennt keinen harten Gesamt-Timer: `LocalLlmClient.stream` baut ihn über ein eigenes Signal nach (`budgetFired`), der Kit-Client trägt nur die Stille-Frist (`stallTimeoutS`) und bis zum ersten Chunk die Gesamtfrist. Kit-`timeout` wird vor dem ersten Chunk zu `LlmCallError('timeout')`, danach zu `'stalled'`. Der Fallback ohne Stream gilt je Kit-Client-Instanz, `setEndpoint` baut sie neu. ⚠️ Bis Welle 11 kamen `timeout`/`stalled` in Produktion nie an: der XHR-Transport lehnt bei Abbruch ab, der alte Client warf den AbortError vor dem `abortKind`-Zweig, `error_kind` wurde `io`; die Unit-Tests sahen es nicht, weil ihre Attrappe bei Abbruch auflöste statt abzulehnen — `FakeSse` lehnt jetzt wie der echte Transport ab, und der GUI-Smoke misst beide Fälle gegen einen Fake-Server (`w11ChatClient`).
-- **Was ein Modellaufruf sendet, baut genau eine Funktion: `buildCrewParams` (`src/core/crew-request.ts`, Welle 14, 2026-09-30).** Modus fest `structured` (Ablauf steht vorher fest, das Modell füllt schema-validierte Verträge), drei Ebenen von oben nach unten: Persona-Frontmatter (`temperature`, `max_tokens`, `thinking`) > Plugin-Überschreibung je Modus × Modellfamilie (`settings.request`, Abschnitt „Anfrage") > Profil-Tabelle des Kits. `thinking: auto` heißt die Stufe des Plugins, Default off; `on` heißt fest `medium` (nicht `onLevelFor`, das für `structured` `low` liefert); `off` heißt off. `AgentDef.temperature` ist optional — ohne Persona-Wert gilt der Profilwert, es gibt keinen Parser-Default mehr. `LlmParams` ist `{ model, sentModel, params, thinkingLevel }` und trägt fertige Werte; `LocalLlmClient` sendet `params` unverändert und erfindet nichts. Familie und Backend kennt der pure Orchestrator nicht: er fragt nach `checkEndpointAndModel` den injizierten `RequestPort` (`RunDeps.request`, Obsidian-Seite in `src/obsidian/request-port.ts`), weil er den Endpunkt per Failover selbst wählt. Die Persona-Werte fließen VOR dem Port in `buildCrewParams` ein; die Kontextrechnung nimmt das tatsächlich gesendete `max_tokens`. Jede Anfrage geht in die Sitzung (`requestSession`), jede Antwort durch `checkResponse`. Die goldenen Requests (`tests/core/crew-request.test.ts`) laufen gegen `buildCrewParams`, nicht gegen die Kit-Funktion; der gpt-oss-Wächter („nie `none`") steht dort als Zeile. GUI-Smoke N2 misst den Body am Draht gegen einen Fake-Endpunkt, N1 bedient den Abschnitt; der Smoke wartet nach dem Schreiben einer Persona, bis der metadataCache sie trägt (sonst rechnet der Lauf mit der vorigen).
 - **API-Schlüssel kommen aus dem Schlüsselbund, und jede Stelle, die `apiKey` braucht, liest `VaultCrewsPlugin.localEndpoints()` (`prepareLocalEndpoints`), nie `settings.endpoints`.** In `data.json` steht nur `secretId`. Wer die rohe Liste an Ping, Client oder die Schwärzung gibt, verliert den Schlüssel still: der Aufruf geht ohne Authorization-Kopf raus, und die Schwärzung maskiert ihn in `run.md`/`state.json` nicht mehr (gemessen: Treiberpunkt „401-Body“, Mutationsprobe Welle 15). Zeilen aus dem Settings-Editor bekommen ihren Schlüssel über `withKey()`.
-- **Schwärzung und Wiederherstellung kommen vom Kit-Chat-Client, `restoreContent` setzt der Orchestrator je Schema** (`LlmParams.restoreContent`: `json` für JSON-Schemata, `text` für Markdown wie `briefing-v1`, Default `json`). Fest `json` würde ein PEM in Markdown-Notizen doppelt maskiert zurückschreiben. Notizen gehen als JSON-Text in den Prompt, das „Original“ eines PEM trägt dort `\n` statt Zeilenumbrüchen.
-- **Kein `json_schema`-API-Modus** (bricht an LM Studio bei Reasoning-Modellen):
-  prompt-basiertes JSON + `output-validator`.
+- **Slug-Schnitt:** `Schema.validate` prüft Slugs und lässt sie stehen; das byte-genaue Rück-Mapping auf Emoji-Originale macht der ActionExecutor (`ExecutorContext.slugTables`, Stufe-2-Verteidigung).
+
+## Commands
+
+- **Gate (vor jedem Commit grün):** `npm run gate` = lint + typecheck (Quelle, Tests, Skripte) + test + check:pure + check:bundle. Exit-Code prüfen, nicht grep-Ausgabe (grep maskiert Fehlschläge).
+- **Tests:** Vitest node-env; Obsidian-Mock via vitest `resolve.alias` → `tests/__mocks__/obsidian.ts` (Re-Export des gevendorten Kit-Mocks `tests/vendor/kit/obsidian-mock.ts`; ein Test, der `app.secretStorage` nicht haben soll, löscht es in seinem Plugin-Fake). TDD: erst fehlschlagender Test.
+- **Deploy:** `npm run deploy` (Copy nach `$OBSIDIAN_PLUGIN_DIR`), nie Symlink/BRAT als Primärweg.
+- **GUI-Smoke:** `npm run smoke:gui -- --vault vault-crews --port <port> [--ohne-modell]` gegen eine Zweitinstanz; Rezept im Kopf von `scripts/gui-smoke.ts`, Checkliste und Handteil in `docs/SMOKE.md`, Wegwerf-Klon eines Vaults mit `scripts/clone-vault.sh`.
+
+## Conventions
+
+- **Commit style:** Conventional Commits + Trailer `Co-Authored-By: <Modell> <noreply@anthropic.com>`.
+- **Nie im Repo:** absolute Pfade außerhalb des Repos (`/Users/…`, Vault-Pfade) — Platzhalter nutzen (`$VAULT/…`, `~/…`, repo-relativ). Herkunftsnachweise als Repo-Name + `Datei:Zeile` sind dagegen erwünscht. Gate: `scripts/check-no-abs-paths.mjs` (Teil von `npm test`).
+
+## Gotchas
+
+- **Denylist:** `buildDenylist(configDir, crewRoot)` — configDir wird injiziert (`Vault#configDir`, obsidianmd-Lint). `**/.*/**` deckt Inhalte unter Dot-Ordnern (Property-Test-Fund). `isDenied` prüft den Rohpfad UND `filesystemPath(pfad)` (Kit `folder-scope`), die Muster nach denselben Segment-Regeln: `_crews /x.md`, `_crews./x.md`, `_crews:s/x.md` und `_CREWS/x.md` sind dieselbe Datei wie `_crews/x.md` (Welle 25). Die Whitelist `write_scope` bleibt beim Text.
+- **Kein `json_schema`-API-Modus** (bricht an LM Studio bei Reasoning-Modellen): prompt-basiertes JSON + `output-validator`.
+- **Nie Port 8080 als Backend** (OpenClaw-Mono-Consumer-Lock).
+
+## Context index
+
+- Bevor du Statusklassen, Fehlerklassen (`ErrorKind`) oder Wörterbuch-Schlüssel an `t()` anschließt: `.claude/rules/statustexte-und-fehlerklassen.md`.
+- Bevor du den Modellaufruf, die Anfrage, den Chat-Client, das Streaming oder `finishReason` änderst: `.claude/rules/anfrage-und-chat-client.md`.
+- Bevor du Endpunkt-Einträge, die Modellwahl oder den Zeilen-Editor änderst: `.claude/rules/endpunkte-und-schluessel.md`.
+- Bevor du den Settings-Tab (`getSettingDefinitions`, Walker-Fallback) änderst: `.claude/rules/settings-tab.md`.
+- Vor Änderungen an Schichten, Laufstart, Abbruch oder Crash-Recovery und für die eingefrorene V1-Spezifikation: `docs/internal/architecture.md`.
+- Bevor du eine Altentscheidung übernimmst (Vendoring, Statusklassen-Naht, `json_schema`): `docs/internal/decisions.md`.
+- Vor einem GUI-Smoke oder dem manuellen Release-Smoke: `docs/SMOKE.md`; Obsidian-Instanz, Lock, Treiber und Staging-Vaults stehen als Pfadregeln im Dach unter `../.claude/rules/`.
 
 ## Memory
 
-- **SDD-Artefakte (seit 2026-07-16): Cockpit, nicht Repo** — Specs/Plans/Task-Reports leben im
-  Coding-Cockpit des Maintainers (`$VAULT/25_Coding/vault-crews/_SDD/`, CORE-META-14, maintainer-lokal).
-  Sie tragen Arbeitskontext (Vault-Pfade, Schwester-Repo-Interna), der in einem public Repo niemandem nützt.
-  Das Repo behält die Design-Essenz in dieser Datei + `CHANGELOG.md`.
-- **Alt-Bestand:** der frühere Ordner `docs/superpowers/` ist ins Cockpit `_SDD/` umgezogen (flach, Dateinamen unverändert); im Repo wird nichts Neues dort abgelegt.
-- **Nie im Repo:** absolute Pfade außerhalb des Repos (`/Users/…`, Vault-Pfade) — Platzhalter nutzen
-  (`$VAULT/…`, `~/…`, repo-relativ). Herkunftsnachweise als Repo-Name + `Datei:Zeile` sind dagegen erwünscht.
-  Gate: `scripts/check-no-abs-paths.mjs` (Teil von `npm test`).
-- **Memory** (cross-session): `~/.claude/projects/-Users-johannes-Workspace/memory/`
-  (Zeiger auf Cockpit); operativer Stand im Coding-Cockpit
-  `$VAULT/25_Coding/vault-crews/vault-crews.md` (maintainer-lokal).
+- **SDD-Artefakte (seit 2026-07-16): Cockpit, nicht Repo** — Specs/Plans/Task-Reports leben im Coding-Cockpit des Maintainers (`$VAULT/25_Coding/vault-crews/_SDD/`, CORE-META-14, maintainer-lokal). Sie tragen Arbeitskontext (Vault-Pfade, Schwester-Repo-Interna), der in einem public Repo niemandem nützt. Das Repo behält die Design-Essenz in `docs/internal/` + `CHANGELOG.md`. Im Repo wird nichts unter `docs/superpowers/` abgelegt (der Altbestand liegt im Cockpit).
+- **Memory** (cross-session): `~/.claude/projects/<slug>/memory/`; operativer Stand im Coding-Cockpit `$VAULT/25_Coding/vault-crews/vault-crews.md` (maintainer-lokal).
 - **Session logs:** Cockpit-`_Log/` (SessionEnd-Hook) + remember-Plugin.
 
-## Smoke checklist
-Manueller Release-Smoke-Test (Spec §8: „Kein Live-LLM in CI" — dies ist das
-Gate danach). Läuft **immer** gegen einen Wegwerf-Klon, **nie** gegen den
-echten Vault — `scripts/clone-vault.sh` schreibt/löscht nie im Quell-Vault.
-Der Klon muss **kein git-Repo** mehr sein (Snapshot-Undo, 0.2.0).
+## Abweichungen von der Leitkonvention
 
-1. `scripts/clone-vault.sh` (Default: Pallas → `/tmp/vault-crews-smoke`;
-   Quelle/Ziel optional als Argumente).
-2. Klon in Obsidian öffnen; Plugin-Build hineinkopieren
-   (`OBSIDIAN_PLUGIN_DIR=<Klon>/.obsidian/plugins/vault-crews npm run deploy`).
-   *Bis 2026-09-03 stand hier „oder per BRAT" — der Weg zeigte auf Forgejo, und ob BRAT
-   eine Nicht-GitHub-Forge bedient, ist ungeprüft. Wer den Installationsweg statt des
-   Builds smoken will, nimmt den `anysource-sideloader` (er kann Gitea/Forgejo nachweislich).*
-3. Command **„Install example crews"** ausführen.
-4. **Mehrere** Beispiel-Crews laufen lassen (es gibt vier: Task-Triage, Daily-Briefing,
-   Notiz-Tagger, Reifegrad-Tagger — nicht nur eine).
-5. **Undo** testen (Panel → Verlauf → Rückgängig): geänderte Notes wieder im
-   Vorzustand, vom Lauf erzeugte Notes im Papierkorb. Der Snapshot-Ordner
-   `.obsidian/plugins/vault-crews/undo/<runId>/` existiert nach dem Lauf und
-   verschwindet nach dem Undo. Zusatz: eine Note **nach** dem Lauf manuell
-   editieren, dann Undo → Konfliktwarnung erscheint.
-6. **(Optional) Gegen laufendes Ollama testen** (`http://localhost:11434/v1`):
-   Endpoint in den Settings eintragen, eine Crew laufen lassen. Ohne `OLLAMA_ORIGINS`
-   erscheint kein Live-Token-Ticker (Non-Stream-Fallback), Ergebnis kommt trotzdem.
-7. „Abort current run" **mitten in einem Lauf** auslösen — Partial bleibt im
-   Vault (undo-bar), run.md zeigt `status: aborted` + `error_kind: aborted`.
-
-## V1 limitations
-Kurzfassung von README.md „V1 limitations" — bei Rückfragen dort das Detail:
-- Kein Mid-Run-Transport-Retry/Endpoint-Re-Resolve (V2) — ein fehlgeschlagener
-  Lauf ist immer sicher (Commit + Log) und dank `section.replace`-Idempotenz +
-  Overwrite-Verweigerung billig wiederholbar.
-- Crash-Recovery geht von EINEM Gerät aus; zwei gleichzeitig laufende
-  Obsidian-Desktops auf demselben gesyncten Vault sind out of scope (Spec §10
-  Risiko 8).
-- Der Schalter `verboseLogging` ist seit Welle 22 gestrichen (er hatte keinen Leser); `loadSettings` entfernt das Feld aus alten `data.json`.
-- „Fehlerstelle ansehen" öffnet `run.md` am Dateianfang (kein Ephemeral-Scroll
-  zum fehlgeschlagenen Task).
-- Endpunkt- und Timeout-Änderungen wirken mit dem nächsten Lauf: `executeRunFor()` baut den `LlmClient` am Start jedes Laufs frisch aus den aktuellen Settings (`buildLlmClient`, `src/main.ts`); ein Plugin-Reload ist nicht nötig (gemessen am Code 2026-09-26, vorher stand hier das Gegenteil).
-- Abbruch ist kooperativ (greift an Task-Grenzen + im LLM-Stream). Schnelle Läufe
-  (1–2 s, MoE) können durch sein, bevor der Klick einen Checkpoint trifft → Lauf endet
-  `ok` — das ist *korrekt* (Arbeit war fertig), kein verlorener Klick. Das Panel ist
-  darüber ehrlich (Run-Panel-UI-Überarbeitung, `feat/run-panel-ui`): Statuszeile zeigt
-  „Abbruch angefordert …", und wenn der Lauf zuerst fertig wurde, sagt die Ergebnis-Karte
-  „Lauf war schon fertig, bevor der Abbruch griff — nichts abgebrochen". Bewusst KEIN
-  Mechanismus, der fertig gerechnete Arbeit verwirft.
-
-## Dach-Kontext (obsidian-plugins)
-
-Dieses Repo liegt unter dem Koordinations-Dach `obsidian-plugins/` (dem Parent-Verzeichnis `..` dieses Repos).
-**Vor dem Lösen eines Problems:** `../AGENTS.md` (Kit-first-Regel) und `../REGISTRY.md`
-(Lösungs-Registry) prüfen — viele Probleme sind in Nachbar-Plugins oder im
-`obsidian-kit` bereits gelöst.
-
-**Vor jeder UI-Arbeit** (Views, Modals, Settings-Tabs, CSS): `../UI-STANDARD.md` ist
-verbindlich (Obsidian-nativ first, ein Frontend pro Plugin, nur Theme-CSS-Variablen).
+Keine.

@@ -30,7 +30,7 @@
 # Danach: DEST_DIR in Obsidian öffnen (community plugins bleiben erhalten,
 # NUR .obsidian/workspace* — offene Tabs/Layout — wird nicht mitkopiert),
 # den Plugin-Build hineinkopieren (`OBSIDIAN_PLUGIN_DIR=<DEST_DIR>/.obsidian/plugins/vault-crews npm run deploy`
-# oder BRAT), dann die Smoke-Checkliste aus AGENTS.md abarbeiten. Erneutes
+# oder den anysource-sideloader), dann die Checkliste in docs/SMOKE.md abarbeiten. Erneutes
 # Ausführen ist sicher (kein `--delete`) — es aktualisiert nur vorhandene/neue
 # Dateien aus dem Quell-Vault, lässt bereits im Klon installierte Plugin-
 # Dateien und bisherige Testläufe unangetastet.

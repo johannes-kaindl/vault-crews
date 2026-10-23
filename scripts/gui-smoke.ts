@@ -1657,8 +1657,6 @@ async function w25PflichtLauf(cdp: Cdp): Promise<void> {
       ueberlauf: `${PANEL_SEL} .okit-stream-body`,
       erforderlich: [`${PANEL_SEL} .vault-crews-cancel`],
     };
-    // Eine Notice des Laufs (Start, Modell) liegt oben rechts über den Tabs: `elementFromPoint` träfe sie statt des Tabs, die Messung zählte sie als Verdecker.
-    await clearNotices(cdp);
     const messung = await messeErreichbarkeit(cdp, erreichbar);
     const gegen = await gegenprobeErreichbarkeit(cdp, { ...erreichbar, scrollen: false, art: "wachsen" });
     if (messung.urteil === "gruen" && gegen.urteil === "gruen") {
