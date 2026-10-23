@@ -42,11 +42,12 @@
 import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cwd } from "node:process";
-import { AbbruchAusnahme, attachTo, beimAbbruch, bereiteInstanzVor, Cdp, entferneFakeManager, installFakeManager, clearNotices, istAbgebrochen, ladePluginNeu, notices, pollUntil, requireVisible } from "../../tools/obsidian-cdp/cdp.js";
+import { AbbruchAusnahme, attachTo, beimAbbruch, bereiteInstanzVor, Cdp, entferneFakeManager, installFakeManager, clearNotices, istAbgebrochen, ladePluginNeu, notices, pollUntil, requireVisible, schliesseEinstellungen } from "../../tools/obsidian-cdp/cdp.js";
 import { createBilanz, parseArgs, runDriver, Vorbedingung } from "../../tools/obsidian-cdp/bilanz.js";
 import { messeFolge, zeichneFolge } from "../../tools/obsidian-cdp/folge.js";
 import { startLlmStub, type LlmStub } from "../../tools/obsidian-cdp/llm-stub.js";
 import { capture } from "../../tools/obsidian-cdp/shot.js";
+import { gegenprobeErreichbarkeit, messeDenkblockKopierbar, messeErreichbarkeit, optOutPflicht, zeichneDenkblock, zeichnePflicht } from "../../tools/obsidian-cdp/pflichtpunkte.js";
 
 const PLUGIN_ID = "vault-crews";
 
@@ -505,7 +506,7 @@ async function abschnittDeklarativ(cdp: Cdp): Promise<void> {
 
   if (!defs) {
     record("Deklarative API vorhanden", false, "getSettingDefinitions() fehlt am aktiven Tab");
-    await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
+    await schliesseEinstellungen(cdp);
     return;
   }
   record("Deklarative API vorhanden", true, "getSettingDefinitions() liefert Definitionen");
@@ -517,7 +518,7 @@ async function abschnittDeklarativ(cdp: Cdp): Promise<void> {
       "Einstellungen erscheinen in Obsidians Einstellungs-Suche",
       "Fallback-Pfad (< 1.13) zeichnet dieselbe Struktur",
     ], "Obsidian ohne native 1.13-Settings-API (nur Fallback-Pfad)");
-    await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
+    await schliesseEinstellungen(cdp);
     return;
   }
 
@@ -595,7 +596,7 @@ async function abschnittDeklarativ(cdp: Cdp): Promise<void> {
     `nativ ${nativZeilen} Zeilen, display()-Fallback ${fallbackZeilen}`,
   );
 
-  await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
+  await schliesseEinstellungen(cdp);
 }
 
 /** Gerenderte Setting-Zeilen in der Einstellungen-Oberflaeche. */
@@ -647,7 +648,8 @@ async function anlegen(cdp: Cdp, pfad: string): Promise<string> {
   `);
 }
 
-const PANEL = `document.querySelector('.workspace-leaf-content[data-type="vault-crews-panel"]')`;
+const PANEL_SEL = `.workspace-leaf-content[data-type="vault-crews-panel"]`;
+const PANEL = `document.querySelector('${PANEL_SEL}')`;
 
 /**
  * Misst die drei Lagen, in denen das Panel bis 0.9.5 schwieg — und misst dabei zwei davon
@@ -880,7 +882,7 @@ async function w8Beispielknopf(cdp: Cdp): Promise<void> {
       }
       return true;
     `).catch(() => undefined);
-    await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
+    await schliesseEinstellungen(cdp);
   }
 }
 
@@ -979,7 +981,7 @@ async function w8Manager(cdp: Cdp): Promise<void> {
     const mit = await einstellungenText(cdp);
     const zeigtBaustein = /kommen vom LLM Endpoint Manager|come from the LLM Endpoint Manager/i.test(mit.text);
     record("Welle 8 — Einstellungen zeigen bei Manager den Manager-Baustein", zeigtBaustein, zeigtBaustein ? "Hinweis „Endpunkte kommen vom …“ sichtbar" : "Hinweis fehlt");
-    await cdp.evaluate(`app.setting.close(); return true;`);
+    await schliesseEinstellungen(cdp);
 
     await entferneFakeManager(cdp);
     const lokal = await cdp.evaluate<string>(`return JSON.stringify(await ${PLUGIN}.effectiveEndpoints()) === JSON.stringify(${PLUGIN}.settings.endpoints) ? "gleich" : "abweichend";`);
@@ -990,7 +992,7 @@ async function w8Manager(cdp: Cdp): Promise<void> {
   } finally {
     // Abbau auch auf dem Abbruchpfad: der gesicherte Slot kommt zurück, ein eigener Fake wird nie stehen gelassen.
     await entferneFakeManager(cdp).catch(() => undefined);
-    await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
+    await schliesseEinstellungen(cdp);
   }
 }
 
@@ -1362,7 +1364,7 @@ async function w14Abschnitt(cdp: Cdp): Promise<void> {
     await cdp.evaluate(`
       if (${PLUGIN}.settings.request?.overrides?.structured) { delete ${PLUGIN}.settings.request.overrides.structured; }
       return true;`).catch(() => undefined);
-    await cdp.evaluate(`app.setting.close(); return true;`).catch(() => undefined);
+    await schliesseEinstellungen(cdp);
   }
 }
 
@@ -1411,8 +1413,6 @@ async function starteLaufUndWarteAufBereich(cdp: Cdp, id: string): Promise<void>
  *  (Schwelle `followThreshold` 40 px plus 40 px Spielraum), und nach der Störung kommen mindestens zwei weitere Stücke.
  *  Gemessen wird `scrollTop` nach der Störung gegen `scrollTop` zur Störungszeit, nicht die Schwelle als Position; der
  *  Stub hält die Verbindung nach dem letzten Stück offen (`nachlaufMs`), Messungen nach dem Schluss-Draw zählen nicht. */
-interface KopieProbe { fehlt: boolean; modus?: string; aria: string; n: number; text: string | null; flash: boolean }
-
 async function w20Lauf(cdp: Cdp): Promise<void> {
   const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
   const id = "zz-w20";
@@ -1467,7 +1467,7 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
         const leaf = ${PANEL};
         const warte = (ms) => new Promise((r) => setTimeout(r, ms));
         w.ikonen = [];
-        w.denk = []; w.summary = []; w.cancel = null; w.kontrolle = null; w.gestartet = false; w.kopie = null;
+        w.denk = []; w.summary = []; w.cancel = null; w.kontrolle = null; w.gestartet = false;
         const t0 = Date.now();
         while (Date.now() - t0 < 60000) {
           if (${PLUGIN}.runActive === true) w.gestartet = true;
@@ -1482,29 +1482,6 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
           }
           const body = leaf.querySelector(".okit-stream-body");
           const pre = leaf.querySelector(".okit-stream-reasoning pre");
-          // Kopier-Knopf am Denkblock (obsidian-kit 0.63.0): erst ablehnende Zwischenablage (Quittung muss ausbleiben), dann
-          // aufzeichnende (Text und Quittung müssen kommen). Einmal je Lauf, sobald der Denktext Substanz hat.
-          if (pre && w.kopie === null && pre.textContent.length > 30 && ${PLUGIN}.runActive === true) {
-            w.kopie = "laeuft";
-            (async () => {
-              const probe = async (modus) => {
-                const btn = leaf.querySelector(".okit-stream-reasoning-copy");
-                if (!btn) return { fehlt: true };
-                for (let i = 0; i < 40 && btn.classList.contains("is-copied"); i += 1) await warte(100);
-                const aufrufe = [];
-                // navigator.clipboard ist nicht umdefinierbar; writeText der Instanz überdecken und danach wieder freigeben.
-                const cb = navigator.clipboard;
-                cb.writeText = (t) => { aufrufe.push(t); return modus === "ablehnen" ? Promise.reject(new Error("verweigert")) : Promise.resolve(); };
-                try { btn.click(); await warte(250); } finally { delete cb.writeText; }
-                return { fehlt: false, modus, aria: btn.getAttribute("aria-label") ?? "", n: aufrufe.length, text: aufrufe[0] ?? null, flash: btn.classList.contains("is-copied") };
-              };
-              try {
-                const ablehnen = await probe("ablehnen");
-                const ok = await probe("ok");
-                w.kopie = { ablehnen, ok };
-              } catch (e) { w.kopie = { fehler: String(e && e.message ? e.message : e) }; }
-            })();
-          }
           const sum = leaf.querySelector(".okit-stream-reasoning summary");
           if (pre && ${PLUGIN}.runActive === true) {
             const n = pre.textContent.length;
@@ -1522,7 +1499,6 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
           }
           await warte(40);
         }
-        for (let i = 0; i < 50 && w.kopie === "laeuft"; i += 1) await warte(100);
         w.fertig = true;
       })();
       return true;`);
@@ -1549,7 +1525,6 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
       ikonen: { cls: string; aria: string; svg: boolean; anim: string; farbe: string }[];
       kontrolle: { ueberlauf: number } | null;
       cancel: { k?: number[]; l?: number[]; sichtbar?: boolean; fehlt?: boolean } | null;
-      kopie: "laeuft" | { fehler: string } | { ablehnen: KopieProbe; ok: KopieProbe } | null;
     }>(cdp, `return window.__vcW20?.fertig ? window.__vcW20 : null;`, 70_000, 500).catch(() => null);
     const fertig = await wartetAuf(cdp, `${PLUGIN}.lastRuns[${JSON.stringify(id)}] && ${PLUGIN}.runActive === false`, 20000);
     if (fertig) {
@@ -1593,29 +1568,8 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
         `${w.ikonen.length} Zustände gesehen: ${w.ikonen.map((x) => `[${x.cls || "–"} „${x.aria}“ anim=${x.anim} ${x.farbe}]`).join(" ")} · ${farben} Farbe(n)`);
     }
 
-    // (2c) Kopier-Knopf am Denkblock (Welle 24) samt Gegenprobe mit ablehnender Zwischenablage.
-    const kp = w?.kopie;
-    if (!w || kp === null || kp === "laeuft" || kp === undefined) {
-      const grund = w ? "der Denktext erreichte während des Laufs nie 30 Zeichen oder die Probe wurde nicht fertig" : keinLauf;
-      unmeasured(P_KOPIE, grund);
-      unmeasured(P_KOPIE_GEGEN, grund);
-    } else if ("fehler" in kp) {
-      unmeasured(P_KOPIE, `Probe warf im Renderer: ${kp.fehler}`);
-      unmeasured(P_KOPIE_GEGEN, `Probe warf im Renderer: ${kp.fehler}`);
-    } else if (kp.ok.fehlt || kp.ablehnen.fehlt) {
-      record(P_KOPIE, false, "kein .okit-stream-reasoning-copy am Denkblock");
-      record(P_KOPIE_GEGEN, false, "kein .okit-stream-reasoning-copy am Denkblock");
-    } else {
-      const o = kp.ok, a = kp.ablehnen;
-      record(P_KOPIE, o.aria !== "" && o.n === 1 && (o.text ?? "").includes("Denkzeile") && o.flash,
-        `aria „${o.aria}“ · ${o.n} Aufruf(e) von writeText · Text ${(o.text ?? "—").length} Zeichen, beginnt „${(o.text ?? "").slice(0, 24)}“ · Quittung ${o.flash ? "da" : "fehlt"}`);
-      // Die Gegenprobe gilt nur, wenn der Klick writeText ÜBERHAUPT erreicht hat (sonst bliebe die Quittung auch bei einem Knopf aus, der nichts tut).
-      record(P_KOPIE_GEGEN, a.n === 1 && !a.flash, `${a.n} Aufruf(e) von writeText, abgelehnt · Quittung ${a.flash ? "DA (falsch)" : "bleibt aus"}`);
-    }
-
-    // (2d) Pflichtpunkte aus tools/obsidian-cdp/pflichtpunkte.ts (Skill gui-smoke-setup § 3a): hier nicht anwendbar, mit Grund.
-    skipped(P_FOKUS, "das Panel hat kein Tipp-Feld (nur Knöpfe, Liste und Strombereich); ohne Feld gibt es nichts, dessen Fokus ein Anstrich nehmen könnte");
-    skipped(P_ERREICHBAR, "der Strombereich ist begrenzt (max-height 40vh, eigener Rollbereich) und der einzige Dauer-Knopf (Abbrechen) sitzt außerhalb des Rollbereichs in der Statuszeile — die Gegenprobe ohne Rollbalken könnte kein Element unerreichbar machen (CORE-TEST-01); die Frage deckt „Abbrechen-Knopf liegt während eines Laufs im Leaf-Rechteck“");
+    // (2c) Kopier-Knopf, Fokus-Erhalt und Erreichbarkeit: `w25PflichtLauf` (Halte-Lauf, der Strom steht still, solange gemessen wird).
+    optOutPflicht(bilanz, P_FOKUS, "das Panel hat kein Tipp-Feld (nur Knöpfe, Liste und Strombereich); ohne Feld gibt es nichts, dessen Fokus ein Anstrich nehmen könnte");
 
     // (3)/(4)/(5) Folge-Regel: Kontrolle, Störung, Wiederaufnahme. Ungültige Messung ist „nichts gemessen“ (CORE-TEST-22).
     if (folge === null) {
@@ -1635,6 +1589,102 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
       delete ${PLUGIN}.lastRuns[${JSON.stringify(id)}];
       delete window.__vcW20;
       window.__vcGegenprobe?.disconnect(); delete window.__vcGegenprobe;
+      return true;`).catch(() => undefined);
+  }
+}
+
+/** Welle 25 — die Pflichtpunkte, die einen STEHENDEN Strom brauchen (Kopier-Knopf am Denkblock, Erreichbarkeit der Bedienelemente):
+ *  ein Lauf, dessen Stub nach dem letzten Stück die Verbindung lange offen hält (`nachlaufMs`). Der Strom ist dann vollständig, der Lauf
+ *  aktiv (der Abbrechen-Knopf steht, der Denkblock ist da), und nichts ändert sich unter der Messung. Danach wird abgebrochen. */
+async function w25PflichtLauf(cdp: Cdp): Promise<void> {
+  const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
+  const id = "zz-w25";
+  const ordner = "zz-w25-ordner";
+  const zeilen = (praefix: string, n: number): string =>
+    Array.from({ length: n }, (_, i) => `${praefix} ${String(i + 1).padStart(2, "0")} — ein Satz, der Platz im Strom braucht.\n`).join("");
+  const stub = await startLlmStub({
+    models: ["fake-modell"], takt: 20, laenge: 40, nachlaufMs: 45_000,
+    standard: { reasoning: zeilen("Denkzeile", 12), text: zeilen("Zeile", 60) },
+  });
+  const team = ["---", "crew-kind: team", "name: ZZ W25", "version: 1", "description: Smoke", "trigger: manual",
+    "limits:", "  max_writes: 1", "write_scope:", `  - "${ordner}/**/*.md"`, "tasks:",
+    "  - id: collect", "    kind: collector", "    collector: vault.list", "    params:", `      folder: ${ordner}`,
+    "  - id: analyse", "    kind: llm", "    agent: zz-w25-agent", "    inputs: [collect]", "    instruction: Tue nichts.",
+    "    output_schema: triage-v1", "    on_error: skip",
+    "  - id: apply", "    kind: actions", "    inputs: [analyse]", "    allowed_actions: [frontmatter.patch]", "    allowed_keys: [priority]",
+    "---", "Smoke", ""].join("\n");
+  const agent = ["---", "crew-kind: agent", "name: ZZ W25", "---", "Du bist ein Test.", ""].join("\n");
+  const teamPfad = `${root}/teams/${id}.md`;
+  const agentPfad = `${root}/agents/zz-w25-agent.md`;
+  const notePfad = `${ordner}/a.md`;
+  const saved = await cdp.evaluate<{ endpoints: unknown }>(`return { endpoints: JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints)) };`);
+  let runDir = "";
+  const block = `${PANEL_SEL} .okit-stream-reasoning`;
+  try {
+    await cdp.evaluate(`
+      for (const d of [${JSON.stringify(root)}, ${JSON.stringify(root + "/teams")}, ${JSON.stringify(root + "/agents")}, ${JSON.stringify(ordner)}]) {
+        if (!app.vault.getAbstractFileByPath(d)) await app.vault.createFolder(d);
+      }
+      await app.vault.create(${JSON.stringify(teamPfad)}, ${JSON.stringify(team)});
+      await app.vault.create(${JSON.stringify(agentPfad)}, ${JSON.stringify(agent)});
+      await app.vault.create(${JSON.stringify(notePfad)}, "---\\npriority: mittel\\n---\\nInhalt\\n");
+      ${PLUGIN}.settings.endpoints = [{ url: "${stub.urlV1}", model: "fake-modell" }];
+      await ${PLUGIN}.refreshTeams?.();
+      await ${PLUGIN}.activatePanel();
+      return true;`);
+    await wartetAuf(cdp, `app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(teamPfad)}))?.frontmatter && app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(agentPfad)}))?.frontmatter`, 8000);
+    await cdp.evaluate(`${PANEL}.querySelector('.okit-hub-tab[data-tab="crews"]')?.click(); await new Promise((r) => setTimeout(r, 300)); return true;`);
+    await starteLaufUndWarteAufBereich(cdp, id);
+    // Der Strom ist vollständig, wenn die letzte Textzeile da ist; danach steht er (der Stub hält die Verbindung offen).
+    const steht = await wartetAuf(cdp, `(${PANEL}?.querySelector(".okit-stream-body")?.textContent ?? "").includes("Zeile 60")`, 30_000);
+    if (!steht) {
+      const grund = "der Strom erreichte die letzte Zeile nicht binnen 30 s — nichts steht still, woran sich messen ließe";
+      unmeasured(P_KOPIE, grund);
+      unmeasured(P_KOPIE_GEGEN, grund);
+      unmeasured(P_ERREICHBAR, grund);
+      return;
+    }
+
+    // (c) Denkblock kopierbar samt Gegenprobe: die Bausteine der Brücke, Selektoren des Panels (ein Leaf, ein Block).
+    zeichneDenkblock(bilanz, { kopie: P_KOPIE, gegen: P_KOPIE_GEGEN }, await messeDenkblockKopierbar(cdp, {
+      block, knopf: `${PANEL_SEL} .okit-stream-reasoning-copy`, enthaelt: "Denkzeile",
+    }));
+
+    // (b) Erreichbarkeit: Abbrechen-Knopf und Hub-Tabs, während der Strombereich überläuft. Gegenprobe zuerst mit `wachsen` (Statuszeile
+    // und Hub sind Flex-Geschwister); bleibt sie auch dann blind, ist das Opt-out begründet.
+    const erreichbar = {
+      selektoren: [`${PANEL_SEL} .vault-crews-cancel`, `${PANEL_SEL} .okit-hub-tab`],
+      ueberlauf: `${PANEL_SEL} .okit-stream-body`,
+      erforderlich: [`${PANEL_SEL} .vault-crews-cancel`],
+    };
+    // Eine Notice des Laufs (Start, Modell) liegt oben rechts über den Tabs: `elementFromPoint` träfe sie statt des Tabs, die Messung zählte sie als Verdecker.
+    await clearNotices(cdp);
+    const messung = await messeErreichbarkeit(cdp, erreichbar);
+    const gegen = await gegenprobeErreichbarkeit(cdp, { ...erreichbar, scrollen: false, art: "wachsen" });
+    if (messung.urteil === "gruen" && gegen.urteil === "gruen") {
+      zeichnePflicht(bilanz, P_ERREICHBAR, { urteil: "gruen", detail: `${messung.detail} · Gegenprobe: ${gegen.detail}` });
+    } else if (messung.urteil === "gruen" && gegen.urteil === "rot" && gegen.detail.includes("die Probe sieht den Defekt nicht")) {
+      // Gemessen 2026-10-23 (Welle 25, `wachsen`): der Hub schneidet seinen Inhalt ab (`.okit-hub-content { overflow: hidden }`, `min-height: 0`) und die
+      // Statuszeile mit dem Abbrechen-Knopf sitzt als Geschwister außerhalb; ein Strombereich, der wächst, drückt nichts hinaus. Der Defekt, vor dem der
+      // Punkt schützt, lässt sich hier nicht herstellen, der Punkt könnte nie rot werden (CORE-TEST-01). Wird die Gegenprobe einmal grün, zählt der Punkt wieder.
+      optOutPflicht(bilanz, P_ERREICHBAR, `kein Defekt herstellbar: Der Hub schneidet den Strombereich ab, die Statuszeile mit dem Abbrechen-Knopf liegt außerhalb. Messung: ${messung.detail}. Gegenprobe: ${gegen.detail}`);
+    } else {
+      zeichnePflicht(bilanz, P_ERREICHBAR, { urteil: messung.urteil === "rot" || gegen.urteil === "rot" ? "rot" : "nichts-gemessen", detail: `Messung: ${messung.detail} · Gegenprobe: ${gegen.detail}` });
+    }
+  } finally {
+    await cdp.evaluate(`${PLUGIN}.abortCurrentRun?.(); return true;`).catch(() => undefined);
+    await wartetAuf(cdp, `${PLUGIN}.runActive === false`, 10_000).catch(() => undefined);
+    await stub.stop();
+    const info = await cdp.evaluate<{ runId: string } | null>(`return ${PLUGIN}.lastRuns[${JSON.stringify(id)}] ?? null;`).catch(() => null);
+    if (info) runDir = `${root}/runs/${info.runId}`;
+    await cdp.evaluate(`
+      ${PLUGIN}.settings.endpoints = ${JSON.stringify(saved.endpoints)};
+      for (const p of [${JSON.stringify(teamPfad)}, ${JSON.stringify(agentPfad)}, ${JSON.stringify(notePfad)}, ${JSON.stringify(ordner)}, ${JSON.stringify(runDir)}]) {
+        if (!p) continue;
+        const f = app.vault.getAbstractFileByPath(p);
+        if (f) await app.vault.delete(f, true);
+      }
+      delete ${PLUGIN}.lastRuns[${JSON.stringify(id)}];
       return true;`).catch(() => undefined);
   }
 }
@@ -1783,6 +1833,7 @@ async function w23GemmaLauf(cdp: Cdp): Promise<void> {
 async function abschnittWelle20(cdp: Cdp): Promise<void> {
   try {
     await w20Lauf(cdp);
+    await w25PflichtLauf(cdp);
     await w20AbsatzLauf(cdp);
     await w23GemmaLauf(cdp);
     record("Welle 20 — Abschnitt lief bis zum Ende", true, "kein Abbruch");
@@ -2038,7 +2089,7 @@ async function main(): Promise<void> {
   // schaltet frei — aber NUR im eigenen Staging-Vault (heißt wie das Repo, `nurVault`); in einem
   // fremden Vault wäre das ein Eingriff in den Wirt, dort bleibt es beim Abbruch mit Ansage.
   if (!aktiv) {
-    const r = await bereiteInstanzVor(cdp, { pluginIds: [PLUGIN_ID], nurVault: PLUGIN_ID });
+    const r = await bereiteInstanzVor(cdp, { pluginIds: [PLUGIN_ID], nurVault: PLUGIN_ID, sprache: "en" });
     console.log(`Instanz vorbereitet: ${r.hinweis}`);
     aktiv = r.plugins[PLUGIN_ID] === "geladen";
   }
@@ -2067,13 +2118,10 @@ async function main(): Promise<void> {
   // Läuft dieser Lauf gegen den eigenen Stand? Der Store-Build trägt dieselbe Versionsnummer; `ladePluginNeu` prüft mit
   // `repoMainJs` vor dem Reload, dass `main.js` im Vault der frisch gebaute Repo-Stand ist (CORE-TEST-08 a), und stellt
   // danach die Version auf der Platte neben die im Speicher (Obsidian hält den zuvor geladenen Stand).
-  // Die Prüfpunkte erwarten die englische Oberfläche („Running“, nicht „Läuft“). `obsidian.json` mit `"language":"en"` reicht
-  // nicht: das Plugin liest die Sprache aus `localStorage.language`, und ein Profil, das sie nie gesetzt hat, fällt auf die
-  // Systemsprache (gemessen 2026-10-18: Statussymbol-Punkt rot mit aria „Läuft“, Plugin fehlerfrei). Setzen VOR dem Neuladen,
-  // weil `onload` sie nur dort liest.
-  await cdp.evaluate(`try { localStorage.setItem("language", "en"); } catch (e) {} return true;`);
+  // Die Prüfpunkte erwarten die englische Oberfläche („Running“, nicht „Läuft“). Die Sprache setzt die Brücke (`sprache: "en"`), an BEIDEN Stellen:
+  // `bereiteInstanzVor` (frisches Profil) und `ladePluginNeu` (Plugin schon aktiv, dann läuft der erste Zweig nicht).
   try {
-    const neu = await ladePluginNeu(cdp, PLUGIN_ID, { repoMainJs: join(cwd(), "main.js") });
+    const neu = await ladePluginNeu(cdp, PLUGIN_ID, { repoMainJs: join(cwd(), "main.js"), sprache: "en" });
     console.log(neu.hinweis);
     if (!neu.geladen || !neu.aktuell) throw new Error(neu.hinweis);
   } catch (e) {
@@ -2141,8 +2189,8 @@ async function main(): Promise<void> {
         const f = app.vault.getAbstractFileByPath(p);
         if (f) await app.vault.delete(f, true);
       }
-      app.setting.close();
       return neu.length;`).catch(() => undefined);
+    await schliesseEinstellungen(cdp).catch(() => undefined);
     if (vorwert) {
       writeFileSync(dataPfad, vorwert);
       await pluginNeuLaden(cdp, imAbbruch ? 0 : 900).catch(() => undefined);

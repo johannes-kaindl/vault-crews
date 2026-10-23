@@ -54,6 +54,7 @@ import {
   pollUntil,
   requireUntil,
   requireVisible,
+  schliesseEinstellungen,
   setAppConfig,
   setPluginSetting,
 } from "../../tools/obsidian-cdp/cdp.js";
@@ -377,7 +378,7 @@ const SHOTS: Shot[] = [
       // und gehoert zur Laufzeit gesetzt, nicht in die Fixture-Datei (ein laufendes
       // Obsidian schreibt die Datei sonst zurueck).
       await setAppConfig(cdp, "propertiesInDocument", "source");
-      await cdp.evaluate(`app.setting.close(); return true;`);
+      await schliesseEinstellungen(cdp);
       if (!(await openExisting(cdp, TEAM_NOTIZ, "source"))) {
         console.log(`      · ${TEAM_NOTIZ} liess sich nicht oeffnen`);
         return null;
