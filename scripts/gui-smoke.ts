@@ -1647,7 +1647,7 @@ async function w25PflichtLauf(cdp: Cdp): Promise<void> {
 
     // (c) Denkblock kopierbar samt Gegenprobe: die Bausteine der Brücke, Selektoren des Panels (ein Leaf, ein Block).
     zeichneDenkblock(bilanz, { kopie: P_KOPIE, gegen: P_KOPIE_GEGEN }, await messeDenkblockKopierbar(cdp, {
-      block, knopf: `${PANEL_SEL} .okit-stream-reasoning-copy`, enthaelt: "Denkzeile",
+      block, knopf: `${PANEL_SEL} .okit-stream-reasoning-copy`, enthaelt: "Denkzeile", erwartetKnopf: true,
     }));
 
     // (b) Erreichbarkeit: Abbrechen-Knopf und Hub-Tabs, während der Strombereich überläuft. Gegenprobe zuerst mit `wachsen` (Statuszeile
