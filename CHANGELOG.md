@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- The write boundary of a crew now reads a path the way the file system does. The deny-list (`_crews/**`, `_vaultrag/**`, `.git/**` and the configuration folder) used to compare the path as typed, so a crew with a broad `write_scope` could write into the protected folders under a spelling that lands on the same folder on disk: `_crews /x.md` or `_crews./x.md` (Windows drops blanks and dots at the end of a name), `_crews:s/x.md` (everything after a colon is a data stream of the name before it) and `_CREWS/x.md` (macOS and Windows fold the case, also `ſ` for `s` and the Kelvin sign for `k`). Such paths are now refused, and a `write_scope` whose root lies in a protected folder in one of these spellings is rejected when the crew is read. Other paths are not affected; the whitelist itself keeps comparing the text, so `Projekte /x.md` is still not inside `Projekte/**`.
+
+### Changed
+
+- Kit update (code-kit 0.31.0 → 0.34.0) for the path check above. Claude models (`claude-sonnet-5-5`, `anthropic/claude-…`) are recognised as models that take images and, from the Fable, Opus 4.7 and Sonnet 5 generations on, as thinking that cannot be switched off, so the "Request" section shows the matching hint; local models that only carry the word "claude" in their name (`qwen3.6-claude-opus-distill`) are unchanged.
+
 ## [0.21.1] — 2026-10-18
 
 ### Changed

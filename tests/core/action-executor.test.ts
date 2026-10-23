@@ -181,6 +181,32 @@ describe('executeActions — Pfad-Guards', () => {
     },
   );
 
+  // Welle 25 (Sicherheit): ein write_scope, der alles erlaubt, hebt die Denylist nicht auf — auch nicht in der Schreibweise, die das Dateisystem
+  // auf dieselbe Datei abbildet (Leerraum oder Punkt am Segmentende, `:`-Suffix, andere Groß-/Kleinschreibung).
+  it.each([
+    '_crews /teams/evil.md', '_crews./teams/evil.md', '_crews:s/teams/evil.md', '_CREWS/teams/evil.md',
+    '.obsidian /plugins/evil.md', '.git:x/evil.md', '_vaultrag. /evil.md', '_Vaultrag/evil.md',
+  ])('verwirft die Dateisystem-Schreibweise %s trotz write_scope **', async (path) => {
+    const vault = await seed({});
+    const res = await executeActions(
+      [{ type: 'note.create', path, content: 'x' }],
+      ctxOf([], { team: makeTeam({ writeScope: ['**'] }) }),
+      vault,
+    );
+    expect(res.outcomes[0]?.result).toBe('rejected');
+    expect(await vault.exists(path)).toBe(false);
+  });
+
+  it('Gegenprobe: ein harmloser Pfad mit Leerraum wird mit write_scope ** geschrieben', async () => {
+    const vault = await seed({});
+    const res = await executeActions(
+      [{ type: 'note.create', path: 'Projekte /neu.md', content: 'x' }],
+      ctxOf([], { team: makeTeam({ writeScope: ['**'] }) }),
+      vault,
+    );
+    expect(res.outcomes[0]?.result).toBe('applied');
+  });
+
   it('verwirft Pfade außerhalb write_scope', async () => {
     const vault = await seed({});
     const action: Action = { type: 'note.create', path: 'Notizen/x.md', content: 'x' };
@@ -419,9 +445,10 @@ describe('Guard-Property: bösartige Pfade werden nie geschrieben', () => {
     const pick = <T>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)] as T;
     for (let i = 0; i < 500; i++) {
       const parts = Array.from({ length: 1 + Math.floor(rnd() * 3) }, () => pick(['10_Aufgaben', 'sub', 'notes']));
-      const mode = pick(['dotdot', 'dotseg', 'denyroot']);
+      const mode = pick(['dotdot', 'dotseg', 'denyroot', 'fsroot']);
       if (mode === 'dotdot') parts.splice(Math.floor(rnd() * (parts.length + 1)), 0, '..');
       else if (mode === 'dotseg') parts.splice(Math.floor(rnd() * (parts.length + 1)), 0, pick(['.obsidian', '.git', '.trash']));
+      else if (mode === 'fsroot') parts.unshift(pick(['_crews ', '_crews.', '_crews:x', '_CREWS', '_vaultrag ', '_VAULTRAG:s']));
       else parts.unshift(pick(['_crews', '_vaultrag']));
       const path = `${parts.join('/')}/evil.md`;
       const vault = await seed({});

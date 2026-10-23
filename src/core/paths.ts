@@ -1,4 +1,5 @@
 import { localDate } from '../vendor/kit/local-stamp';
+import { filesystemPath } from '../vendor/kit/folder-scope';
 import { normalizeRelPath } from '../vendor/kit/rel-path';
 
 /** Pfad-Guards des pure-Layers. Jede Schreib-/Leseaktion der Agenten läuft hier durch —
@@ -52,8 +53,29 @@ function toRegex(pattern: string): RegExp {
 	return re;
 }
 
+const fsPatternCache = new Map<string, string | null>();
+function fsPattern(pattern: string): string | null {
+	let hit = fsPatternCache.get(pattern);
+	if (hit === undefined) {
+		hit = filesystemPath(pattern);
+		fsPatternCache.set(pattern, hit);
+	}
+	return hit;
+}
+
+/** Die Denylist ist eine Schreibgrenze, die einen Ordner BEWACHT. Ein Pfad zählt deshalb als gesperrt, wenn der Rohpfad ODER seine
+ *  Dateisystem-Lesart (Kit `folder-scope`, `filesystemPath`) auf ein Muster passt, und die Muster werden nach denselben Segment-Regeln
+ *  gelesen, sonst verglichen zwei verschiedene Schreibweisen: `_crews /x.md`, `_crews./x.md`, `_crews:s/x.md` und `_CREWS/x.md` sind auf
+ *  der Platte `_crews/x.md` (Windows kappt Leerraum, Punkt und `:`-Suffix; APFS faltet die Schreibweise), liefen aber am Muster
+ *  `_crews/**` vorbei (Welle 25). Die Lesart ist die weitere Seite, ein Wächter schützt nie weniger als zuvor. Die Whitelist (`write_scope`)
+ *  bleibt bei der Textlesart: `Projekte /x.md` liegt nicht in `Projekte/**`, auch wenn Windows es dorthin legen würde. */
 export function isDenied(path: string, denylist: string[]): boolean {
-	return denylist.some((d) => globMatch(d, path));
+	const fs = filesystemPath(path);
+	return denylist.some((d) => {
+		if (globMatch(d, path)) return true;
+		const fd = fsPattern(d);
+		return fd !== null && (globMatch(fd, path) || (fs !== null && globMatch(fd, fs)));
+	});
 }
 
 /** Einziger Target-Platzhalter: {{today}} → lokales YYYY-MM-DD (deterministisch aus nowMs). */

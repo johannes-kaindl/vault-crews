@@ -128,6 +128,24 @@ describe('parseTeamDef', () => {
 		expect(r.ok && r.value.intervalMinutes).toBeFalsy();
 	});
 
+	// Welle 25 (Sicherheit): ein write_scope, dessen Wurzel auf der Platte im geschützten Ordner landet, ist ein Definitionsfehler,
+	// auch in der Schreibweise, die das Dateisystem auf ihn abbildet.
+	it.each(['_crews /**', '_crews./teams/*.md', '_crews:s/**', '_CREWS/**', '_vaultrag /**'])(
+		'lehnt write_scope %s als geschützten Bereich ab',
+		(scope) => {
+			const r = parseTeamDef(TEAM_PATH, teamFm({ write_scope: [scope] }), OPTS);
+			expect(r.ok).toBe(false);
+			if (r.ok) return;
+			expect(r.errors.join('\n')).toContain('geschützten Bereich');
+		},
+	);
+
+	it('Gegenprobe: ein ähnlicher, erlaubter write_scope bleibt gültig', () => {
+		for (const scope of ['Projekte /**', '_crewsX/**', '10_Aufgaben/**/*.md']) {
+			expect(parseTeamDef(TEAM_PATH, teamFm({ write_scope: [scope] }), OPTS).ok, scope).toBe(true);
+		}
+	});
+
 	it('sammelt ALLE Fehler statt first-fail', () => {
 		const r = parseTeamDef(TEAM_PATH, teamFm({
 			version: 2,

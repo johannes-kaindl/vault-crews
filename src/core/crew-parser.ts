@@ -1,7 +1,7 @@
 /** Parser + Preflight-Validierung für Agent-/Team-Definitionen aus dem Vault.
  *  Grundsatz (Spec §2.1/§3.1): ALLE Fehler sammeln, zeilenverständlich melden
  *  (`<datei>: <feld>: <problem>`), und zwar BEVOR irgendein LLM-Call passiert. */
-import { globMatch } from './paths';
+import { isDenied } from './paths';
 import { MIN_INTERVAL_MINUTES, parseIntervalMinutes } from './heartbeat';
 import type {
 	ActionType, AgentDef, CollectorId, LlmTaskDef, OutputSpec, RunLimits, TaskDef, TeamDef,
@@ -122,7 +122,7 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 			// Whitelist darf die Denylist nicht anfassen: ein Scope, dessen Wurzel in einem
 			// Denylist-Bereich liegt, ist immer ein Definitionsfehler.
 			const root = glob.split('*')[0] ?? glob;
-			if (opts.denylist.some((d) => globMatch(d, `${root.replace(/\/$/, '')}/x`) || globMatch(d, root))) {
+			if (isDenied(`${root.replace(/\/$/, '')}/x`, opts.denylist) || isDenied(root, opts.denylist)) {
 				err('write_scope', `'${glob}' liegt in einem geschützten Bereich`);
 				continue;
 			}

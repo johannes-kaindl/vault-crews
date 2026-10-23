@@ -47,6 +47,49 @@ describe('globMatch', () => {
 	});
 });
 
+// Welle 25 (Sicherheit): die Denylist liest einen Pfad wie das strengste Dateisystem (Kit folder-scope, `filesystemPath`). Vorher liefen
+// `_crews /x.md`, `_crews./x.md`, `_crews:s/x.md` und `_CREWS/x.md` (APFS faltet die Schreibweise) an `_crews/**` vorbei.
+describe('isDenied — Dateisystem-Lesart (Welle 25)', () => {
+	it.each([
+		'_crews /teams/x.md', '_crews./teams/x.md', '_crews:s/teams/x.md', '_CREWS/teams/x.md', '_Crews/teams/x.md',
+		'_crews . /teams/x.md', '_crews\u00a0/teams/x.md', '_crews\u202f/teams/x.md', '_crews:/teams/x.md',
+		'.obsidian /app.json', '.obsidian./app.json', '.OBSIDIAN/app.json', '.obsidian:x/app.json',
+		'.git /config', '.git./config', '.GIT/config', '.git:$INDEX_ALLOCATION/config',
+		'_vaultrag /notes.i8', '_vaultrag./notes.i8', '_VAULTRAG/notes.i8',
+		'_crews/.../teams/x.md',
+	])('verweigert %s', (p) => {
+		expect(isDenied(p, DENYLIST), p).toBe(true);
+	});
+
+	it('faltet die Schreibweise wie das Dateisystem: langes s, Eszett und Kelvin-Zeichen', () => {
+		const denylist = buildDenylist('.obsidian', 'Crew-Ops');
+		expect(isDenied('Crew-Opſ/x.md', denylist)).toBe(true);
+		expect(isDenied('CREW-OPS/x.md', denylist)).toBe(true);
+		expect(isDenied('_vaultraG/x.md', DENYLIST)).toBe(true);
+		expect(isDenied('.obsidiaN/x.md', DENYLIST)).toBe(true);
+		const kelvin = buildDenylist('.config', 'Kommando');
+		expect(isDenied('\u212Aommando/x.md', kelvin)).toBe(true);
+	});
+
+	it('liest auch ein Muster der Denylist nach denselben Regeln (configDir mit Großbuchstaben, crewRoot mit Leerraum am Ende)', () => {
+		const denylist = buildDenylist('.Obsidian', 'Crew Ops ');
+		expect(isDenied('.obsidian/app.json', denylist)).toBe(true);
+		expect(isDenied('.Obsidian/app.json', denylist)).toBe(true);
+		expect(isDenied('crew ops/x.md', denylist)).toBe(true);
+	});
+
+	it('Gegenprobe: ähnliche, erlaubte Pfade bleiben erlaubt', () => {
+		for (const p of ['_crewsX/x.md', 'x_crews/x.md', 'a/_crews x/y.md', '_crew/x.md', '10_Aufgaben/t.md', '10_Aufgaben /t.md', 'Notizen/obsidian/x.md', 'obsidianer.md']) {
+			expect(isDenied(p, DENYLIST), p).toBe(false);
+		}
+	});
+
+	it('ein Pfad mit NUL hat keine Dateisystem-Lesart; der Rohpfad entscheidet weiter', () => {
+		expect(isDenied('_crews/x\0.md', DENYLIST)).toBe(true);
+		expect(isDenied('10_Aufgaben/x\0.md', DENYLIST)).toBe(false);
+	});
+});
+
 describe('isDenied', () => {
 	it('blockt Systempfade und Dotfiles unabhängig von write_scope', () => {
 		for (const p of ['.obsidian/app.json', '.git/config', '_crews/teams/x.md', '_vaultrag/notes.i8', '.env', 'a/.hidden.md']) {
