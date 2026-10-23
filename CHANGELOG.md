@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.21.2] — 2026-10-23
+
 ### Security
 
 - The write boundary of a crew now reads a path the way the file system does. The deny-list (`_crews/**`, `_vaultrag/**`, `.git/**` and the configuration folder) used to compare the path as typed, so a crew with a broad `write_scope` could write into the protected folders under a spelling that lands on the same folder on disk: `_crews /x.md` or `_crews./x.md` (Windows drops blanks and dots at the end of a name), `_crews:s/x.md` (everything after a colon is a data stream of the name before it) and `_CREWS/x.md` (macOS and Windows fold the case, also `ſ` for `s` and the Kelvin sign for `k`). Such paths are now refused, and a `write_scope` whose root lies in a protected folder in one of these spellings is rejected when the crew is read. Other paths are not affected; the whitelist itself keeps comparing the text, so `Projekte /x.md` is still not inside `Projekte/**`.
