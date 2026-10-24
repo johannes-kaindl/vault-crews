@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.21.3] — 2026-10-24
+
 ### Security
 
 - A `write_scope` with a `..` segment (`../x/**`, `a/../b/**`, `a/ .. /b/**`, `**/../x`, `a\..\b/**`) is now refused when the crew file is read, with its own message (`".." is not allowed in write_scope`). Before, the deny-list caught most spellings by accident and reported them as "protected area", and `a/ .. /b/**` (blanks around the dots) was accepted. No write could have escaped (every write is checked against the path itself), but a boundary entry that can never take effect belongs in the error list, not in the crew.
