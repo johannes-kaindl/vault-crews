@@ -93,7 +93,7 @@ export interface SettingsHost {
 /** Der Textbaustein-Satz, den der Kit-Editor bekommt. Statustexte, Eingabe-Hinweise, die Leer-Option
  *  „Server wählt“ und die Kontextlänge formuliert das Kit (obsidian-kit 0.56.0, EN/DE); der Rest ist
  *  plugin-eigener Wortlaut. */
-function endpointStrings(): EndpointListStrings {
+export function endpointStrings(): EndpointListStrings {
   const kit = (getLang() === "de" ? LLM_CONNECTION_STRINGS_DE : LLM_CONNECTION_STRINGS_EN).endpointList;
   return {
     addPlaceholder: t("settings.connection.endpoints.add"),
@@ -125,7 +125,9 @@ function endpointStrings(): EndpointListStrings {
           ? t("settings.connection.role.unreachable")
           : role.kind === "skipped-model"
             ? t("settings.connection.role.modelMismatch")
-            : t("settings.connection.role.standby", String(role.position)),
+            : role.kind === "search-only"
+              ? kit.role(role)
+              : t("settings.connection.role.standby", String(role.position)),
     warnings: (ws) => kit.warnings(ws),
     presetTooltip: (preset) => t("settings.connection.presetAdd", preset.url),
     presetLabel: (preset) => t("settings.connection.presetAdd", preset.label),

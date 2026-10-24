@@ -1,4 +1,4 @@
-// vendored from code-kit@0.34.0, src/ts/pure/folder-scope.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.36.0, src/ts/pure/folder-scope.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 import { normalizeRelPath } from "./rel-path";
 
 /** Which paths lie inside a folder, and the entries of a list that mean "this note" or "all notes in this folder". The same few
@@ -29,7 +29,8 @@ import { normalizeRelPath } from "./rel-path";
  *  umlaut alike, the others did not); `ignoreCase` is `toLowerCase`, not case folding (dotted capital I, sharp s and a final sigma
  *  are not folded); both sides go through
  *  {@link normalizeRelPath} with a leading `/` stripped, so `/Inbox//./a.md` and `Inbox\a.md` are the same path; and a path or
- *  folder with a `..` segment or a NUL byte is **in no folder** (the local versions compared the text, so `a/../b` was "in `a`").
+ *  folder with a `..` segment or a NUL byte is **in no folder** (the local versions compared the text, so `a/../b` was "in `a`") —
+ *  in the text reading; under `reading: "filesystem"` such a *path* is in every usable folder instead (below, "fail-closed").
  *  The paths that come back are the strings the caller gave, not the normalised ones. Sorting is by UTF-16 code unit, not by
  *  locale, so the order does not depend on the ICU version (koda's reason, stated in `list.ts`).
  *
@@ -47,13 +48,23 @@ import { normalizeRelPath } from "./rel-path";
  *  this module as a **write boundary** (a protected folder, an exclusion list, a delete scope) takes the filesystem reading for the
  *  folders it guards. Per segment, on both sides: `U+00A0`/`U+202F` to a blank, cut at the first `:`, strip blanks and dots at the
  *  end, NFKC, then upper and lower case in turn (which is full case folding: `ß` → `SS` → `ss`). `ignoreCase` is implied and
- *  ignored; `self`, `recursive` and `root` mean what they mean in the text reading, and `..` and NUL are refused just the same. A segment
+ *  ignored; `self`, `recursive` and `root` mean what they mean in the text reading, and a folder with `..` or NUL is unusable just the same
+ *  (it holds nothing). A segment
  *  with nothing left after this (`...`, a lone blank, `:x`) drops out of the path like a `.` segment: whether a disk reads `...` as
  *  the folder itself or as a name of its own is **not measured here** (the .NET path rules recalled, not checked on Windows say it is
  *  a valid name), and the wider side is the safe one for a guarded folder. A folder
  *  that is nothing but such segments (`...`) is not the root: only the text reading places anything inside it.
  *  NFKC can turn a character into a dot or a separator (U+2025 into `..`, U+FF0F into `/`); a name for which it does is only
  *  case-folded, never read through NFKC. Patterns: only `*` and `**` wildcards are read correctly ({@link filesystemPath}); `:`, `{}` and `[]` in a pattern take the same rules as in a name.
+ *
+ *  **Fail-closed (0.36.0, a change of behaviour).** A *path* that cannot be read at all — a `..` segment or a NUL byte — is **inside every
+ *  usable folder** under `reading: "filesystem"`, whatever `self` and `recursive` say, in {@link isInFolder}, {@link pathsInFolder} and
+ *  {@link countInFolders} alike. Until 0.35.0 it was "in no folder", which is fail-open for a guard: `Privat/../x` slipped past an exclusion
+ *  of `Privat`. A guard cannot tell where such a path would land, so it treats it as inside. Unchanged: a folder with `..` or NUL is
+ *  unusable and stays empty (an unreadable path is not in it either); an empty folder without `root: true` holds nothing, the unreadable
+ *  path included (an empty setting guards nothing — it does not turn into "everything"); the text reading answers `false` for an unreadable
+ *  path as before, so an *allowed* zone (text reading) never takes one in. A caller that hands over paths from outside may still refuse
+ *  `..` itself before the check; it no longer has to for the guard to hold.
  *
  *  **Which way to read depends on which way the boundary protects.** `reading: "filesystem"` answers "inside" if the filesystem
  *  reading OR the text reading (case-folded) says so, so it is the *wider* answer by construction — nothing the text puts inside a
@@ -69,7 +80,7 @@ import { normalizeRelPath } from "./rel-path";
  *  `Koda/Skills`): `Koda/Skills/**` does not match it, the path as given does — which is why both are matched.
  *
  *  Linear in the total length of the paths (plus the sort); {@link expandPathEntries} splits the list of known paths once, not
- *  once per entry. */
+ *  once per entry, and {@link countInFolders} counts many folders in one pass over the paths. */
 export interface FolderScopeOptions {
   /** Default `true`. `false`: only the direct children of the folder. */
   recursive?: boolean;
@@ -131,27 +142,53 @@ function underBase(base: readonly string[], p: readonly string[], recursive: boo
   return recursive || below === 1;
 }
 
-/** The test of one folder on paths that are already split ({@link partsOf}), or null if the folder is unusable (a `..` or a NUL
- *  in it) — then nothing is inside. Under `reading: "filesystem"` a path is inside if EITHER reading puts it inside: the result is
- *  the wider one by construction, whatever a name does in the file system reading (a segment that drops out, a folder that is
- *  nothing there) — a guard never protects less than the text reading did. */
-function scopeOf(folder: string, options: FolderScopeOptions): ((parts: Parts) => boolean) | null {
+/** What a folder asks of a path, worked out once: the folder split in the text reading (`text`, null if it holds nothing there — an
+ *  empty folder without `root`) and in the file system reading (`fs`, null if it holds nothing there or the text reading is in use),
+ *  the shape of the match, and `unreadable`: whether a path that cannot be read at all (a `..`, a NUL) is inside. {@link scopeOf} and
+ *  {@link countInFolders} both read this, so a rule changes in one place. */
+interface Plan {
+  text: readonly string[] | null;
+  fs: readonly string[] | null;
+  recursive: boolean;
+  self: boolean;
+  unreadable: boolean;
+}
+
+/** The plan of one folder, or null if the folder is unusable (a `..` or a NUL in it) — then nothing is inside, an unreadable path
+ *  included. */
+function planOf(folder: string, options: FolderScopeOptions): Plan | null {
   const base = partsOf(folder, options);
   if (base === null) return null;
-  const recursive = options.recursive !== false;
-  const self = options.self === true;
   // An empty folder holds nothing unless it is declared the root. In the file system reading the folder must be empty in the
   // text too: `...` is not the root.
   const textIsEmpty = base.text.length === 0;
-  const textScope = textIsEmpty && options.root !== true
-    ? () => false
-    : (parts: Parts): boolean => underBase(base.text, parts.text, recursive, self);
-  if (base.fs === null) return textScope;
-  const fsBase = base.fs;
+  const textActive = !textIsEmpty || options.root === true;
   // `...` or `:x` as a folder: empty here, not in the text — only the text reading can place anything inside it.
-  const fsUsable = textIsEmpty ? options.root === true : fsBase.length > 0;
-  const fsScope = !fsUsable ? () => false : (parts: Parts): boolean => parts.fs !== null && underBase(fsBase, parts.fs, recursive, self);
-  return (parts: Parts): boolean => textScope(parts) || fsScope(parts);
+  const fsUsable = base.fs !== null && (textIsEmpty ? options.root === true : base.fs.length > 0);
+  return {
+    text: textActive ? base.text : null,
+    fs: fsUsable ? base.fs : null,
+    recursive: options.recursive !== false,
+    self: options.self === true,
+    // Fail-closed: the file system reading is the reading for guards, and a path nobody can read is not "in no folder" there. An
+    // empty folder without `root` still holds nothing (an empty setting guards nothing, as in the text reading).
+    unreadable: base.fs !== null && textActive,
+  };
+}
+
+/** The test of one folder on a path that is already split ({@link partsOf}; null for a path that cannot be read), or null if the
+ *  folder is unusable (a `..` or a NUL in it) — then nothing is inside. Under `reading: "filesystem"` a path is inside if EITHER
+ *  reading puts it inside: the result is the wider one by construction, whatever a name does in the file system reading (a segment
+ *  that drops out, a folder that is nothing there) — a guard never protects less than the text reading did. A path that cannot be
+ *  read at all is inside every usable folder there (see {@link Plan}); in the text reading it is in none. */
+function scopeOf(folder: string, options: FolderScopeOptions): ((parts: Parts | null) => boolean) | null {
+  const plan = planOf(folder, options);
+  if (plan === null) return null;
+  return (parts) => {
+    if (parts === null) return plan.unreadable;
+    if (plan.text !== null && underBase(plan.text, parts.text, plan.recursive, plan.self)) return true;
+    return plan.fs !== null && parts.fs !== null && underBase(plan.fs, parts.fs, plan.recursive, plan.self);
+  };
 }
 
 /** The path as the strictest file system reads it (the `filesystem` reading, see the module comment), segments joined with `/`,
@@ -168,19 +205,105 @@ export function filesystemPath(path: string): string | null {
 /** Whether `path` lies inside `folder` (whole segments: `Inbox` does not hold `Inbox-Archiv/x.md`). */
 export function isInFolder(path: string, folder: string, options: FolderScopeOptions = {}): boolean {
   const inside = scopeOf(folder, options);
-  if (inside === null) return false;
-  const p = partsOf(path, options);
-  return p !== null && inside(p);
+  return inside !== null && inside(partsOf(path, options));
 }
 
 /** The paths of `paths` that lie inside `folder`, as given, sorted by UTF-16 code unit. A new array. */
 export function pathsInFolder(paths: readonly string[], folder: string, options: FolderScopeOptions = {}): string[] {
   const inside = scopeOf(folder, options);
   if (inside === null) return [];
-  return paths.filter((path) => {
-    const p = partsOf(path, options);
-    return p !== null && inside(p);
-  }).sort();
+  return paths.filter((path) => inside(partsOf(path, options))).sort();
+}
+
+/** A folder base per node, the paths walked down it: {@link countInFolders} looks up the folders along the path instead of asking each
+ *  folder about each path. */
+interface TrieNode { next: Map<string, TrieNode>; scopes: number[] }
+
+function trieInsert(root: TrieNode, base: readonly string[], scope: number): void {
+  let node = root;
+  for (const seg of base) {
+    let child = node.next.get(seg);
+    if (child === undefined) {
+      child = { next: new Map(), scopes: [] };
+      node.next.set(seg, child);
+    }
+    node = child;
+  }
+  node.scopes.push(scope);
+}
+
+/** How many of `paths` lie inside each of `folders` — for every folder `pathsInFolder(paths, folder, options).length`, in one pass over
+ *  the paths instead of one per folder (a tree of 1 500 folders over 5 000 notes took about 4 s with a call per folder). The key is
+ *  the folder as it was given, in the order of `folders` (given twice, it is one key); an unusable folder (a `..` or a NUL in it) counts
+ *  0. Same options and readings as {@link isInFolder}, an unreadable path included (under `reading: "filesystem"` it counts in every
+ *  usable folder); a path counts once per folder, also when both readings put it inside; a path given twice counts twice. Linear in the
+ *  total length of the paths and folders. */
+export function countInFolders(paths: readonly string[], folders: readonly string[], options: FolderScopeOptions = {}): Map<string, number> {
+  // Folders that read the same share one scope, so the work does not grow with the spellings of one folder.
+  const scopeIds = new Map<string, number>();
+  const scopes: Plan[] = [];
+  const scopeOfFolder = new Map<string, number | null>();
+  const textTrie: TrieNode = { next: new Map(), scopes: [] };
+  const fsTrie: TrieNode = { next: new Map(), scopes: [] };
+  for (const folder of folders) {
+    if (scopeOfFolder.has(folder)) continue;
+    const plan = planOf(folder, options);
+    if (plan === null) {
+      scopeOfFolder.set(folder, null);
+      continue;
+    }
+    const key = JSON.stringify([plan.text, plan.fs, plan.unreadable]);
+    let id = scopeIds.get(key);
+    if (id === undefined) {
+      id = scopes.length;
+      scopeIds.set(key, id);
+      scopes.push(plan);
+      if (plan.text !== null) trieInsert(textTrie, plan.text, id);
+      if (plan.fs !== null) trieInsert(fsTrie, plan.fs, id);
+    }
+    scopeOfFolder.set(folder, id);
+  }
+
+  const recursive = options.recursive !== false;
+  const self = options.self === true;
+  const counts = new Array<number>(scopes.length).fill(0);
+  const stamp = new Array<number>(scopes.length).fill(-1);
+  let unreadable = 0;
+  const walk = (root: TrieNode, segments: readonly string[], pathIndex: number): void => {
+    let node = root;
+    for (let depth = 0; ; depth++) {
+      if (node.scopes.length > 0) {
+        const below = segments.length - depth;
+        if (below === 0 ? self : recursive || below === 1) {
+          for (const id of node.scopes) {
+            if (stamp[id] === pathIndex) continue;
+            stamp[id] = pathIndex;
+            counts[id] = (counts[id] ?? 0) + 1;
+          }
+        }
+      }
+      const seg = segments[depth];
+      const child = seg === undefined ? undefined : node.next.get(seg);
+      if (child === undefined) return;
+      node = child;
+    }
+  };
+  paths.forEach((path, index) => {
+    const parts = partsOf(path, options);
+    if (parts === null) {
+      unreadable++;
+      return;
+    }
+    walk(textTrie, parts.text, index);
+    if (parts.fs !== null) walk(fsTrie, parts.fs, index);
+  });
+
+  const result = new Map<string, number>();
+  for (const [folder, id] of scopeOfFolder) {
+    const plan = id === null ? undefined : scopes[id];
+    result.set(folder, id === null || plan === undefined ? 0 : (counts[id] ?? 0) + (plan.unreadable ? unreadable : 0));
+  }
+  return result;
 }
 
 export interface ExpandedEntries {

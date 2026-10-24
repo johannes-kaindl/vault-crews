@@ -25,6 +25,7 @@ import { registerI18n } from "../../src/i18n/strings";
 import { setLang } from "../../src/vendor/kit/i18n";
 import {
   DEFAULT_SETTINGS,
+  endpointStrings,
   SettingsTab,
   type PluginSettings,
   type SettingsHost,
@@ -32,6 +33,7 @@ import {
 import type { EndpointStatus } from "../../src/vendor/kit/endpoint_diagnostics";
 import { sanitizeChoice } from "../../src/vendor/kit/endpoint-source";
 import { createRequestSession } from "../../src/vendor/kit-obsidian/request-session";
+import { LLM_CONNECTION_STRINGS_DE, LLM_CONNECTION_STRINGS_EN } from "../../src/vendor/kit-obsidian/llm-connection-strings";
 
 const OK_STATUS: EndpointStatus = { reachable: true, kind: "ok", klartext: "Connected" };
 
@@ -262,6 +264,29 @@ describe("SettingsTab — Verdrahtung des Kit-Editors", () => {
     expect(host.probeEndpoint).toHaveBeenCalledWith(
       expect.objectContaining({ url: "http://a:1", apiKey: "geheim" }),
     );
+  });
+});
+
+describe("endpointStrings — Rollentext der Endpunkt-Zeile", () => {
+  // vault-crews setzt `searchOnly` nie; der Zweig ist Typschutz gegen das Kit (code-kit 0.36.0 kennt die Rolle).
+  // Das Innenleben der Liste gehört dem Kit — geprüft wird nur, dass die Rolle hier nicht im Standby-Text landet.
+  it.each([["en"], ["de"]] as const)("search-only liefert den Kit-Text, nicht den Standby-Text (%s)", (lang) => {
+    setLang(lang);
+    const text = endpointStrings().role({ kind: "search-only" });
+    const standby = endpointStrings().role({ kind: "standby", position: 2 });
+    const aktiv = endpointStrings().role({ kind: "active" });
+
+    expect(text).not.toBe("");
+    expect(text).not.toContain("undefined");
+    expect(text).not.toBe(standby);
+    expect(text).not.toBe(aktiv);
+    expect(text).toBe(
+      (lang === "de" ? LLM_CONNECTION_STRINGS_DE : LLM_CONNECTION_STRINGS_EN).endpointList.role({ kind: "search-only" }),
+    );
+  });
+
+  it("die Standby-Rolle nennt weiterhin ihren Platz (Gegenprobe)", () => {
+    expect(endpointStrings().role({ kind: "standby", position: 2 })).toContain("2");
   });
 });
 

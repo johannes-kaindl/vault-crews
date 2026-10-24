@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Kit update (obsidian-kit 0.63.0 → 0.69.1, code-kit 0.34.0 → 0.36.0). Nothing changes for a crew run: the endpoint list knows a new row role "used for search — does not write", which this plugin never sets (its row text is now covered by a test), and the shared path module treats an unreadable path as inside a guarded folder, which the deny-list and the collector here do not use.
+
 ## [0.21.2] — 2026-10-23
 
 ### Security
