@@ -2,6 +2,7 @@
  *  Grundsatz (Spec §2.1/§3.1): ALLE Fehler sammeln, zeilenverständlich melden
  *  (`<datei>: <feld>: <problem>`), und zwar BEVOR irgendein LLM-Call passiert. */
 import { isDenied } from './paths';
+import { normalizeRelPath } from '../vendor/kit/rel-path';
 import { MIN_INTERVAL_MINUTES, parseIntervalMinutes } from './heartbeat';
 import type {
 	ActionType, AgentDef, CollectorId, LlmTaskDef, OutputSpec, RunLimits, TaskDef, TeamDef,
@@ -119,6 +120,13 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 		for (const g of fm.write_scope) {
 			if (typeof g !== 'string' || g.trim() === '') { err('write_scope', `ungültiger Eintrag '${show(g)}'`); continue; }
 			const glob = g.trim();
+			// Ein `..`-Segment (auch mit Leerraum drumherum, auch mit `\` als Trenner) gehört in keinen write_scope: es
+			// führt aus dem Vault hinaus oder an der Denylist vorbei. Vor der Denylist, damit die Meldung die Ursache nennt.
+			const rel = normalizeRelPath(glob, { absolute: 'strip', allowEmpty: true });
+			if (!rel.ok && rel.problem === 'traversal') {
+				err('write_scope', `'${glob}': ".." ist in write_scope nicht erlaubt`);
+				continue;
+			}
 			// Whitelist darf die Denylist nicht anfassen: ein Scope, dessen Wurzel in einem
 			// Denylist-Bereich liegt, ist immer ein Definitionsfehler.
 			const root = glob.split('*')[0] ?? glob;

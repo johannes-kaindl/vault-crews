@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- A `write_scope` with a `..` segment (`../x/**`, `a/../b/**`, `a/ .. /b/**`, `**/../x`, `a\..\b/**`) is now refused when the crew file is read, with its own message (`".." is not allowed in write_scope`). Before, the deny-list caught most spellings by accident and reported them as "protected area", and `a/ .. /b/**` (blanks around the dots) was accepted. No write could have escaped (every write is checked against the path itself), but a boundary entry that can never take effect belongs in the error list, not in the crew.
+
 ### Changed
 
 - Kit update (obsidian-kit 0.63.0 → 0.69.1, code-kit 0.34.0 → 0.36.0). Nothing changes for a crew run: the endpoint list knows a new row role "used for search — does not write", which this plugin never sets (its row text is now covered by a test), and the shared path module treats an unreadable path as inside a guarded folder, which the deny-list and the collector here do not use.

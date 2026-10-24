@@ -140,8 +140,22 @@ describe('parseTeamDef', () => {
 		},
 	);
 
+	// Ein `..` im write_scope ist ein Definitionsfehler mit eigener Meldung: bisher fing die Denylist ihn nur zufällig ab
+	// (über die Dot-Muster, mit der Meldung „geschützter Bereich“), und `a/ .. /b/**` kam durch.
+	it.each(['../x/**', 'a/../b/**', 'a/ .. /b/**', '..', '**/../x', 'a\\..\\b/**'])(
+		'lehnt write_scope %s wegen ".." mit eigener Meldung ab',
+		(scope) => {
+			const r = parseTeamDef(TEAM_PATH, teamFm({ write_scope: [scope] }), OPTS);
+			expect(r.ok).toBe(false);
+			if (r.ok) return;
+			const text = r.errors.join('\n');
+			expect(text).toContain('".." ist in write_scope nicht erlaubt');
+			expect(text).not.toContain('geschützten Bereich');
+		},
+	);
+
 	it('Gegenprobe: ein ähnlicher, erlaubter write_scope bleibt gültig', () => {
-		for (const scope of ['Projekte /**', '_crewsX/**', '10_Aufgaben/**/*.md']) {
+		for (const scope of ['Projekte /**', '_crewsX/**', '10_Aufgaben/**/*.md', 'a/b..c/**']) {
 			expect(parseTeamDef(TEAM_PATH, teamFm({ write_scope: [scope] }), OPTS).ok, scope).toBe(true);
 		}
 	});
