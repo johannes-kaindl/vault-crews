@@ -159,7 +159,6 @@ describe('parseTeamDef', () => {
 	it.each([
 		['./a/**', 'a/**'],
 		['a/./b/**', 'a/b/**'],
-		['/abs/**', 'abs/**'],
 		['a\\b/**', 'a/b/**'],
 		['a//b/**', 'a/b/**'],
 		['  ./a/**  ', 'a/**'],
@@ -179,6 +178,17 @@ describe('parseTeamDef', () => {
 		if (r.ok) return;
 		const text = r.errors.join('\n');
 		expect(text).toContain('abschließend');
+		expect(text).not.toContain('geschützten Bereich');
+	});
+
+	// Ein führender Schrägstrich ist ein absoluter Pfad, `write_scope` ist vault-relativ: eine andere Absicht als `abs/**`. Still umgedeutet
+	// gäbe er Schreibrecht an einer Stelle, die der Autor nicht meinte; Definitionsfehler mit eigener Meldung (`\` am Anfang ebenso).
+	it.each(['/abs/**', '//abs/**', '\\abs/**', '/a/b/*.md', ' /abs/**'])('lehnt write_scope %j als absoluten Pfad ab', (scope) => {
+		const r = parseTeamDef(TEAM_PATH, teamFm({ write_scope: [scope] }), OPTS);
+		expect(r.ok, scope).toBe(false);
+		if (r.ok) return;
+		const text = r.errors.join('\n');
+		expect(text).toContain('absoluter Pfad, write_scope ist vault-relativ');
 		expect(text).not.toContain('geschützten Bereich');
 	});
 

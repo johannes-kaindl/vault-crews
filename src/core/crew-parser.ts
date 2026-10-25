@@ -141,6 +141,12 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 				err('write_scope', `'${glob}' liegt in einem geschützten Bereich`);
 				continue;
 			}
+			// Ein führender Trenner ist ein absoluter Pfad, `write_scope` ist vault-relativ: eine andere Absicht als `abs/**`, die
+			// still umzudeuten gäbe Schreibrecht an einer Stelle, die der Autor nicht meinte. Nach der Denylist, die `/_crews/**` weiter benennt.
+			if (/^[\\/]/.test(raw)) {
+				err('write_scope', `ungültiger Eintrag '${raw}': absoluter Pfad, write_scope ist vault-relativ`);
+				continue;
+			}
 			// Ein Ordner-Ende (`a/`, `a/**/`, `a/.`) traf als Rohglob nie einen Pfad (Pfade enden nicht auf `/`); die Normalisierung
 			// ließe es fallen und gäbe dem Eintrag Wirkung. Sie gibt nie mehr Schreibrecht, als der Wortlaut hatte: Definitionsfehler.
 			const last = (raw.split(/[\\/]/).pop() ?? '').trim();
