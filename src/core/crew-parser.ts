@@ -141,6 +141,13 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 				err('write_scope', `'${glob}' liegt in einem geschützten Bereich`);
 				continue;
 			}
+			// Ein Ordner-Ende (`a/`, `a/**/`, `a/.`) traf als Rohglob nie einen Pfad (Pfade enden nicht auf `/`); die Normalisierung
+			// ließe es fallen und gäbe dem Eintrag Wirkung. Sie gibt nie mehr Schreibrecht, als der Wortlaut hatte: Definitionsfehler.
+			const last = (raw.split(/[\\/]/).pop() ?? '').trim();
+			if (last === '' || last === '.') {
+				err('write_scope', `'${raw}': abschließender Schrägstrich oder Punkt-Segment ist in write_scope nicht erlaubt`);
+				continue;
+			}
 			writeScope.push(glob);
 		}
 	}

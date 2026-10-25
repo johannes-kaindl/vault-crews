@@ -59,7 +59,7 @@ Local servers almost always need a port, for example `http://localhost:1234/v1`.
 
 > Task-Triage: run refused — The team or agent file has an error — check its fields.
 
-**Cause:** the team or one of its agents does not parse: an unknown field value, a missing agent note, a `write_scope` that touches the denylist (`.obsidian/**`, `.git/**`, the crew root itself, dotfiles) or contains a `..` segment (`../x/**`, `a/../b/**`; the log says `".." is not allowed in write_scope`) or a NUL byte (the log says `NUL-Byte ist in write_scope nicht erlaubt`), or an entry that points at the vault root (`.`, `./`, `/`; the log says `ungültiger Eintrag`). A leading `./` or `/`, a `\` and doubled slashes are fine: `./a/**` is read as `a/**`. The panel warns before you start: "This crew has a problem and will likely fail: …".
+**Cause:** the team or one of its agents does not parse: an unknown field value, a missing agent note, a `write_scope` that touches the denylist (`.obsidian/**`, `.git/**`, the crew root itself, dotfiles) or contains a `..` segment (`../x/**`, `a/../b/**`; the log says `".." is not allowed in write_scope`) or a NUL byte (the log says `NUL-Byte ist in write_scope nicht erlaubt`), or an entry that points at the vault root (`.`, `./`, `/`; the log says `ungültiger Eintrag`). An entry that ends in a slash or a `.` segment (`a/`, `a/**/`, `a/.`) is refused too (the log says `abschließender Schrägstrich oder Punkt-Segment ist in write_scope nicht erlaubt`). A leading `./` or `/`, a `\` and doubled slashes are fine: `./a/**` is read as `a/**`. The panel warns before you start: "This crew has a problem and will likely fail: …".
 
 **Fix:** the run log lists every error with its file. Correct the fields, then run again.
 

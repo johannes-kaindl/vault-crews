@@ -163,7 +163,6 @@ describe('parseTeamDef', () => {
 		['a\\b/**', 'a/b/**'],
 		['a//b/**', 'a/b/**'],
 		['  ./a/**  ', 'a/**'],
-		['a/**/', 'a/**'],
 	])('speichert write_scope %j normalisiert als %j', (scope, erwartet) => {
 		const r = parseTeamDef(TEAM_PATH, teamFm({ write_scope: [scope] }), OPTS);
 		expect(r.ok, scope).toBe(true);
@@ -171,11 +170,23 @@ describe('parseTeamDef', () => {
 		expect(r.value.writeScope).toEqual([erwartet]);
 	});
 
+	// Eine Normalisierung gibt einem Eintrag nie mehr Schreibrecht, als er mit seinem Wortlaut hatte, wenn der Eintrag ein Ordner-Ende trägt:
+	// `a/`, `a/**/` und `a/.` trafen bisher keinen Pfad (Pfade enden nie auf `/`), normalisiert wären sie `a` beziehungsweise `a/**` und träfen.
+	// Sie sind Definitionsfehler mit eigener Meldung, nicht still wirksam.
+	it.each(['a/', 'a/**/', 'a/.', 'a/ . ', 'a\\', 'a/**/ '])('lehnt write_scope %j mit abschließendem Trenner oder Punkt-Segment ab', (scope) => {
+		const r = parseTeamDef(TEAM_PATH, teamFm({ write_scope: [scope] }), OPTS);
+		expect(r.ok, scope).toBe(false);
+		if (r.ok) return;
+		const text = r.errors.join('\n');
+		expect(text).toContain('abschließend');
+		expect(text).not.toContain('geschützten Bereich');
+	});
+
 	// Der Schutz der Denylist ist unverändert: sie sah alle Schreibweisen schon vor der Normalisierung gleich (`isDenied` liest selbst
 	// die Dateisystem-Lesart); diese Fälle halten das fest, falls jemand die Reihenfolge ändert.
 	it.each([
 		'_crews/./x/**', '/_crews/**', '\\_crews\\x/**', '_crews//x/**', '//_crews/**', '.\\_crews/**',
-		'/.obsidian/**', '/_vaultrag/**', './.obsidian/**',
+		'/.obsidian/**', '/_vaultrag/**', './.obsidian/**', '_crews/',
 	])('lehnt write_scope %s weiter als geschützten Bereich ab', (scope) => {
 		const r = parseTeamDef(TEAM_PATH, teamFm({ write_scope: [scope] }), OPTS);
 		expect(r.ok, scope).toBe(false);
