@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.22.0] — 2026-10-25
+
 ### Added
 
 - The panel shows which model and thinking level each agent of a crew gets (read-only): a **Models** line under each crew in the **Crews** tab, one entry per LLM task. A `model:` in the agent note is shown as a wish that counts if the active endpoint carries that model, next to the model of the endpoint row as the fallback; the panel does not ask the endpoint, so it does not claim which of the two applies. **Change the fallback model in the settings** opens the plugin's settings. The model that a finished run actually used is not shown yet.
