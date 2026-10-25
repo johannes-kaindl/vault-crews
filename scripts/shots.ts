@@ -79,6 +79,10 @@ const THUMB_WIDTH = 380;
 const PADDING = 10;
 const FENSTER_BREITE = 1440;
 const FENSTER_HOEHE = 900;
+/** `hero.png` zeigt das ganze Fenster. Unter dem Inhalt (Notiz, Panel-Kopf) bliebe im 900 px hohen Fenster eine leere Fläche, über die ein Drittel der
+ *  Bildhöhe aus identischen Zeilen besteht (readme_lint `image-whitespace`, 41 % statt der erlaubten 25 %). Ein niedrigeres Fenster lässt die Statuszeile mit
+ *  dem Abbrechen-Knopf rücken und kürzt die Leere, ohne etwas abzuschneiden. */
+const HERO_HOEHE = 640;
 /** Muss im Endpunkt antworten und denken können — sonst bleibt der „Thinking"-Bereich
  *  leer und `hero.png` zeigt nicht das, was der Vertrag zusagt. */
 const MODELL_STANDARD = "qwen/qwen3.6-35b-a3b";
@@ -133,6 +137,8 @@ _No digest yet. Run the crew from the panel._
 interface Shot {
   name: string;
   klasse: "hero" | "feature" | "detail";
+  /** Fensterhöhe für dieses Bild; ohne Angabe `FENSTER_HOEHE`. */
+  hoehe?: number;
   /** Stellt den Zustand her und liefert den Ausschnitt (null = nicht aufnehmbar). */
   run(cdp: Cdp): Promise<Rect | null>;
 }
@@ -263,6 +269,7 @@ const SHOTS: Shot[] = [
   {
     name: "hero.png",
     klasse: "hero",
+    hoehe: HERO_HOEHE,
     async run(cdp) {
       await setPluginSetting(cdp, PLUGIN_ID, "endpoints", endpunkt());
       // Nach dem Setzen den Weg gehen, den auch der Nutzer geht: die Einstellung allein
@@ -584,6 +591,7 @@ async function main(): Promise<void> {
   for (const shot of geplant) {
     console.log(`\n▶ ${shot.name}`);
     try {
+      await setWindowSize(cdp, FENSTER_BREITE, shot.hoehe ?? FENSTER_HOEHE);
       const box = await shot.run(cdp);
       if (!box) {
         fehlend.push(shot.name);
