@@ -32,6 +32,7 @@ function makeHost(overrides: Partial<PanelHost> = {}): PanelHost {
     getLastRunSummary: vi.fn().mockReturnValue(null),
     openCrewLog: vi.fn(),
     getStrayCrewCount: vi.fn().mockReturnValue(0),
+    openSettings: vi.fn(),
     ...overrides,
   };
 }
@@ -101,8 +102,8 @@ describe("RunPanelView — identity & shell", () => {
 
 describe("RunPanelView — crews idle", () => {
   const teams: PanelTeam[] = [
-    { id: "task-triage", name: "Task triage", description: "Sorts inbox tasks.", lastRun: null, problem: null },
-    { id: "daily-briefing", name: "Daily briefing", description: "Writes the daily note.", lastRun: { status: "ok", when: 0 }, problem: null },
+    { id: "task-triage", name: "Task triage", description: "Sorts inbox tasks.", lastRun: null, problem: null, models: [] },
+    { id: "daily-briefing", name: "Daily briefing", description: "Writes the daily note.", lastRun: { status: "ok", when: 0 }, problem: null, models: [] },
   ];
 
   it("renders one Run button per team, wired to host.runCrew with the team id", async () => {
@@ -124,6 +125,45 @@ describe("RunPanelView — crews idle", () => {
     await view.onOpen();
     const inputs = findAll(view.contentEl, (e) => e.tagName === "INPUT" || e.tagName === "SELECT" || e.tagName === "TEXTAREA");
     expect(inputs).toHaveLength(0);
+  });
+
+  // Die Modellanzeige je Crew ist nur lesend: ein Aufklapper mit einer Zeile je Agent und ein Link in die Einstellungen, nie ein Schalter.
+  describe("model lines per crew", () => {
+    const withModels: PanelTeam[] = [
+      {
+        id: "task-triage", name: "Task triage", description: "", lastRun: null, problem: null,
+        models: [{ taskId: "analyse", agentId: "analyst", agentName: "Analyst", wanted: "gross-27b", fallback: "zeile-7b", effective: "zeile-7b", source: "conditional", thinking: "off" }],
+      },
+      { id: "no-llm", name: "No LLM", description: "", lastRun: null, problem: null, models: [] },
+    ];
+
+    it("renders a details block with one line per agent for a crew with llm tasks, and none for a crew without", async () => {
+      const view = new RunPanelView(makeLeaf(), makeHost({ getTeams: vi.fn().mockReturnValue(withModels) }));
+      await view.onOpen();
+      const blocks = findAll(view.contentEl, (e) => e.tagName === "DETAILS" && e.hasClass("vault-crews-team-models"));
+      expect(blocks).toHaveLength(1);
+      const items = findAll(blocks[0] as HTMLElement, (e) => e.tagName === "LI");
+      expect(items.map((i) => i.textContent)).toEqual(["Analyst (analyse): gross-27b if the active endpoint has it, otherwise zeile-7b (endpoint row) · thinking off"]);
+      expect(findAll(blocks[0] as HTMLElement, (e) => e.hasClass("vault-crews-team-models-summary"))[0]?.textContent).toBe("Models");
+    });
+
+    it("has no control that switches anything: no select, no input, no button inside the block", async () => {
+      const view = new RunPanelView(makeLeaf(), makeHost({ getTeams: vi.fn().mockReturnValue(withModels) }));
+      await view.onOpen();
+      const [block] = findAll(view.contentEl, (e) => e.tagName === "DETAILS" && e.hasClass("vault-crews-team-models"));
+      const controls = findAll(block as HTMLElement, (e) => ["SELECT", "INPUT", "BUTTON", "TEXTAREA"].includes(e.tagName));
+      expect(controls).toHaveLength(0);
+    });
+
+    it("the settings link opens this plugin's settings through the host", async () => {
+      const host = makeHost({ getTeams: vi.fn().mockReturnValue(withModels) });
+      const view = new RunPanelView(makeLeaf(), host);
+      await view.onOpen();
+      const [link] = findAll(view.contentEl, (e) => e.hasClass("vault-crews-team-models-settings"));
+      expect(link?.textContent).toBe("Change the fallback model in the settings");
+      link?.click();
+      expect(host.openSettings).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("empty team list shows an Install button wired to host.installExamples", async () => {
@@ -277,7 +317,7 @@ describe("RunPanelView — history tab", () => {
     when: 0, writes: 3, durationS: 7, errorKind: null,
   };
   const teams: PanelTeam[] = [
-    { id: "task-triage", name: "Task triage", description: "", lastRun: { status: "ok", when: 100 }, problem: null },
+    { id: "task-triage", name: "Task triage", description: "", lastRun: { status: "ok", when: 100 }, problem: null, models: [] },
   ];
 
   it("switching to History shows the latest run summary and a per-crew row wired to openCrewLog", async () => {

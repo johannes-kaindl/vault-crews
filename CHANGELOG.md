@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The panel shows which model and thinking level each agent of a crew gets (read-only): a **Models** line under each crew in the **Crews** tab, one entry per LLM task. A `model:` in the agent note is shown as a wish that counts if the active endpoint carries that model, next to the model of the endpoint row as the fallback; the panel does not ask the endpoint, so it does not claim which of the two applies. **Change the fallback model in the settings** opens the plugin's settings. The model that a finished run actually used is not shown yet.
+
 ### Changed
 
 - A `write_scope` entry is now stored in a normalised form when the crew file is read, the way the path of an action already was: a `write_scope` of `./a/**` or `a/./b/**`, which was refused as a "protected area", is valid now and means `a/**` and `a/b/**`; `\` separates like `/` (`a\b/**` is `a/b/**`), doubled slashes drop out, and the entry stays in that form in the team. Before, `a\b/**` and `a//b/**` were accepted as typed and never matched a write.

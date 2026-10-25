@@ -67,14 +67,15 @@ import { requestUrlTransport, xhrSseTransport } from "./vendor/kit-obsidian/chat
 import { AdapterSnapshotStore } from "./obsidian/snapshot-store";
 import { LocalLlmClient } from "./core/local-llm-client";
 import { executeRun, type RunDeps } from "./core/orchestrator";
-import { parseTeamDef } from "./core/crew-parser";
+import { parseAgentDef, parseTeamDef } from "./core/crew-parser";
+import { describeCrewModels } from "./core/model-resolution";
 import { dueTeams } from "./core/heartbeat";
 import { isInFolder } from "./vendor/kit/folder-scope";
 import { buildDenylist } from "./core/paths";
 import { buildUndoPlan, type UndoPlan } from "./core/undo-plan";
 import type { LlmClient, MetadataPort, RunEvent, RunReporter, SnapshotStore, VaultPort } from "./core/ports";
 import { realClock, type ClockPort } from "./vendor/kit/clock";
-import type { ErrorKind, RunLimits, RunResult, RunStatus } from "./core/types";
+import type { AgentDef, ErrorKind, LlmTaskDef, RunLimits, RunResult, RunStatus } from "./core/types";
 
 /** Feste V1-Grenzen, die die Settings-UI (bewusst) nicht exponiert. */
 const MAX_NOTE_BYTES = 65_536;
@@ -114,6 +115,8 @@ interface TeamListEntry {
   problem: string | null;
   /** Gesetzt bei `trigger: interval` (Heartbeat), sonst null. */
   intervalMinutes: number | null;
+  /** Je `llm`-Task der Crew der Agent (Modell, Denkstufe), für die Modellanzeige im Panel. Leer, wenn die Crew nicht parst oder ein Agent nicht lesbar ist. */
+  agents: Array<{ taskId: string; agent: AgentDef }>;
 }
 
 export default class VaultCrewsPlugin extends Plugin implements SettingsHost, PanelHost {
@@ -612,8 +615,24 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
         description: tm.description,
         lastRun: info ? { status: info.status, when: info.when, errorKind: info.errorKind ?? null, emptyCollector: info.writes === 0 ? info.emptyCollector ?? null : null } : null,
         problem: tm.problem,
+        models: describeCrewModels(tm.agents, this.panelFallbackModel(), null),
       };
     });
+  }
+
+  /** Das Modell der Endpunkt-Zeile, wie die Modellanzeige es nennt. Das Panel pingt nie: welcher Endpunkt beim Start aktiv ist, steht erst dort fest.
+   *  Ohne Manager ist es die Zeile, die zuerst antworten würde (die erste nicht gesperrte); mit Manager das Modell, das er beim letzten Auflösen
+   *  geliefert hat, vor dem ersten Auflösen null (er entscheidet beim Start). */
+  private panelFallbackModel(): string | null {
+    if (findEndpointManager(this.app) !== null) return this.managerSource?.model ?? null;
+    const denied = new Set(this.settings.deniedEndpoints.map(normalizeEndpoint));
+    return this.settings.endpoints.find((e) => !denied.has(normalizeEndpoint(e.url)))?.model?.trim() ?? "";
+  }
+
+  openSettings(): void {
+    const setting = (this.app as unknown as { setting?: { open(): void; openTabById(id: string): void } }).setting;
+    setting?.open();
+    setting?.openTabById(this.manifest.id);
   }
 
   getStrayCrewCount(): number {
@@ -786,7 +805,8 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       const fm = await this.meta.getFrontmatter(path);
       const parsed = parseTeamDef(path, fm, { knownAgents: agentIds, maxima: limits, denylist });
       if (parsed.ok) {
-        return { id, name: parsed.value.name, description: parsed.value.description, problem: null, intervalMinutes: parsed.value.intervalMinutes ?? null };
+        const agents = await this.readTeamAgents(parsed.value.tasks.filter((t): t is LlmTaskDef => t.kind === "llm"));
+        return { id, name: parsed.value.name, description: parsed.value.description, problem: null, intervalMinutes: parsed.value.intervalMinutes ?? null, agents };
       }
       // Genau die erste Meldung: der Tooltip soll den Einstieg geben, nicht das ganze
       // Protokoll — das steht im Preflight.
@@ -794,13 +814,30 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       if (fm !== null) {
         const name = typeof fm.name === "string" && fm.name.trim() !== "" ? fm.name.trim() : id;
         const description = typeof fm.description === "string" ? fm.description : "";
-        return { id, name, description, problem, intervalMinutes: null };
+        return { id, name, description, problem, intervalMinutes: null, agents: [] };
       }
-      return { id, name: id, description: "", problem, intervalMinutes: null };
+      return { id, name: id, description: "", problem, intervalMinutes: null, agents: [] };
     } catch {
       // rohes Lesen fehlgeschlagen → Slug-Fallback
     }
-    return { id, name: id, description: "", problem: null, intervalMinutes: null };
+    return { id, name: id, description: "", problem: null, intervalMinutes: null, agents: [] };
+  }
+
+  /** Die Agenten der `llm`-Tasks (eine Zeile je Task), mit derselben `parseAgentDef` wie der Lauf. Ein Agent, der nicht lesbar ist oder nicht parst, fehlt
+   *  in der Anzeige; der Preflight des Laufs zeigt den echten Fehler. */
+  private async readTeamAgents(tasks: LlmTaskDef[]): Promise<Array<{ taskId: string; agent: AgentDef }>> {
+    const folder = `${this.settings.crewRoot}/agents`;
+    const byId = new Map<string, AgentDef | null>();
+    for (const agentId of new Set(tasks.map((t) => t.agent))) {
+      const path = `${folder}/${agentId}.md`;
+      try {
+        const res = parseAgentDef(path, await this.meta.getFrontmatter(path), await this.meta.getBody(path));
+        byId.set(agentId, res.ok ? res.value : null);
+      } catch {
+        byId.set(agentId, null);
+      }
+    }
+    return tasks.flatMap((t) => { const agent = byId.get(t.agent) ?? null; return agent === null ? [] : [{ taskId: t.id, agent }]; });
   }
 
   private async checkRecovery(): Promise<void> {

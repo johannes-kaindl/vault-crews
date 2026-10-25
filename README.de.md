@@ -316,6 +316,8 @@ Eine Agent-Note kann im Frontmatter drei Modellwerte setzen; alle sind optional 
 
 `temperature` wird wie angegeben gesendet; ohne sie gilt der Profilwert der Modellfamilie (0,1 für Crews). `max_tokens` ist das Token-Budget des Agenten (Standard 2048); eine Denkstufe kann es auf die Reserve der Modellfamilie anheben, damit das Denken nicht das ganze Budget aufbraucht. `thinking` ist `off`, `on` oder `auto` (Standard): `off` bittet das Modell, nicht zu denken, `on` bestellt die Stufe `medium`, `auto` folgt den **Anfrage**-Einstellungen, deren Standard „aus“ ist.
 
+Das Panel zeigt, welches Modell und welche Denkstufe jeder Agent einer Crew bekommt: unter einer Crew im Tab **Crews** den Aufklapper **Modelle** öffnen. Die Anzeige ist nur lesend. Ein `model:` in der Agent-Note steht dort als Wunsch: er gilt nur, wenn der aktive Endpunkt dieses Modell führt, sonst gilt das Modell der Endpunkt-Zeile, das daneben steht. Das Panel fragt den Endpunkt nie, kann also vor dem Start nicht sagen, welches von beiden gilt. **Rückfall-Modell in den Einstellungen ändern** öffnet die Einstellungen des Plugins, in denen das Modell der Endpunkt-Zeile steht.
+
 ### Output-Vokabular (`output:`)
 
 Ein `llm`-Task legt sein Ausgabeformat über einen `output:`-Block fest:

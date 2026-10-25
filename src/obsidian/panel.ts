@@ -13,6 +13,7 @@ import { buildHubInto, type HubController, type HubPanel } from "../vendor/kit-o
 import { buildStreamArea, type StreamArea } from "../vendor/kit-obsidian/stream-area";
 import type { RunEvent } from "../core/ports";
 import type { ErrorKind, RunStatus } from "../core/types";
+import type { CrewModelRow } from "../core/model-resolution";
 import {
   buildPanelViewModel, buildStatusLineVM, markAborting, reduceRun,
   type BodyVM, type NavState, type RunState,
@@ -30,6 +31,8 @@ export interface PanelTeam {
   lastRun: { status: RunStatus; when: number; errorKind?: ErrorKind | null; emptyCollector?: string | null } | null;
   /** Erste Parse-Fehlermeldung der Crew-Definition, sonst null. Die Zeile bleibt startbar. */
   problem: string | null;
+  /** Modell und Denkstufe je `llm`-Task der Crew (nur lesend angezeigt); leer, wenn die Crew nicht parst. */
+  models: CrewModelRow[];
 }
 
 /** Schmaler Vertrag statt eines main.ts-Imports. main.ts übergibt sein Plugin-Objekt,
@@ -47,6 +50,8 @@ export interface PanelHost {
   openCrewLog(teamId: string): void;
   /** Dateien mit `crew-kind:`, die flach im crewRoot liegen statt in teams/ oder agents/. */
   getStrayCrewCount(): number;
+  /** Öffnet den Einstellungs-Tab dieses Plugins (der Link der Modellanzeige: dort steht der Rückfall). */
+  openSettings(): void;
 }
 
 const TAB_ICON: Record<NavState, string> = { crews: "users", history: "history" };
@@ -65,6 +70,8 @@ export class RunPanelView extends ItemView {
   // vollen Re-Render überleben, sonst schnappt der Bereich beim ersten Content-Token zu,
   // also genau während man den Gedankengang mitliest.
   private thinkOpen = false;
+  // Aufklapp-Zustand der Modell-Zeilen je Crew (`<details>`): gehört wie `thinkOpen` zur Navigation und überlebt volle Renders.
+  private readonly modelsOpen = new Set<string>();
 
   constructor(leaf: WorkspaceLeaf, private readonly host: PanelHost) {
     super(leaf);
@@ -218,6 +225,21 @@ export class RunPanelView extends ItemView {
           row.createDiv({ cls: "vault-crews-team-status", text: team.statusText });
           const runBtn = row.createEl("button", { cls: "vault-crews-run", text: team.runLabel });
           runBtn.addEventListener("click", () => { this.host.runCrew(team.id); });
+          // Nur lesend: welches Modell und welche Denkstufe jeder Agent bekommt. Kein Dropdown, kein Schalter (Modell und Denkstufe
+          // stehen je Agent in der Persona; ein Schalter änderte nur den Rückfall und stimmte für jede Persona mit eigenem `model:` nicht).
+          if (team.models !== null) {
+            const models = row.createEl("details", { cls: "vault-crews-team-models" });
+            // Der Aufklapp-Zustand gehört zur View, nicht zum Render: ein Neuzeichnen (jedes Lauf-Ereignis) darf ihn nicht zuklappen.
+            models.open = this.modelsOpen.has(team.id);
+            models.addEventListener("toggle", () => {
+              if (models.open) this.modelsOpen.add(team.id); else this.modelsOpen.delete(team.id);
+            });
+            models.createEl("summary", { cls: "vault-crews-team-models-summary", text: team.models.heading });
+            const lines = models.createEl("ul", { cls: "vault-crews-team-models-list" });
+            for (const line of team.models.lines) lines.createEl("li", { text: line });
+            const settings = models.createEl("a", { cls: "vault-crews-team-models-settings", text: team.models.settingsLabel, attr: { href: "#", role: "button" } });
+            settings.addEventListener("click", (ev) => { ev.preventDefault(); this.host.openSettings(); });
+          }
         }
         return;
       }

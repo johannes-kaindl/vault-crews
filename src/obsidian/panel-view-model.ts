@@ -6,6 +6,7 @@
 import { t } from "../vendor/kit/i18n";
 import type { RunEvent } from "../core/ports";
 import type { ErrorKind, RunResult, RunStatus } from "../core/types";
+import type { CrewModelRow } from "../core/model-resolution";
 
 // ── Navigations- und Lauf-Zustand (zwei orthogonale Achsen, §2 der Spec) ──────
 
@@ -171,7 +172,11 @@ export interface TeamRowVM {
   /** Erste Fehlermeldung, falls die Definition nicht vollstaendig parst — die Zeile bleibt
    *  startbar (der Preflight zeigt den echten Fehler), deutet ihn aber schon hier an. */
   problem: string | null;
+  /** Welches Modell und welche Denkstufe jeder Agent der Crew bekommt (nur lesend); null, wenn die Crew keine `llm`-Task hat. */
+  models: ModelsVM | null;
 }
+
+export interface ModelsVM { heading: string; lines: string[]; settingsLabel: string; }
 
 export interface SummaryVM {
   /** Bei Verlauf-Karten der Crew-Name, sonst null (Crews-Done kennt seine Crew im Header). */
@@ -213,6 +218,8 @@ export interface TeamInfo {
   lastRun: { status: RunStatus; when: number; errorKind?: ErrorKind | null; emptyCollector?: string | null } | null;
   /** Siehe TeamRowVM.problem — null, solange die Definition sauber parst. */
   problem: string | null;
+  /** Eine Zeile je `llm`-Task (`describeCrewModels`); fehlt bei einer Crew, die nicht parst. */
+  models?: CrewModelRow[];
 }
 
 export interface PanelInputs {
@@ -275,8 +282,34 @@ function buildCrewsBody(runState: RunState, teams: TeamInfo[], nowMs: number, st
         : `${t(`panel.status.${tm.lastRun.status}`)} · ${formatRelative(nowMs, tm.lastRun.when)}${lastRunReason(tm.lastRun)}`,
       runLabel: t("panel.idle.run"),
       problem: tm.problem,
+      models: buildModelsVM(tm.models ?? []),
     })),
   };
+}
+
+/** Die Zeilen der Modellanzeige: sagt, was das Panel weiß, und nicht mehr (es pingt den Endpunkt nie, das wirkliche Modell steht erst beim Start fest). */
+function buildModelsVM(rows: CrewModelRow[]): ModelsVM | null {
+  if (rows.length === 0) return null;
+  return {
+    heading: t("panel.models.heading"),
+    lines: rows.map(modelLine),
+    settingsLabel: t("panel.models.settings"),
+  };
+}
+
+function modelLine(r: CrewModelRow): string {
+  const who = `${r.agentName} (${r.taskId})`;
+  const think = t(`panel.models.think.${r.thinking}`);
+  switch (r.source) {
+    case "agent": return t("panel.models.agent", who, r.effective, think);
+    case "endpoint": return t("panel.models.endpoint", who, r.effective, think);
+    case "none": return t("panel.models.none", who, think);
+    case "managed": return t("panel.models.managed", who, think);
+    case "conditional":
+      if (r.fallback === null) return t("panel.models.conditionalManaged", who, r.wanted ?? "", think);
+      if (r.fallback === "") return t("panel.models.conditionalNone", who, r.wanted ?? "", think);
+      return t("panel.models.conditional", who, r.wanted ?? "", r.fallback, think);
+  }
 }
 
 function buildHistoryBody(teams: TeamInfo[], latest: RunSummary | null, nowMs: number): BodyVM {

@@ -2,7 +2,8 @@
 // buildPanelViewModel (State→ViewModel) sind obsidian-/DOM-frei und werden hier ohne Mock
 // getestet. Die dünne Render-Seite (panel.ts) bleibt ungetestet.
 import { beforeEach, describe, expect, it } from "vitest";
-import { registerI18n } from "../../src/i18n/strings";
+import { DE, EN, registerI18n } from "../../src/i18n/strings";
+import type { CrewModelRow } from "../../src/core/model-resolution";
 import { setLang } from "../../src/vendor/kit/i18n";
 import {
   buildPanelViewModel, markAborting, reduceRun, runNoticeText, MAX_LIVE_CHARS,
@@ -392,5 +393,81 @@ describe("buildPanelViewModel — Ursache im Panel", () => {
     const team: TeamInfo = { id: "a", name: "A", description: "", problem: null, lastRun: { status: "refused", when: 0, errorKind: "crew_invalid" } };
     const vm = buildPanelViewModel({ ...inputsWith({ kind: "idle" }), teams: [team] });
     expect(vm.body.kind === "crewsIdle" && vm.body.teams[0]?.statusText).toContain("has an error");
+  });
+});
+
+// Die nur lesende Modellanzeige je Crew (Welle 27, Variante B): welches Modell und welche Denkstufe jeder Agent bekommt. Das Panel pingt nicht,
+// also sagt die Anzeige zweistufig, was sie weiß: Wunsch der Persona (gilt, wenn der Endpunkt es führt), sonst das Modell der Endpunkt-Zeile.
+describe("buildPanelViewModel — Modelle je Crew", () => {
+  const row = (over: Partial<CrewModelRow> = {}): CrewModelRow => ({
+    taskId: "analyse", agentId: "analyst", agentName: "Analyst", wanted: null, fallback: "zeile-7b", effective: "zeile-7b", source: "endpoint", thinking: "off", ...over,
+  });
+  const team = (models: CrewModelRow[] | undefined, over: Partial<TeamInfo> = {}): TeamInfo => ({
+    id: "t", name: "T", description: "", lastRun: null, problem: null, ...(models ? { models } : {}), ...over,
+  });
+  const idle = (teams: TeamInfo[]) => {
+    const vm = buildPanelViewModel({ navState: "crews", runState: { kind: "idle" }, teams, latest: null, nowMs: 0, strayCount: 0 });
+    if (vm.body.kind !== "crewsIdle") throw new Error("kein crewsIdle");
+    return vm.body.teams;
+  };
+
+  it("ohne Persona-Modell: das Modell der Endpunkt-Zeile und die Denkstufe aus dem Persona-Frontmatter", () => {
+    const [vm] = idle([team([row()])]);
+    expect(vm?.models).toEqual({
+      heading: "Models",
+      lines: ["Analyst (analyse): zeile-7b — the endpoint row's model · thinking off"],
+      settingsLabel: "Change the fallback model in the settings",
+    });
+  });
+
+  it("mit Persona-Modell, ohne Lauf-Wissen: beide Stufen, nicht eine geratene", () => {
+    const [vm] = idle([team([row({ wanted: "gross-27b", source: "conditional", thinking: "auto" })])]);
+    expect(vm?.models?.lines).toEqual(["Analyst (analyse): gross-27b if the active endpoint has it, otherwise zeile-7b (endpoint row) · thinking auto"]);
+  });
+
+  it("Persona-Modell, wenn der Endpunkt es führt (source agent): nur das Modell", () => {
+    const [vm] = idle([team([row({ wanted: "gross-27b", effective: "gross-27b", source: "agent", thinking: "on" })])]);
+    expect(vm?.models?.lines).toEqual(["Analyst (analyse): gross-27b · thinking on"]);
+  });
+
+  it("kein Modell gewählt: sagt, dass der Lauf mit model_missing abbräche", () => {
+    const [a] = idle([team([row({ fallback: "", effective: "", source: "none" })])]);
+    expect(a?.models?.lines[0]).toContain("no model chosen");
+    const [b] = idle([team([row({ wanted: "gross-27b", fallback: "", effective: "", source: "conditional" })])]);
+    expect(b?.models?.lines[0]).toContain("gross-27b if the active endpoint has it");
+    expect(b?.models?.lines[0]).toContain("no model");
+  });
+
+  it("Endpoint Manager entscheidet (Modell der Zeile unbekannt): sagt das, statt ein Modell zu erfinden", () => {
+    const [a] = idle([team([row({ fallback: null, effective: "", source: "managed" })])]);
+    expect(a?.models?.lines[0]).toBe("Analyst (analyse): the model the Endpoint Manager picks at the start · thinking off");
+    const [b] = idle([team([row({ wanted: "gross-27b", fallback: null, effective: "", source: "conditional" })])]);
+    expect(b?.models?.lines[0]).toBe("Analyst (analyse): gross-27b if the active endpoint has it, otherwise the model the Endpoint Manager picks · thinking off");
+  });
+
+  it("eine Zeile je llm-Task, in der Reihenfolge der Crew", () => {
+    const [vm] = idle([team([row({ taskId: "a", agentName: "A" }), row({ taskId: "b", agentName: "B", thinking: "auto" })])]);
+    expect(vm?.models?.lines.map((l) => l.slice(0, 7))).toEqual(["A (a): ", "B (b): "]);
+  });
+
+  it("eine Crew ohne llm-Task (oder mit Parse-Problem) hat keine Modell-Zeile und stürzt nicht ab", () => {
+    const [a, b, c] = idle([team([]), team(undefined), team(undefined, { problem: "write_scope: kaputt" })]);
+    expect([a?.models, b?.models, c?.models]).toEqual([null, null, null]);
+    expect(c?.problem).toBe("write_scope: kaputt");
+  });
+
+  it("die Texte sind deutsch, wenn die Sprache deutsch ist", () => {
+    setLang("de");
+    const [vm] = idle([team([row({ wanted: "gross-27b", source: "conditional", thinking: "off" })])]);
+    expect(vm?.models?.heading).toBe("Modelle");
+    expect(vm?.models?.lines[0]).toContain("falls der aktive Endpunkt es führt");
+    expect(vm?.models?.lines[0]).toContain("Denken aus");
+  });
+
+  it("jeder panel.models.*-Schlüssel steht in EN und DE", () => {
+    const keys = Object.keys(EN).filter((k) => k.startsWith("panel.models."));
+    expect(keys.length).toBeGreaterThan(8);
+    expect(keys.filter((k) => !(k in DE))).toEqual([]);
+    expect(Object.keys(DE).filter((k) => k.startsWith("panel.models.") && !(k in EN))).toEqual([]);
   });
 });

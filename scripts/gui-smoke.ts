@@ -84,6 +84,15 @@ const P_ERREICHBAR = "Welle 24 — Pflichtpunkt Erreichbarkeit der Bedienelement
 const P_GEMMA = "Welle 23 — Gemma 4 ohne Öffner: der Denktext steht im Denkblock, nicht im Anzeigetext der Antwort";
 const P_KONTROLLE_ABSATZ = "Welle 20 — Folge-Regel (Kontrolle, absatzgroße Stücke): der Strom folgt auch bei Stücken über der Schwelle";
 const N1_PUNKT = "N1 Abschnitt Request ist vorhanden, klappt auf und zeigt die Felder";
+// Welle 27: die nur lesende Modellanzeige je Crew im Lauf-Panel (V-a bis V-f).
+const P_V_ENDE = "Modelle — Abschnitt lief bis zum Ende";
+const P_V_A = "Modelle V-a — Beispiel-Crews: je Agent Modell und Denkstufe, thinking off aus der mitgelieferten Persona";
+const P_V_B = "Modelle V-b — Persona mit eigenem model: zeigt Wunsch und Rückfall, eine ohne nur das Modell der Zeile";
+const P_V_C = "Modelle V-c — die Anzeige ist nur lesend: kein Dropdown, kein Schalter, nur ein Link";
+const P_V_D = "Modelle V-d — bei schmaler Panelbreite läuft die Anzeige nicht über";
+const P_V_E = "Modelle V-e — der Aufklapp-Zustand übersteht ein Neuzeichnen (Gegenprobe: eine andere Crew bleibt zu)";
+const P_V_F = "Modelle V-f — der Link führt in die Einstellungen dieses Plugins";
+
 const PUNKTE = [
   "Alte Endpunkt-Liste wird zu genau einem Eintrag",
   "Das alte globale Modell landet in der Zeile und geht nicht verloren",
@@ -175,6 +184,7 @@ const PUNKTE = [
   "Welle 15 — Abschnitt lief bis zum Ende",
   "Keine liegen gebliebene Rettungskopie aus einem abgebrochenen Vorlauf",
   N1_PUNKT,
+  P_V_ENDE, P_V_A, P_V_B, P_V_C, P_V_D, P_V_E, P_V_F,
 ] as const;
 type Punktname = (typeof PUNKTE)[number];
 const bilanz = createBilanz({ punkte: PUNKTE });
@@ -2065,6 +2075,164 @@ async function abschnittWelle15(cdp: Cdp, dataPfad: string): Promise<void> {
   }
 }
 
+/** V-a bis V-f (Welle 27, Variante B): das Lauf-Panel zeigt je Crew, welches Modell und welche Denkstufe jeder Agent bekommt — nur lesend. Das Panel pingt
+ *  nie, also sagt die Anzeige zweistufig, was sie weiß: der Wunsch der Persona (gilt, wenn der aktive Endpunkt es führt), sonst das Modell der Endpunkt-Zeile.
+ *  Gemessen wird am echten Panel mit den echten Beispiel-Crews (ihre Personas setzen `thinking: off`) und einer eigenen Crew mit und ohne `model:`. Alles, was der
+ *  Abschnitt anlegt, räumt er im `finally` weg; die Endpunkt-Zeile steht nur im Speicher auf einem Smoke-Modell. */
+async function abschnittModelle(cdp: Cdp): Promise<void> {
+  try {
+    await modelleMessungen(cdp);
+    record(P_V_ENDE, true, "kein Abbruch");
+  } catch (e) {
+    if (e instanceof AbbruchAusnahme || istAbgebrochen()) throw e;
+    record(P_V_ENDE, false, `abgebrochen: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+async function modelleMessungen(cdp: Cdp): Promise<void> {
+  const P = JSON.stringify(PLUGIN_ID);
+  const alle = [P_V_A, P_V_B, P_V_C, P_V_D, P_V_E, P_V_F] as const;
+  const root = await cdp.evaluate<string>(`return app.plugins.plugins[${P}].settings.crewRoot;`);
+  if (!root) { for (const n of alle) unmeasured(n, "crewRoot nicht lesbar"); return; }
+  const ZEILE = "zeilen-modell-smoke";
+  const WUNSCH = "wunsch-modell-smoke";
+  const pfade = { wunsch: `${root}/agents/zz-smoke-wunsch.md`, ohne: `${root}/agents/zz-smoke-ohne.md`, team: `${root}/teams/zz-smoke-modelle.md` };
+  const team = [
+    "---", "crew-kind: team", "name: ZZ Smoke Modelle", "version: 1", "description: smoke", "trigger: manual", "limits:", "  max_writes: 1",
+    "write_scope:", '  - "zz-smoke/**/*.md"', "tasks:", "  - id: lies", "    kind: collector", "    collector: vault.list", "    params:", "      folder: zz-smoke",
+    "  - id: erste", "    kind: llm", "    agent: zz-smoke-wunsch", "    inputs: [lies]", "    instruction: x", "    output_schema: briefing-v1", "    on_error: abort",
+    "  - id: zweite", "    kind: llm", "    agent: zz-smoke-ohne", "    inputs: [erste]", "    instruction: y", "    output_schema: briefing-v1", "    on_error: abort",
+    "  - id: schreiben", "    kind: actions", "    inputs: [zweite]", "    allowed_actions: [note.create]", "---", "ZZ Smoke Modelle", "",
+  ].join("\n");
+  const agent = (name: string, kopf: string[]) => ["---", "crew-kind: agent", `name: ${name}`, ...kopf, "---", "Du bist ein Smoke-Agent.", ""].join("\n");
+  const schreibe = (pfad: string, inhalt: string) => cdp.evaluate<string>(`
+    try {
+      const ordner = ${JSON.stringify(pfad)}.split("/").slice(0, -1).join("/");
+      if (ordner && !app.vault.getAbstractFileByPath(ordner)) await app.vault.createFolder(ordner);
+      if (!app.vault.getAbstractFileByPath(${JSON.stringify(pfad)})) await app.vault.create(${JSON.stringify(pfad)}, ${JSON.stringify(inhalt)});
+      return "ok";
+    } catch (e) { return e && e.message ? e.message : String(e); }
+  `);
+  const vorher = await cdp.evaluate<string[]>(`return app.vault.getMarkdownFiles().map((f) => f.path).filter((p) => p.startsWith(${JSON.stringify(root + "/")}));`);
+  await cdp.evaluate(`
+    const p = app.plugins.plugins[${P}];
+    window.__vcModelleVorher = JSON.parse(JSON.stringify(p.settings.endpoints));
+    p.settings.endpoints = [{ url: "http://127.0.0.1:59999/v1", model: ${JSON.stringify(ZEILE)} }];
+    return true;
+  `);
+  const groesse = await cdp.evaluate<number | null>(`const s = app.workspace.rightSplit; return s && s.getSize ? s.getSize() : null;`);
+  try {
+    await cdp.evaluate(`await app.commands.executeCommandById("${PLUGIN_ID}:open-crews-panel"); return true;`);
+    if (!await wartetAuf(cdp, PANEL)) { for (const n of alle) unmeasured(n, "Panel-Blatt erschien nicht"); return; }
+    // Der Lauf davor lässt die Ergebnis-Karte stehen (Zustand „done“): zurück in den Leerlauf und auf den Crews-Tab, sonst gibt es keine Liste.
+    await cdp.evaluate(`
+      ${PANEL}.querySelector(".vault-crews-back")?.click();
+      const tab = ${PANEL}.querySelector(".okit-hub-tab");
+      if (tab && tab.getAttribute("aria-selected") !== "true") tab.click();
+      return true;
+    `);
+    await cdp.evaluate(`app.plugins.plugins[${P}].installExamples(); return true;`);
+    for (const [pfad, inhalt] of [
+      [pfade.wunsch, agent("ZZ Wunsch", [`model: ${WUNSCH}`, "thinking: auto"])],
+      [pfade.ohne, agent("ZZ Ohne", ["thinking: on"])],
+      [pfade.team, team],
+    ] as const) {
+      const r = await schreibe(pfad, inhalt);
+      if (r !== "ok") { for (const n of alle) unmeasured(n, `Testdatei „${pfad}“ liess sich nicht anlegen: ${r}`); return; }
+    }
+    // Die Liste kennt die Crews erst nach dem Neulesen (entprellt); die Agenten-Dateien müssen beim Parsen des Teams schon da sein.
+    const da = await wartetAuf(cdp,
+      `[...${PANEL}.querySelectorAll(".vault-crews-team-name")].some((n) => n.textContent.includes("ZZ Smoke Modelle")) && ${PANEL}.querySelectorAll(".vault-crews-team-models").length >= 5`,
+      12000);
+    const zeilen = await cdp.evaluate<Array<{ name: string; lines: string[]; controls: number; links: number; heading: string }>>(`
+      return [...${PANEL}.querySelectorAll(".vault-crews-team-row")].map((row) => {
+        const block = row.querySelector(".vault-crews-team-models");
+        return {
+          name: row.querySelector(".vault-crews-team-name")?.textContent ?? "",
+          lines: block ? [...block.querySelectorAll("li")].map((li) => li.textContent) : [],
+          controls: block ? block.querySelectorAll("select, input, textarea, button").length : -1,
+          links: block ? block.querySelectorAll("a").length : -1,
+          heading: block?.querySelector("summary")?.textContent ?? "",
+        };
+      });
+    `);
+    const mit = (n: string) => zeilen.find((z) => z.name.includes(n));
+    if (!da) {
+      for (const n of alle) unmeasured(n, `Crews standen nach 12 s nicht im Panel (gesehen: ${JSON.stringify(zeilen.map((z) => z.name))})`);
+      return;
+    }
+
+    // V-a: die vier Beispiel-Crews
+    const beispiele = ["Task-Triage", "Daily-Briefing", "Notiz-Tagger", "Reifegrad-Tagger"].map((n) => ({ n, z: mit(n) }));
+    const va = beispiele.every(({ z }) => z !== undefined && z.lines.length > 0 && z.lines.every((l) => l.includes("thinking off") && l.includes(`${ZEILE} — the endpoint row's model`)));
+    record(P_V_A, va, beispiele.map(({ n, z }) => `${n}: ${z ? JSON.stringify(z.lines) : "keine Zeile"}`).join(" · "));
+
+    // V-b: eigene Crew, mit und ohne Persona-Modell
+    const z = mit("ZZ Smoke Modelle");
+    const l0 = z?.lines[0] ?? "";
+    const l1 = z?.lines[1] ?? "";
+    record(P_V_B,
+      z !== undefined && z.lines.length === 2
+        && l0.includes(`${WUNSCH} if the active endpoint has it, otherwise ${ZEILE} (endpoint row)`) && l0.includes("thinking auto")
+        && l1.includes(`${ZEILE} — the endpoint row's model`) && l1.includes("thinking on") && !l1.includes(WUNSCH),
+      `Zeilen: ${JSON.stringify(z?.lines)}`);
+
+    // V-c: nur lesend
+    const blocks = zeilen.filter((r) => r.controls >= 0);
+    record(P_V_C, blocks.length >= 5 && blocks.every((r) => r.controls === 0 && r.links === 1),
+      `${blocks.length} Blöcke, Schalter je Block: ${JSON.stringify(blocks.map((r) => r.controls))}, Links je Block: ${JSON.stringify(blocks.map((r) => r.links))}`);
+
+    // V-d: schmale Sidebar, alle Blöcke offen
+    const d = await cdp.evaluate<{ ok: boolean; ueber: number; breite: number; offen: number }>(`
+      const split = app.workspace.rightSplit;
+      if (split.setSize) split.setSize(240);
+      await new Promise((r) => setTimeout(r, 600));
+      const blocks = [...${PANEL}.querySelectorAll(".vault-crews-team-models")];
+      blocks.forEach((b) => { b.open = true; });
+      await new Promise((r) => setTimeout(r, 300));
+      let ueber = 0;
+      for (const b of blocks) {
+        const row = b.closest(".vault-crews-team-row").getBoundingClientRect();
+        for (const el of b.querySelectorAll("li, a, summary")) { if (el.getBoundingClientRect().right > row.right + 1) ueber += 1; }
+        if (b.scrollWidth > b.clientWidth + 1) ueber += 1;
+      }
+      blocks.forEach((b) => { b.open = false; });
+      return { ok: ueber === 0 && blocks.length > 0, ueber, breite: Math.round(${PANEL}.getBoundingClientRect().width), offen: blocks.length };
+    `);
+    record(P_V_D, d.ok, `Panel ${d.breite} px breit, ${d.offen} Blöcke geöffnet, ${d.ueber} Element(e) über dem Rand`);
+    if (groesse !== null) await cdp.evaluate(`const s = app.workspace.rightSplit; if (s.setSize) s.setSize(${groesse}); return true;`);
+
+    // V-e: Aufklapp-Zustand übersteht ein Neuzeichnen
+    const e = await cdp.evaluate<{ offen: boolean; andereZu: boolean }>(`
+      const lies = (name) => [...${PANEL}.querySelectorAll(".vault-crews-team-row")].find((r) => r.querySelector(".vault-crews-team-name")?.textContent.includes(name))?.querySelector(".vault-crews-team-models");
+      const mein = lies("ZZ Smoke Modelle");
+      mein.open = true;
+      await new Promise((r) => setTimeout(r, 200));
+      const leaf = app.workspace.getLeavesOfType("vault-crews-panel")[0];
+      leaf.view.refreshFromVault();
+      await new Promise((r) => setTimeout(r, 400));
+      return { offen: lies("ZZ Smoke Modelle")?.open === true, andereZu: lies("Task-Triage")?.open === false };
+    `);
+    record(P_V_E, e.offen && e.andereZu, `nach refreshFromVault: die geöffnete Crew ist ${e.offen ? "offen" : "ZU"}, eine andere ${e.andereZu ? "zu" : "OFFEN"}`);
+
+    // V-f: der Link
+    await cdp.evaluate(`${PANEL}.querySelector(".vault-crews-team-models-settings").click(); return true;`);
+    const f = await wartetAuf(cdp, `app.setting && app.setting.activeTab && app.setting.activeTab.id === ${P}`, 5000);
+    record(P_V_F, f, f ? `Einstellungs-Tab „${PLUGIN_ID}“ ist aktiv` : "der Einstellungs-Tab dieses Plugins wurde nicht geöffnet");
+    await schliesseEinstellungen(cdp).catch(() => undefined);
+  } finally {
+    await cdp.evaluate(`
+      const p = app.plugins.plugins[${P}];
+      if (window.__vcModelleVorher) { p.settings.endpoints = window.__vcModelleVorher; delete window.__vcModelleVorher; }
+      const vorher = new Set(${JSON.stringify(vorher)});
+      const neu = app.vault.getMarkdownFiles().filter((f) => f.path.startsWith(${JSON.stringify(root + "/")}) && !vorher.has(f.path));
+      for (const f of neu) await app.vault.delete(f, true);
+      return neu.length;
+    `).catch(() => undefined);
+    if (groesse !== null) await cdp.evaluate(`const s = app.workspace.rightSplit; if (s.setSize) s.setSize(${groesse}); return true;`).catch(() => undefined);
+  }
+}
+
 async function main(): Promise<void> {
   if (!Number.isInteger(PORT) || PORT <= 0) {
     throw new Vorbedingung("--port <port> ist Pflicht (Zweitinstanz, siehe Kopf dieser Datei); kein Standardport.");
@@ -2225,6 +2393,7 @@ async function main(): Promise<void> {
     await abschnittWelle14(cdp);
     await abschnittWelle15(cdp, dataPfad);
     await abschnittWelle20(cdp);
+    await abschnittModelle(cdp);
   } finally {
     // Zurueckschreiben und das Ergebnis MESSEN statt darauf vertrauen; nach einem Abbruch räumt das Modul auf.
     await zustand.schliesse();
