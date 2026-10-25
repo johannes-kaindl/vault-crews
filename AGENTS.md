@@ -30,7 +30,7 @@ Obsidian-Plugin **Vault Crews** (`vault-crews`): autonome lokale LLM-Agenten-Tea
 
 ## Gotchas
 
-- **Denylist:** `buildDenylist(configDir, crewRoot)` — configDir wird injiziert (`Vault#configDir`, obsidianmd-Lint). `**/.*/**` deckt Inhalte unter Dot-Ordnern (Property-Test-Fund). `isDenied` prüft den Rohpfad UND `filesystemPath(pfad)` (Kit `folder-scope`), die Muster nach denselben Segment-Regeln: `_crews /x.md`, `_crews./x.md`, `_crews:s/x.md` und `_CREWS/x.md` sind dieselbe Datei wie `_crews/x.md` (Welle 25). Die Whitelist `write_scope` bleibt beim Text.
+- **Denylist:** `buildDenylist(configDir, crewRoot)` — configDir wird injiziert (`Vault#configDir`, obsidianmd-Lint). `**/.*/**` deckt Inhalte unter Dot-Ordnern (Property-Test-Fund). `isDenied` prüft den Rohpfad UND `filesystemPath(pfad)` (Kit `folder-scope`), die Muster nach denselben Segment-Regeln: `_crews /x.md`, `_crews./x.md`, `_crews:s/x.md` und `_CREWS/x.md` sind dieselbe Datei wie `_crews/x.md` (Welle 25). Die Whitelist `write_scope` bleibt beim Text, nur wird der Glob beim Einlesen normalisiert gespeichert (Kit `rel-path`, wie `normalizeVaultPath` den Pfad der Aktion).
 - **Kein `json_schema`-API-Modus** (bricht an LM Studio bei Reasoning-Modellen): prompt-basiertes JSON + `output-validator`.
 - **Nie Port 8080 als Backend** (OpenClaw-Mono-Consumer-Lock).
 

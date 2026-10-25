@@ -154,9 +154,62 @@ describe('parseTeamDef', () => {
 		},
 	);
 
+	// Der write_scope wird beim Einlesen normalisiert gespeichert (Kit `rel-path`, wie `normalizeVaultPath` den Pfad der Aktion): `.`- und
+	// leere Segmente fallen weg, `\` trennt wie `/`, ein führendes `/` heißt Vault-Wurzel. Sonst trifft der gespeicherte Rohglob nie.
+	it.each([
+		['./a/**', 'a/**'],
+		['a/./b/**', 'a/b/**'],
+		['/abs/**', 'abs/**'],
+		['a\\b/**', 'a/b/**'],
+		['a//b/**', 'a/b/**'],
+		['  ./a/**  ', 'a/**'],
+		['a/**/', 'a/**'],
+	])('speichert write_scope %j normalisiert als %j', (scope, erwartet) => {
+		const r = parseTeamDef(TEAM_PATH, teamFm({ write_scope: [scope] }), OPTS);
+		expect(r.ok, scope).toBe(true);
+		if (!r.ok) return;
+		expect(r.value.writeScope).toEqual([erwartet]);
+	});
+
+	// Der Schutz der Denylist ist unverändert: sie sah alle Schreibweisen schon vor der Normalisierung gleich (`isDenied` liest selbst
+	// die Dateisystem-Lesart); diese Fälle halten das fest, falls jemand die Reihenfolge ändert.
+	it.each([
+		'_crews/./x/**', '/_crews/**', '\\_crews\\x/**', '_crews//x/**', '//_crews/**', '.\\_crews/**',
+		'/.obsidian/**', '/_vaultrag/**', './.obsidian/**',
+	])('lehnt write_scope %s weiter als geschützten Bereich ab', (scope) => {
+		const r = parseTeamDef(TEAM_PATH, teamFm({ write_scope: [scope] }), OPTS);
+		expect(r.ok, scope).toBe(false);
+		if (r.ok) return;
+		expect(r.errors.join('\n')).toContain('geschützten Bereich');
+	});
+
+	it('lehnt ein NUL-Byte im write_scope mit eigener Meldung ab', () => {
+		const r = parseTeamDef(TEAM_PATH, teamFm({ write_scope: ['a\0b/**'] }), OPTS);
+		expect(r.ok).toBe(false);
+		if (r.ok) return;
+		const text = r.errors.join('\n');
+		expect(text).toContain('NUL-Byte');
+		expect(text).not.toContain('geschützten Bereich');
+		expect(text).not.toContain('\0');
+	});
+
+	// Ein Eintrag, der zur Vault-Wurzel würde, ist ein Definitionsfehler: ein leerer Pfad als Schreibgrenze meinte den ganzen Vault.
+	// `.` und `./` kamen bisher als „geschützter Bereich“ zurück, `/` wurde angenommen und roh als "/" gespeichert (traf nie).
+	it.each(['.', './', '/', '\\', ' . / '])('lehnt write_scope %j als ungültigen Eintrag ab', (scope) => {
+		const r = parseTeamDef(TEAM_PATH, teamFm({ write_scope: [scope] }), OPTS);
+		expect(r.ok, scope).toBe(false);
+		if (r.ok) return;
+		const text = r.errors.join('\n');
+		expect(text).toContain('ungültiger Eintrag');
+		expect(text).not.toContain('geschützten Bereich');
+	});
+
 	it('Gegenprobe: ein ähnlicher, erlaubter write_scope bleibt gültig', () => {
 		for (const scope of ['Projekte /**', '_crewsX/**', '10_Aufgaben/**/*.md', 'a/b..c/**']) {
-			expect(parseTeamDef(TEAM_PATH, teamFm({ write_scope: [scope] }), OPTS).ok, scope).toBe(true);
+			const r = parseTeamDef(TEAM_PATH, teamFm({ write_scope: [scope] }), OPTS);
+			expect(r.ok, scope).toBe(true);
+			// unverändert gespeichert: auch der Leerraum im Segment (`Projekte /**` ist ein anderer Ordner als `Projekte/**`)
+			if (r.ok) expect(r.value.writeScope).toEqual([scope]);
 		}
 	});
 

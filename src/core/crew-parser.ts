@@ -119,14 +119,21 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 	} else {
 		for (const g of fm.write_scope) {
 			if (typeof g !== 'string' || g.trim() === '') { err('write_scope', `ungültiger Eintrag '${show(g)}'`); continue; }
-			const glob = g.trim();
+			const raw = g.trim();
 			// Ein `..`-Segment (auch mit Leerraum drumherum, auch mit `\` als Trenner) gehört in keinen write_scope: es
-			// führt aus dem Vault hinaus oder an der Denylist vorbei. Vor der Denylist, damit die Meldung die Ursache nennt.
-			const rel = normalizeRelPath(glob, { absolute: 'strip', allowEmpty: true });
-			if (!rel.ok && rel.problem === 'traversal') {
-				err('write_scope', `'${glob}': ".." ist in write_scope nicht erlaubt`);
+			// führt aus dem Vault hinaus oder an der Denylist vorbei, ein NUL-Byte ebenso. Vor der Denylist, damit die Meldung die Ursache nennt.
+			const rel = normalizeRelPath(raw, { absolute: 'strip', allowEmpty: true });
+			if (!rel.ok) {
+				if (rel.problem === 'traversal') err('write_scope', `'${raw}': ".." ist in write_scope nicht erlaubt`);
+				else if (rel.problem === 'nul') err('write_scope', `'${raw.replaceAll('\0', '\\0')}': NUL-Byte ist in write_scope nicht erlaubt`);
+				else err('write_scope', `ungültiger Eintrag '${show(g)}'`);
 				continue;
 			}
+			// Ein Eintrag, der zur Vault-Wurzel würde (`.`, `./`, `/`), meinte als Schreibgrenze den ganzen Vault: Definitionsfehler.
+			if (rel.path === '') { err('write_scope', `ungültiger Eintrag '${show(g)}'`); continue; }
+			// Gespeichert und geprüft wird die normalisierte Form (wie `normalizeVaultPath` den Pfad der Aktion): sonst trifft
+			// `./a/**` oder `a\b/**` zur Laufzeit nie. Der Schutz der Denylist ändert das nicht, `isDenied` liest jede Schreibweise selbst.
+			const glob = rel.path;
 			// Whitelist darf die Denylist nicht anfassen: ein Scope, dessen Wurzel in einem
 			// Denylist-Bereich liegt, ist immer ein Definitionsfehler.
 			const root = glob.split('*')[0] ?? glob;

@@ -5,6 +5,7 @@ import type { VaultPort } from '../../src/core/ports';
 import { CREW_MARKER, executeActions, type ExecutorContext } from '../../src/core/action-executor';
 import { fnv1a } from '../../src/core/collectors';
 import { buildDenylist } from '../../src/core/paths';
+import { parseTeamDef } from '../../src/core/crew-parser';
 import { InMemoryVaultPort } from '../helpers/in-memory-vault';
 
 const LIMITS: RunLimits = {
@@ -205,6 +206,32 @@ describe('executeActions — Pfad-Guards', () => {
       vault,
     );
     expect(res.outcomes[0]?.result).toBe('applied');
+  });
+
+  // Der gespeicherte Glob wirkt, nicht nur der Parser: ein `./a/**` aus der Team-Datei erlaubt `a/x.md` und nichts sonst.
+  it('ein normalisiert gespeicherter write_scope schreibt in a/, nicht in b/', async () => {
+    const parsed = parseTeamDef('_crews/teams/t.md', {
+      'crew-kind': 'team', name: 'T', version: 1, trigger: 'manual', limits: { max_writes: 5 },
+      write_scope: ['./a/**'],
+      tasks: [{ id: 'apply', kind: 'actions', inputs: [], allowed_actions: ['note.create'] }],
+    }, { knownAgents: [], maxima: LIMITS, denylist: buildDenylist('.obsidian', '_crews') });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const team = parsed.value;
+    expect(team.writeScope).toEqual(['a/**']);
+    const vault = await seed({});
+    const res = await executeActions(
+      [
+        { type: 'note.create', path: 'a/x.md', content: 'x' },
+        { type: 'note.create', path: 'b/x.md', content: 'x' },
+      ],
+      ctxOf([], { team }),
+      vault,
+    );
+    expect(res.outcomes.map((o) => o.result)).toEqual(['applied', 'rejected']);
+    expect(res.outcomes[1]?.reason).toContain('write_scope');
+    expect(await vault.exists('a/x.md')).toBe(true);
+    expect(await vault.exists('b/x.md')).toBe(false);
   });
 
   it('verwirft Pfade außerhalb write_scope', async () => {

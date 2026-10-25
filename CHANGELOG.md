@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- A `write_scope` entry is now stored in a normalised form when the crew file is read, the way the path of an action already was: a `write_scope` of `./a/**` or `a/./b/**`, which was refused as a "protected area", is valid now and means `a/**` and `a/b/**`; a leading `/` means the vault root (`/abs/**` is `abs/**`), `\` separates like `/`, doubled slashes drop out, and the entry stays in that form in the team. Before, `/abs/**`, `a\b/**` and `a//b/**` were accepted as typed and never matched a write.
+- A trailing slash drops out too: `a/**/` is stored as `a/**`. It matched nothing before (paths have no trailing slash), so such an entry now takes effect and allows writes below `a/`.
+- A `write_scope` entry with a NUL byte is refused when the crew file is read, with its own message.
+- A `write_scope` entry that would be the vault root (`.`, `./`, `/`) is refused as an "ungültiger Eintrag". `/` was accepted before and stored as typed, but never took effect, so it is now a definition error.
+- The protection of the deny-list is unchanged; what changed is which spellings a `write_scope` accepts.
+
 ## [0.21.3] — 2026-10-24
 
 ### Security
