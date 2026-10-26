@@ -29,6 +29,8 @@
         "endpoint_diagnostics",
         "error_body",
         "i18n",
+        "list-summary",
+        "llm-answer",
         "llm-json",
         "model-choice",
         "model-context",
