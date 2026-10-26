@@ -17,6 +17,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The text of a briefing that the model wraps in a Markdown fence is unwrapped by the library function `unwrapAnswer` now. A fence with another language tag (```` ```text ````) no longer leaves that tag as the first line of the briefing; a fence written on a single line (```` ```Hello``` ````) is no longer unwrapped. Fences with ```` ``` ````, ```` ```md ```` and ```` ```markdown ```` behave as before (compared over all texts up to four tokens of a small alphabet).
 - Library update: obsidian-kit 0.69.1 → 0.72.0 and code-kit 0.36.0 → 0.38.0. Apart from the fix above nothing changes for a user: the streaming area's new rule for links without a target (a capped link looks like text, 0.72.0) never applies here because the panel does not cap links, the Claude branch of the context lookup (0.37.0) and `anthropic-wire` (0.38.0, now a library module that `model-context` imports) stay unused without a Claude endpoint, and the other changed library files differ in comments or in texts of the `claude` sampling profile only.
 
 ## [0.22.0] — 2026-10-25

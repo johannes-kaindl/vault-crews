@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { stripThinkBlocks } from '../../src/vendor/kit/think-splitter';
 import { buildRepairPrompt, extractJson, extractText, validateOutput } from '../../src/core/output-validator';
 import { pruefeLinear } from '../vendor/kit/linear-probe';
 import { BUILTIN_SCHEMAS } from '../../src/core/schemas';
@@ -186,6 +187,62 @@ describe('extractText', () => {
 		expect(extractText('```md\nHallo\n```')).toBe('Hallo');
 		expect(extractText('```\nHallo\n```')).toBe('Hallo');
 		expect(extractText('Vorwort\n```markdown\nHallo\n```')).toBe('Vorwort\n```markdown\nHallo\n```');
+	});
+});
+
+// `extractText` ruft die Kit-Funktion `unwrapAnswer` (code-kit 0.38.0, `llm-answer`). Die alte Fassung steht hier als Referenz: gleich für jeden Zaun mit ``` / ```md / ```markdown
+// (kleines Alphabet, Rümpfe bis vier Token, auch mit innerem Zaun, CRLF und Denkblock), abweichend nur dort, wo die Kit-Fassung die Frage anders stellt.
+describe('extractText gegen die alte Fassung (Differentialtest)', () => {
+	const alt = (raw: string): string => {
+		const stripped = stripThinkBlocks(raw).trim();
+		const m = /^```(?:markdown|md)?\s*\n?([\s\S]*?)\n?```$/.exec(stripped);
+		return (m ? m[1] : stripped)?.trim() ?? '';
+	};
+	const alphabet = ['x', '\n', ' ', 'md', '```', '\r\n', '<think>a</think>'];
+	const bodies = (maxTokens: number): string[] => {
+		const out = [''];
+		let layer = [''];
+		for (let i = 0; i < maxTokens; i++) {
+			layer = layer.flatMap((b) => alphabet.map((t) => b + t));
+			out.push(...layer);
+		}
+		return out;
+	};
+
+	it('ist für Zäune mit ```, ```md und ```markdown gleich (alle Rümpfe bis vier Token, drei Schlussformen)', () => {
+		const abweichend: string[] = [];
+		let n = 0;
+		for (const opener of ['```', '```md', '```markdown', '```md ']) {
+			for (const body of bodies(4)) {
+				for (const tail of ['\n```', '```', '\n```\n']) {
+					const raw = `${opener}\n${body}${tail}`;
+					n++;
+					if (extractText(raw) !== alt(raw)) abweichend.push(JSON.stringify(raw));
+				}
+			}
+		}
+		expect(n).toBeGreaterThan(30_000);
+		expect(abweichend.slice(0, 5)).toEqual([]);
+	});
+
+	it('ohne Zaun und mit einem Zaun mitten im Text bleibt der Text, wie er war', () => {
+		for (const raw of ['Hallo', 'Vorwort\n```md\nHallo\n```', '```md\nHallo', 'Hallo\n```', '~~~md\nHallo\n~~~', '']) {
+			expect(extractText(raw)).toBe(alt(raw));
+		}
+	});
+
+	// Abweichung 1 (Verbesserung): der Tag eines anderen Zauns blieb früher als erste Zeile im Text stehen („```text\nHallo\n```“ gab „text\nHallo“).
+	it('entfernt auch den Tag eines anderen Zauns, statt ihn als Text stehen zu lassen', () => {
+		expect(alt('```text\nHallo\n```')).toBe('text\nHallo');
+		expect(extractText('```text\nHallo\n```')).toBe('Hallo');
+		expect(extractText('```MD\nHallo\n```')).toBe('Hallo');
+		expect(extractText('```json\n{"a":1}\n```')).toBe('{"a":1}');
+	});
+
+	// Abweichung 2 (Verlust, bewusst in Kauf genommen): ein Zaun in EINER Zeile („```Hallo```“) wird von der Kit-Fassung nicht entzäunt; ein Modell tut das mit einer Markdown-Antwort kaum.
+	it('entzäunt einen Zaun in einer einzigen Zeile nicht mehr', () => {
+		expect(alt('```Hallo```')).toBe('Hallo');
+		expect(extractText('```Hallo```')).toBe('```Hallo```');
 	});
 });
 

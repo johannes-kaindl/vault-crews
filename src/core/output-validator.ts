@@ -2,7 +2,7 @@
  *  Extraktion ist tolerant (letzter Fence, Repair-Pass), Validierung ist hart (Schema,
  *  Quellbindung, Slug-Wertemengen). Die JSON-Suche liefert das Kit-Modul `llm-json`. */
 import { extractJsonCandidates } from '../vendor/kit/llm-json';
-import { stripThinkBlocks } from '../vendor/kit/think-splitter';
+import { unwrapAnswer } from '../vendor/kit/llm-answer';
 import type { LlmMessage } from './ports';
 import type { SchemaDef } from './schemas';
 import type { Action, CollectedFile, SlugTableData } from './types';
@@ -20,15 +20,13 @@ export function extractJson(raw: string): { ok: true; json: unknown } | { ok: fa
 	return { ok: false, error: `invalid JSON: ${r.error ?? 'unbekannt'}` };
 }
 
-/** Extrahiert rohen Text für 'text'-Schemata (briefing-v1): think-strippen, optional EINEN
- *  umschließenden ```markdown/```/```md-Fence entfernen (Modelle fencen trotz Anweisung
- *  gelegentlich), trimmen. Kein JSON-Parsing — genau das ist der Punkt (Spec-Notiz
- *  SchemaDef.outputFormat in schemas.ts). Kann nicht fehlschlagen (anders als extractJson) —
- *  im schlimmsten Fall liefert es einen leeren String, den schema.validate zurückweist. */
+/** Extrahiert rohen Text für 'text'-Schemata (briefing-v1): Denkblöcke weg, EINEN umschließenden Zaun weg (Modelle fencen trotz Anweisung gelegentlich),
+ *  trimmen — das ist die Kit-Funktion `unwrapAnswer` (code-kit `llm-answer`, vorher eine eigene Regex hier). Kein JSON-Parsing — genau das ist der Punkt
+ *  (Spec-Notiz SchemaDef.outputFormat in schemas.ts). Kann nicht fehlschlagen (anders als extractJson) — im schlimmsten Fall liefert es einen leeren String,
+ *  den schema.validate zurückweist. Unterschied zur alten Fassung (Differentialtest in tests/core/output-validator.test.ts): der Tag eines anderen Zauns
+ *  (```text) bleibt nicht mehr als erste Zeile stehen, ein Zaun in einer einzigen Zeile wird nicht mehr entzäunt. */
 export function extractText(raw: string): string {
-	const stripped = stripThinkBlocks(raw).trim();
-	const fenceMatch = /^```(?:markdown|md)?\s*\n?([\s\S]*?)\n?```$/.exec(stripped);
-	return (fenceMatch ? fenceMatch[1] : stripped)?.trim() ?? '';
+	return unwrapAnswer(raw);
 }
 
 export function validateOutput(
