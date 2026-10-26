@@ -1,6 +1,7 @@
 /** Deterministische Kontext-Beschaffung (Spec §3.2/§4.2): Collectors laufen im Plugin,
  *  nie im LLM. Sie normalisieren YAML-Pathologien ([null]-Listen, fehlende Keys) und
  *  slugifizieren Enum-Werte, damit das Modell nie Emoji-Vokabular sieht. */
+import { summarizeList } from '../vendor/kit/list-summary';
 import { isDenied, normalizeVaultPath } from './paths';
 import { buildSlugTable, isEnumField } from './slug-mapper';
 import type { MetadataPort, VaultPort } from './ports';
@@ -34,7 +35,8 @@ function capContent(full: string, runningTotal: number): { content: string; tota
 export function collectorSource(def: CollectorTaskDef): string {
 	if (def.collector === 'vault.read') {
 		const paths = Array.isArray(def.params.paths) ? def.params.paths.filter((p): p is string => typeof p === 'string') : [];
-		return paths.length > 3 ? `${paths.slice(0, 3).join(', ')}, …` : paths.join(', ');
+		const { shown, rest } = summarizeList(paths, 3);
+		return rest > 0 ? `${shown.join(', ')}, …` : shown.join(', ');
 	}
 	const folder = str(def.params.folder) ?? '';
 	return folder === '' ? '/' : folder;
