@@ -1,7 +1,7 @@
 {
   "source": "obsidian-kit",
-  "version": "0.69.1",
-  "sha": "4f99d6c",
+  "version": "0.72.0",
+  "sha": "b72c31c",
   "vendored": "chat-transport.ts, confirm.ts, endpoint-list.ts, model-picker.ts, settings_walker.ts, folder-suggest.ts, folder-hide.ts, stream-area.ts, endpoint-source.ts, help-setting.ts, hub.ts, clipboard.ts, collapsible.ts, request-section.ts, request-session.ts, backend-probe.ts, endpoint-secrets.ts, endpoint-status-text.ts, llm-connection-strings.ts, secrets.ts, shortcuts-bridge.ts, plugin-api.ts",
   "note": "Verbatim snapshot. Never hand-edit. Pins in tools/kit-sync.json, re-vendor via tools/sync-kit.sh (zentrales kit-sync im Dach). endpoint-list.ts, model-picker.ts und endpoint-source.ts tragen EINE mechanische Abweichung: kit-interne Importe ../vendor/code-kit/{pure,web}/ sind auf ../kit/ umgeschrieben (Vendor-Layout). Bei jedem Re-Vendoring reproduzieren; sonst darf nichts abweichen. stream-area.ts ist verbatim (keine Kit-internen Importe). chat-transport.ts traegt zusaetzlich eine zweite Abweichung: ./chat-client → ../kit/chat-client (das Nachbarmodul liegt in der pure-Ablage)."
 }

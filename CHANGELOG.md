@@ -12,7 +12,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A secret that was masked before the request and comes back in a JSON answer is put back as it was in the source: a PEM key read from a JSON note no longer returns with a doubled backslash in its line breaks (library fix in the chat client, obsidian-kit 0.70.0). Only runs whose schema expects JSON are concerned.
 - A `note.create` action into a folder that does not exist yet creates the folder, the way `section.replace` already did, instead of ending the run with an `io` error. No built-in schema produces this action yet, so no run is affected today.
+
+### Changed
+
+- Library update: obsidian-kit 0.69.1 → 0.72.0 and code-kit 0.36.0 → 0.38.0. Apart from the fix above nothing changes for a user: the streaming area's new rule for links without a target (a capped link looks like text, 0.72.0) never applies here because the panel does not cap links, the Claude branch of the context lookup (0.37.0) and `anthropic-wire` (0.38.0, now a library module that `model-context` imports) stay unused without a Claude endpoint, and the other changed library files differ in comments or in texts of the `claude` sampling profile only.
 
 ## [0.22.0] — 2026-10-25
 

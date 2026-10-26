@@ -1,4 +1,4 @@
-// vendored from code-kit@0.36.0, src/ts/pure/sampling-profiles.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.38.0, src/ts/pure/sampling-profiles.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Request profiles for local and hosted LLM backends: which sampling values, which
  *  reasoning_effort and which minimum token budget a plugin sends, per model family × mode,
  *  and which of those fields a backend actually honours.
@@ -92,8 +92,8 @@ const ms = (value: string, source: string): Sourced<string> => ({ value, source,
 const us = (value: string, source: string): Sourced<string> => ({ value, source, evidence: "unmeasured" });
 
 const CLAUDE_SAMPLING = "Anthropic docs (claude-api skill 2026-10-06; OpenAI compatibility page 2026-10-16): temperature, top_p, top_k removed on Claude Fable 5/5.1, Opus 5.5/5/4.8/4.7, non-default values refused on Sonnet 5.5 and Haiku 5.5; compatibility layer: temperature below 1 and top_p other than 0.99 return 400 on Claude 4.7 and newer";
-const CLAUDE_EFFORT = "Anthropic docs (claude-api skill 2026-10-06): output_config.effort low/medium/high/xhigh/max; not called by us";
-const CLAUDE_OFF = "Anthropic docs (claude-api skill 2026-10-06): thinking {type: disabled} returns 400 on Opus 5.5 and Sonnet 5.5, thinking is always on on Fable 5/5.1, so off is the lowest effort";
+const CLAUDE_EFFORT = "Anthropic docs (effort page and claude-api skill, 2026-10-26): output_config.effort low/medium/high/xhigh/max, sent by the obsidian-kit transport (anthropic-wire) when GET /v1/models reports effort.supported";
+const CLAUDE_OFF = "Anthropic docs (effort page and claude-api skill, 2026-10-26): off is the lowest effort because our transport never sends thinking disabled; the API itself takes disabled up to effort high on Haiku 5.5 and Opus 5 and between_tools on Sonnet 5.5, returns 400 for it on Opus 5.5, and thinking is always on on Fable 5/5.1";
 const CLAUDE_RESERVE = "Anthropic docs (claude-api skill 2026-10-06): max_tokens includes the adaptive thinking, default ~16000; conservative, unmeasured";
 const cn = (value: string, source: string): Sourced<string> => ({ value, source, evidence: "unmeasured" });
 const QWEN38_CARD = "model card Qwen/Qwen3.8-27B (retrieved 2026-09-20)";
@@ -578,6 +578,28 @@ export function onLevelFor(s: RequestSettings, mode: ModeId): ThinkingLevel {
   const stored = s.lastOnLevel[mode];
   if (stored && stored !== "off") return stored;
   return MODES[mode].thinking !== "off" ? MODES[mode].thinking : "low";
+}
+
+/** The settings with the thinking level of ONE mode set — the write behind the model row, the settings dropdown and the chat toggle.
+ *  `thinking[mode]` becomes `level`; for any level other than `"off"` it is also remembered as `lastOnLevel[mode]`, the level
+ *  {@link onLevelFor} gives back when the toggle is switched on again. `"off"` leaves the remembered level alone (that is the whole
+ *  point of remembering it).
+ *
+ *  Returns a NEW object and writes nothing into `request`; the parts it does not change (`overrides`, `levelPickerInChat`, a field a
+ *  newer version added) are carried over by reference, as neurovim-obsidian and settings-assistant did. The caller saves. An unknown
+ *  `mode` or `level` (a dropdown value cast to the type, a hand-edited file) writes nothing and gives `request` back — the SAME object,
+ *  so the caller can tell; `sanitizeRequestSettings` would drop such a value on the next load anyway.
+ *
+ *  Origin: three copies of one rule (read 2026-10-25) — neurovim-obsidian `llm/cipherRequest.ts` (`setCipherThinking`),
+ *  settings-assistant `main.ts` (`setChatThinking`) and obsidian-kit `obsidian/request-section.ts:219`; yijing-oracle needs it too.
+ *  The first two build a new object with flat copies, as here. **obsidian-kit's differs in one respect:** it deep-clones the whole
+ *  settings first and writes into the clone, so its result shares nothing with the input; its other handlers write into that clone
+ *  (`overrides`) afterwards, which is why. The values written are the same in all three (differential test). */
+export function withThinkingLevel(request: RequestSettings, mode: ModeId, level: ThinkingLevel): RequestSettings {
+  if (!(MODE_IDS as readonly string[]).includes(mode) || !(THINKING_LEVELS as readonly string[]).includes(level)) return request;
+  const next: RequestSettings = { ...request, thinking: { ...request.thinking, [mode]: level } };
+  if (level !== "off") next.lastOnLevel = { ...request.lastOnLevel, [mode]: level };
+  return next;
 }
 
 /** What the settings UI can be told went differently from what the profile asked for.

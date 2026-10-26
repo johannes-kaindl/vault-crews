@@ -1,6 +1,6 @@
 {
   "source": "obsidian-kit",
-  "version": "0.69.1",
-  "sha": "4f99d6c",
+  "version": "0.72.0",
+  "sha": "b72c31c",
   "vendored": "kit-css.ts, linear-probe.ts, obsidian-mock.ts, window-timers.ts"
 }

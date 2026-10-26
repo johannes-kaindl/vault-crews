@@ -1,4 +1,4 @@
-// vendored from code-kit@0.36.0, src/ts/pure/folder-scope.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.38.0, src/ts/pure/folder-scope.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 import { normalizeRelPath } from "./rel-path";
 
 /** Which paths lie inside a folder, and the entries of a list that mean "this note" or "all notes in this folder". The same few
