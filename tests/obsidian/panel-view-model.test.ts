@@ -416,6 +416,7 @@ describe("buildPanelViewModel — Modelle je Crew", () => {
     expect(vm?.models).toEqual({
       heading: "Models",
       lines: ["Analyst (analyse): zeile-7b — the endpoint row's model · thinking off"],
+      lastUsed: [],
       settingsLabel: "Change the fallback model in the settings",
     });
   });
@@ -462,6 +463,36 @@ describe("buildPanelViewModel — Modelle je Crew", () => {
     expect(vm?.models?.heading).toBe("Modelle");
     expect(vm?.models?.lines[0]).toContain("falls der aktive Endpunkt es führt");
     expect(vm?.models?.lines[0]).toContain("Denken aus");
+  });
+
+  // „Zuletzt benutzt“: das Modell, das der letzte Lauf je llm-Task wirklich aufgelöst hat (RunResult.models, main.ts reicht es als lastRun.models durch).
+  const ran = (models: Array<{ taskId: string; model: string }> | undefined): Partial<TeamInfo> => ({
+    lastRun: { status: "ok", when: 0, ...(models ? { models } : {}) },
+  });
+
+  it("nennt je Agent das Modell des letzten Laufs, in der Reihenfolge der Crew", () => {
+    const [vm] = idle([team(
+      [row({ taskId: "a", agentName: "A" }), row({ taskId: "b", agentName: "B" })],
+      ran([{ taskId: "b", model: "gross-27b" }, { taskId: "a", model: "klein-7b" }]),
+    )]);
+    expect(vm?.models?.lastUsed).toEqual(["Last run: A (a): klein-7b", "Last run: B (b): gross-27b"]);
+  });
+
+  it("ohne letzten Lauf oder ohne Feld: keine Zeile, kein Platzhalter", () => {
+    const [never, old, none] = idle([team([row()]), team([row()], ran(undefined)), team([row()], ran([]))]);
+    expect([never?.models?.lastUsed, old?.models?.lastUsed, none?.models?.lastUsed]).toEqual([[], [], []]);
+  });
+
+  it("ein taskId, den die Crew heute nicht mehr führt, und ein leeres Modell erzeugen keine Zeile und keinen Absturz", () => {
+    const [vm] = idle([team([row({ taskId: "a", agentName: "A" })], ran([{ taskId: "umbenannt", model: "x" }, { taskId: "a", model: "  " }]))]);
+    expect(vm?.models?.lastUsed).toEqual([]);
+    expect(vm?.models?.lines).toHaveLength(1);
+  });
+
+  it("die Zeile „zuletzt benutzt“ ist deutsch, wenn die Sprache deutsch ist", () => {
+    setLang("de");
+    const [vm] = idle([team([row()], ran([{ taskId: "analyse", model: "gross-27b" }]))]);
+    expect(vm?.models?.lastUsed).toEqual(["Zuletzt benutzt: Analyst (analyse): gross-27b"]);
   });
 
   it("jeder panel.models.*-Schlüssel steht in EN und DE", () => {

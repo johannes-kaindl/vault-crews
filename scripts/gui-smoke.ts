@@ -84,7 +84,7 @@ const P_ERREICHBAR = "Welle 24 — Pflichtpunkt Erreichbarkeit der Bedienelement
 const P_GEMMA = "Welle 23 — Gemma 4 ohne Öffner: der Denktext steht im Denkblock, nicht im Anzeigetext der Antwort";
 const P_KONTROLLE_ABSATZ = "Welle 20 — Folge-Regel (Kontrolle, absatzgroße Stücke): der Strom folgt auch bei Stücken über der Schwelle";
 const N1_PUNKT = "N1 Abschnitt Request ist vorhanden, klappt auf und zeigt die Felder";
-// Welle 27: die nur lesende Modellanzeige je Crew im Lauf-Panel (V-a bis V-f).
+// Welle 27: die nur lesende Modellanzeige je Crew im Lauf-Panel (V-a bis V-f); Welle 28: das Modell des letzten Laufs (V-g, V-h).
 const P_V_ENDE = "Modelle — Abschnitt lief bis zum Ende";
 const P_V_A = "Modelle V-a — Beispiel-Crews: je Agent Modell und Denkstufe, thinking off aus der mitgelieferten Persona";
 const P_V_B = "Modelle V-b — Persona mit eigenem model: zeigt Wunsch und Rückfall, eine ohne nur das Modell der Zeile";
@@ -92,6 +92,8 @@ const P_V_C = "Modelle V-c — die Anzeige ist nur lesend: kein Dropdown, kein S
 const P_V_D = "Modelle V-d — bei schmaler Panelbreite läuft die Anzeige nicht über";
 const P_V_E = "Modelle V-e — der Aufklapp-Zustand übersteht ein Neuzeichnen (Gegenprobe: eine andere Crew bleibt zu)";
 const P_V_F = "Modelle V-f — der Link führt in die Einstellungen dieses Plugins";
+const P_V_G = "Modelle V-g — nach einem Lauf nennt die Anzeige das Modell, das am Draht ankam (nicht den Wunsch der Zeile), auch bei schmaler Panelbreite";
+const P_V_H = "Modelle V-h — vor dem ersten Lauf fehlt die Zeile „zuletzt benutzt“ (Gegenprobe zu V-g: danach steht sie)";
 
 const PUNKTE = [
   "Alte Endpunkt-Liste wird zu genau einem Eintrag",
@@ -184,7 +186,7 @@ const PUNKTE = [
   "Welle 15 — Abschnitt lief bis zum Ende",
   "Keine liegen gebliebene Rettungskopie aus einem abgebrochenen Vorlauf",
   N1_PUNKT,
-  P_V_ENDE, P_V_A, P_V_B, P_V_C, P_V_D, P_V_E, P_V_F,
+  P_V_ENDE, P_V_A, P_V_B, P_V_C, P_V_D, P_V_E, P_V_F, P_V_G, P_V_H,
 ] as const;
 type Punktname = (typeof PUNKTE)[number];
 const bilanz = createBilanz({ punkte: PUNKTE });
@@ -2075,13 +2077,14 @@ async function abschnittWelle15(cdp: Cdp, dataPfad: string): Promise<void> {
   }
 }
 
-/** V-a bis V-f (Welle 27, Variante B): das Lauf-Panel zeigt je Crew, welches Modell und welche Denkstufe jeder Agent bekommt — nur lesend. Das Panel pingt
+/** V-a bis V-f (Welle 27, Variante B; V-g und V-h stehen unten in `modelleLetzterLauf`): das Lauf-Panel zeigt je Crew, welches Modell und welche Denkstufe jeder Agent bekommt — nur lesend. Das Panel pingt
  *  nie, also sagt die Anzeige zweistufig, was sie weiß: der Wunsch der Persona (gilt, wenn der aktive Endpunkt es führt), sonst das Modell der Endpunkt-Zeile.
  *  Gemessen wird am echten Panel mit den echten Beispiel-Crews (ihre Personas setzen `thinking: off`) und einer eigenen Crew mit und ohne `model:`. Alles, was der
  *  Abschnitt anlegt, räumt er im `finally` weg; die Endpunkt-Zeile steht nur im Speicher auf einem Smoke-Modell. */
 async function abschnittModelle(cdp: Cdp): Promise<void> {
   try {
     await modelleMessungen(cdp);
+    await modelleLetzterLauf(cdp);
     record(P_V_ENDE, true, "kein Abbruch");
   } catch (e) {
     if (e instanceof AbbruchAusnahme || istAbgebrochen()) throw e;
@@ -2230,6 +2233,129 @@ async function modelleMessungen(cdp: Cdp): Promise<void> {
       return neu.length;
     `).catch(() => undefined);
     if (groesse !== null) await cdp.evaluate(`const s = app.workspace.rightSplit; if (s.setSize) s.setSize(${groesse}); return true;`).catch(() => undefined);
+  }
+}
+
+/** V-g und V-h (Welle 28): das Modell des letzten Laufs in der Modellanzeige. Eine eigene Crew läuft gegen einen Stub mit zwei Modellen; die Persona wünscht das
+ *  zweite, die Endpunkt-Zeile steht auf dem ersten. Gemessen wird **am Draht** (`model` der Chat-Anfrage am Stub), nicht an der Anzeige: die Zeile „zuletzt
+ *  benutzt“ muss genau das nennen, was der Stub gesehen hat. Der Stub kennt keinen Alias, `rec.model` und das gesendete Modell fallen hier zusammen. V-h misst
+ *  vor dem Lauf, dass die Zeile fehlt (der Block steht dann schon da, sonst wäre „fehlt“ leer wahr). */
+async function modelleLetzterLauf(cdp: Cdp): Promise<void> {
+  const P = JSON.stringify(PLUGIN_ID);
+  const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
+  if (!root) { unmeasured(P_V_G, "crewRoot nicht lesbar"); unmeasured(P_V_H, "crewRoot nicht lesbar"); return; }
+  const id = "zz-smoke-letzter";
+  const ordner = "zz-smoke-letzter-ordner";
+  const ZEILE = "zeilen-modell-letzter";
+  const WUNSCH = "wunsch-modell-letzter";
+  const stub = await startLlmStub({ models: [ZEILE, WUNSCH], standard: '{"items":[]}' });
+  const teamPfad = `${root}/teams/${id}.md`;
+  const agentPfad = `${root}/agents/zz-smoke-letzter-agent.md`;
+  const notePfad = `${ordner}/a.md`;
+  const team = ["---", "crew-kind: team", "name: ZZ Smoke Letzter", "version: 1", "description: Smoke", "trigger: manual",
+    "limits:", "  max_writes: 1", "write_scope:", `  - "${ordner}/**/*.md"`, "tasks:",
+    "  - id: collect", "    kind: collector", "    collector: vault.list", "    params:", `      folder: ${ordner}`,
+    "  - id: analyse", "    kind: llm", "    agent: zz-smoke-letzter-agent", "    inputs: [collect]", "    instruction: Tue nichts.",
+    "    output_schema: triage-v1", "    on_error: abort",
+    "  - id: apply", "    kind: actions", "    inputs: [analyse]", "    allowed_actions: [frontmatter.patch]", "    allowed_keys: [priority]",
+    "---", "Smoke", ""].join("\n");
+  const agent = ["---", "crew-kind: agent", "name: ZZ Letzter", `model: ${WUNSCH}`, "---", "Du bist ein Test.", ""].join("\n");
+  const saved = await cdp.evaluate<unknown>(`return JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints));`);
+  const groesse = await cdp.evaluate<number | null>(`const s = app.workspace.rightSplit; return s && s.getSize ? s.getSize() : null;`);
+  let runDir = "";
+  const zeile = (name: string) => `[...${PANEL}.querySelectorAll(".vault-crews-team-row")].find((r) => r.querySelector(".vault-crews-team-name")?.textContent.includes(${JSON.stringify(name)}))`;
+  try {
+    await cdp.evaluate(`
+      for (const d of [${JSON.stringify(root)}, ${JSON.stringify(root + "/teams")}, ${JSON.stringify(root + "/agents")}, ${JSON.stringify(ordner)}]) {
+        if (!app.vault.getAbstractFileByPath(d)) await app.vault.createFolder(d);
+      }
+      await app.vault.create(${JSON.stringify(notePfad)}, "---\\npriority: x\\n---\\nInhalt\\n");
+      await app.vault.create(${JSON.stringify(agentPfad)}, ${JSON.stringify(agent)});
+      await app.vault.create(${JSON.stringify(teamPfad)}, ${JSON.stringify(team)});
+      ${PLUGIN}.settings.endpoints = [{ url: ${JSON.stringify(stub.urlV1)}, model: ${JSON.stringify(ZEILE)} }];
+      delete ${PLUGIN}.lastRuns[${JSON.stringify(id)}];
+      await ${PLUGIN}.refreshTeams?.();
+      return true;
+    `);
+    // Der Orchestrator liest Team und Persona aus dem metadataCache, der mit Verzug nachzieht (siehe Welle 8): erst starten, wenn beide da sind.
+    await wartetAuf(cdp, `app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(teamPfad)}))?.frontmatter && app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(agentPfad)}))?.frontmatter`, 10000);
+    await cdp.evaluate(`await app.commands.executeCommandById("${PLUGIN_ID}:open-crews-panel"); return true;`);
+    if (!await wartetAuf(cdp, PANEL)) { unmeasured(P_V_G, "Panel-Blatt erschien nicht"); unmeasured(P_V_H, "Panel-Blatt erschien nicht"); return; }
+    const zumLeerlauf = `
+      ${PANEL}.querySelector(".vault-crews-back")?.click();
+      const tab = ${PANEL}.querySelector(".okit-hub-tab");
+      if (tab && tab.getAttribute("aria-selected") !== "true") tab.click();
+      app.workspace.getLeavesOfType("vault-crews-panel")[0]?.view.refreshFromVault();
+      return true;`;
+    await cdp.evaluate(zumLeerlauf);
+    const da = await wartetAuf(cdp, `(${zeile("ZZ Smoke Letzter")})?.querySelector(".vault-crews-team-models li")`, 12000);
+    if (!da) { unmeasured(P_V_G, "die Crew stand nach 12 s nicht mit Modellzeile im Panel"); unmeasured(P_V_H, "die Crew stand nach 12 s nicht mit Modellzeile im Panel"); return; }
+
+    // V-h: vor dem ersten Lauf — der Block steht (mindestens die Zeile der Persona), „zuletzt benutzt“ fehlt
+    const vor = await cdp.evaluate<{ zeilen: number; letzte: number }>(`
+      const r = ${zeile("ZZ Smoke Letzter")};
+      return { zeilen: r.querySelectorAll(".vault-crews-team-models li").length, letzte: r.querySelectorAll(".vault-crews-team-models-last").length };`);
+    const hVor = vor.zeilen >= 1 && vor.letzte === 0;
+
+    await cdp.evaluate(`${PLUGIN}.runCrew(${JSON.stringify(id)}); return true;`);
+    const fertig = await wartetAuf(cdp, `${PLUGIN}.lastRuns[${JSON.stringify(id)}] && ${PLUGIN}.runActive === false`, 20000);
+    if (!fertig) { unmeasured(P_V_G, "der Lauf endete nach 20 s nicht"); record(P_V_H, false, `vor dem Lauf: ${vor.zeilen} Zeile(n), ${vor.letzte} „zuletzt benutzt“ — Gegenprobe nach dem Lauf nicht messbar (Lauf endete nicht)`); return; }
+    const info = await cdp.evaluate<{ runId: string; status: string }>(`return ${PLUGIN}.lastRuns[${JSON.stringify(id)}];`);
+    runDir = `${root}/runs/${info.runId}`;
+    await cdp.evaluate(zumLeerlauf);
+    await wartetAuf(cdp, `(${zeile("ZZ Smoke Letzter")})?.querySelector(".vault-crews-team-models-last")`, 8000);
+    const nach = await cdp.evaluate<{ letzte: string[]; zeilen: number }>(`
+      const r = ${zeile("ZZ Smoke Letzter")};
+      return { letzte: [...(r?.querySelectorAll(".vault-crews-team-models-last") ?? [])].map((li) => li.textContent), zeilen: r?.querySelectorAll(".vault-crews-team-models li").length ?? 0 };`);
+
+    // Am Draht: das Modell der Chat-Anfrage, nicht das der Anzeige
+    const draht = (stub.letzte("chat")?.json as { model?: string } | null)?.model ?? null;
+    const erwartet = `Last run: ZZ Letzter (analyse): ${WUNSCH}`;
+    const gleich = nach.letzte.length === 1 && nach.letzte[0] === erwartet && draht === WUNSCH;
+
+    // Bei schmaler Panelbreite läuft die längere Zeile nicht über (V-d misst Crews ohne Lauf, diese hier trägt einen)
+    const bild = async (suffix: string): Promise<void> => {
+      const dir = process.env.SMOKE_SHOT_DIR;
+      if (!dir) return;
+      const box = await cdp.evaluate<{ x: number; y: number; width: number; height: number }>(`
+        const r = ${zeile("ZZ Smoke Letzter")}.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };`);
+      writeFileSync(`${dir}/modelle-letzter-lauf-${suffix}.png`, await capture(cdp, box));
+    };
+    await cdp.evaluate(`${zeile("ZZ Smoke Letzter")}.querySelector(".vault-crews-team-models").open = true; await new Promise((r) => setTimeout(r, 300)); return true;`);
+    await bild("breit");
+    const schmal = await cdp.evaluate<{ ueber: number; breite: number }>(`
+      const split = app.workspace.rightSplit;
+      if (split.setSize) split.setSize(240);
+      await new Promise((r) => setTimeout(r, 600));
+      const r = ${zeile("ZZ Smoke Letzter")};
+      const b = r.querySelector(".vault-crews-team-models");
+      b.open = true;
+      await new Promise((r2) => setTimeout(r2, 300));
+      const rand = r.getBoundingClientRect().right;
+      let ueber = 0;
+      for (const el of b.querySelectorAll("li, a, summary")) { if (el.getBoundingClientRect().right > rand + 1) ueber += 1; }
+      if (b.scrollWidth > b.clientWidth + 1) ueber += 1;
+      return { ueber, breite: Math.round(${PANEL}.getBoundingClientRect().width) };`);
+    await bild("schmal");
+    await cdp.evaluate(`${zeile("ZZ Smoke Letzter")}.querySelector(".vault-crews-team-models").open = false; return true;`);
+    record(P_V_G, gleich && info.status === "ok" && schmal.ueber === 0,
+      `Lauf ${info.status}; Zeile(n) „zuletzt benutzt“: ${JSON.stringify(nach.letzte)}; Draht ${JSON.stringify(draht)} (Wunsch ${WUNSCH}, Zeile ${ZEILE}); Panel ${schmal.breite} px breit, ${schmal.ueber} Element(e) über dem Rand`);
+    record(P_V_H, hVor && nach.letzte.length === 1,
+      `vor dem Lauf: ${vor.zeilen} Zeile(n), ${vor.letzte} „zuletzt benutzt“; nach dem Lauf: ${nach.letzte.length}`);
+  } finally {
+    await stub.stop();
+    if (groesse !== null) await cdp.evaluate(`const s = app.workspace.rightSplit; if (s.setSize) s.setSize(${groesse}); return true;`).catch(() => undefined);
+    await cdp.evaluate(`
+      const p = app.plugins.plugins[${P}];
+      p.settings.endpoints = ${JSON.stringify(saved)};
+      for (const q of [${JSON.stringify(teamPfad)}, ${JSON.stringify(agentPfad)}, ${JSON.stringify(notePfad)}, ${JSON.stringify(ordner)}, ${JSON.stringify(runDir)}]) {
+        if (!q) continue;
+        const f = app.vault.getAbstractFileByPath(q);
+        if (f) await app.vault.delete(f, true);
+      }
+      delete p.lastRuns[${JSON.stringify(id)}];
+      return true;`).catch(() => undefined);
   }
 }
 

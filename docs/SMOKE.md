@@ -61,6 +61,17 @@ Rettungskopie daneben und byte-Vergleich im Protokoll):
 12. Kein globales Feld „Standardmodell" mehr
 13. Ein gesetzter Schlüssel führt zum Drittanbieter-Hinweis
 
+**Modellanzeige je Crew** (Abschnitt „Modelle“, Welle 27 und 28; das Panel zeigt je Crew Modell und Denkstufe jedes Agenten, nur lesend):
+
+- V-a bis V-c: die Zeilen der Beispiel-Crews und einer eigenen Crew mit und ohne `model:`; kein Schalter, nur ein Link
+- V-d: bei schmaler Panelbreite läuft die Anzeige nicht über
+- V-e: der Aufklapp-Zustand übersteht ein Neuzeichnen (eine andere Crew bleibt zu)
+- V-f: der Link führt in die Einstellungen dieses Plugins
+- V-g: nach einem Lauf gegen einen Stub mit zwei Modellen nennt die Zeile „zuletzt benutzt“ das Modell, das **am Draht** ankam (die Persona wünscht das zweite, die Endpunkt-Zeile steht auf dem ersten), auch bei schmaler Panelbreite
+- V-h: vor dem ersten Lauf fehlt die Zeile (der Block steht dann schon da), nach dem Lauf steht sie
+
+Mit `SMOKE_SHOT_DIR=<Ordner>` legt V-g die Zeile als `modelle-letzter-lauf-breit.png` und `-schmal.png` zur Sichtprüfung ab.
+
 ### Durchläufe
 
 | Datum | Obsidian | Ergebnis | Gegenprobe |

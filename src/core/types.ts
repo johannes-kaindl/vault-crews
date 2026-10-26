@@ -143,7 +143,12 @@ export interface RunResult {
 	alwaysOnThinker: boolean;
 	/** Quelle des ersten Collectors, der 0 Notizen fand — sonst null. */
 	emptyCollector?: string | null;
+	/** Das Modell, das jeder gelaufene `llm`-Task aufgelöst hat (Reihenfolge der Crew); übersprungene und modelllose Tasks fehlen. */
+	models?: ReadonlyArray<TaskModel>;
 }
+
+/** Das Modell, das ein `llm`-Task im Lauf aufgelöst hat (`rec.model`, nicht der Wert auf dem Draht). */
+export interface TaskModel { taskId: string; model: string; }
 
 export interface SlugTableData { toSlug: Record<string, string>; fromSlug: Record<string, string>; }
 

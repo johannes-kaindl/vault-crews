@@ -21,7 +21,7 @@ Open **Settings → Community plugins → Vault Crews**. Under **Connection** th
 
 Every endpoint row carries its own model. Open the model dropdown of the active row and choose the model you loaded (**Refresh model list** re-reads it from the server). A row set to **— (server picks)** has no model; every run on it stops with "Model not found" unless the agent note names one with `model:`. Under a row that is reachable and has a model, the settings show the context window the server reports ("Context: loaded N · max M tokens").
 
-To see which model and thinking level each agent of a crew will get, open **Models** under the crew in the panel. It is read-only: it shows the `model:` and `thinking:` of the agent notes next to the model of the endpoint row, which is the fallback.
+To see which model and thinking level each agent of a crew will get, open **Models** under the crew in the panel. It is read-only: it shows the `model:` and `thinking:` of the agent notes next to the model of the endpoint row, which is the fallback. After a run, the same block adds one **Last run** line per agent with the model that run actually used.
 
 If the **LLM Endpoint Manager** plugin is installed, the endpoint and model come from there instead; the settings then show its picker.
 

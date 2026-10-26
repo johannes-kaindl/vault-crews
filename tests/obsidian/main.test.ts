@@ -585,3 +585,46 @@ describe("VaultCrewsPlugin — Heartbeat", () => {
     expect(Notice.instances).toHaveLength(0);
   });
 });
+
+// „Modell des letzten Laufs“: der Lauf nennt je llm-Task sein Modell, main.ts merkt es je Crew (data.json) und reicht es dem Panel durch.
+describe("VaultCrewsPlugin — Modell des letzten Laufs", () => {
+  const team = { id: "t", name: "T", description: "", problem: null, intervalMinutes: null, agents: [] };
+  const withTeam = (plugin: VaultCrewsPlugin): void => {
+    (plugin as unknown as { teamCache: unknown[] }).teamCache = [team];
+  };
+  const finish = (plugin: VaultCrewsPlugin, result: RunResult): void => {
+    (plugin as unknown as { onRunFinished(id: string, r: RunResult): void }).onRunFinished("t", result);
+  };
+  const loadedWith = async (lastRuns: unknown): Promise<VaultCrewsPlugin> => {
+    const plugin = makePlugin();
+    (plugin as unknown as { loadData(): Promise<unknown> }).loadData = () => Promise.resolve({ lastRuns });
+    await plugin.loadSettings();
+    withTeam(plugin);
+    return plugin;
+  };
+
+  it("onRunFinished merkt die Modelle des Laufs, und getTeams reicht sie dem Panel", async () => {
+    const plugin = makePlugin();
+    await plugin.onload();
+    withTeam(plugin);
+    finish(plugin, { ...okResult(), models: [{ taskId: "analyse", model: "gross-27b" }] });
+    expect(plugin.getTeams()[0]?.lastRun?.models).toEqual([{ taskId: "analyse", model: "gross-27b" }]);
+  });
+
+  it("ein Alt-Eintrag ohne Feld bleibt gültig und trägt keine Modelle", async () => {
+    const plugin = await loadedWith({ t: { status: "ok", when: 1_700_000_000_000, runId: "r0" } });
+    const last = plugin.getTeams()[0]?.lastRun;
+    expect(last?.status).toBe("ok");
+    expect(last?.models).toBeUndefined();
+  });
+
+  it("eine Fremdform im Feld bricht die Anzeige nicht: kaputte Einträge fallen weg, gültige bleiben", async () => {
+    const plugin = await loadedWith({
+      t: { status: "ok", when: 1_700_000_000_000, runId: "r0", models: [null, "x", { taskId: 1, model: "a" }, { taskId: "b", model: "" }, { taskId: "c" }, { taskId: "analyse", model: "gross-27b" }] },
+      u: { status: "ok", when: 1_700_000_000_000, runId: "r1", models: "kaputt" },
+    });
+    expect(plugin.getTeams()[0]?.lastRun?.models).toEqual([{ taskId: "analyse", model: "gross-27b" }]);
+    (plugin as unknown as { teamCache: unknown[] }).teamCache = [{ ...team, id: "u" }];
+    expect(plugin.getTeams()[0]?.lastRun?.models).toBeUndefined();
+  });
+});

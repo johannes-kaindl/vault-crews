@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The **Models** line of a crew in the run panel now also names the model each agent used in its last run (**Last run: Analyst (analyse): …**), next to the wish and the fallback it already shows. The line comes from the run itself and is kept per crew, so it survives a restart; before a crew has run, or for a crew saved by an earlier version, it is absent.
+
 ## [0.22.0] — 2026-10-25
 
 ### Added

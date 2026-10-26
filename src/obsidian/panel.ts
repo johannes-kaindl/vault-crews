@@ -12,7 +12,7 @@ import { t } from "../vendor/kit/i18n";
 import { buildHubInto, type HubController, type HubPanel } from "../vendor/kit-obsidian/hub";
 import { buildStreamArea, type StreamArea } from "../vendor/kit-obsidian/stream-area";
 import type { RunEvent } from "../core/ports";
-import type { ErrorKind, RunStatus } from "../core/types";
+import type { ErrorKind, RunStatus, TaskModel } from "../core/types";
 import type { CrewModelRow } from "../core/model-resolution";
 import {
   buildPanelViewModel, buildStatusLineVM, markAborting, reduceRun,
@@ -28,7 +28,7 @@ export interface PanelTeam {
   id: string;
   name: string;
   description: string;
-  lastRun: { status: RunStatus; when: number; errorKind?: ErrorKind | null; emptyCollector?: string | null } | null;
+  lastRun: { status: RunStatus; when: number; errorKind?: ErrorKind | null; emptyCollector?: string | null; models?: ReadonlyArray<TaskModel> } | null;
   /** Erste Parse-Fehlermeldung der Crew-Definition, sonst null. Die Zeile bleibt startbar. */
   problem: string | null;
   /** Modell und Denkstufe je `llm`-Task der Crew (nur lesend angezeigt); leer, wenn die Crew nicht parst. */
@@ -237,6 +237,8 @@ export class RunPanelView extends ItemView {
             models.createEl("summary", { cls: "vault-crews-team-models-summary", text: team.models.heading });
             const lines = models.createEl("ul", { cls: "vault-crews-team-models-list" });
             for (const line of team.models.lines) lines.createEl("li", { text: line });
+            // Was der letzte Lauf wirklich benutzt hat (Wunsch und Rückfall oben sind, was gelten würde): fehlt ohne Lauf oder ohne gemerktes Modell.
+            for (const line of team.models.lastUsed) lines.createEl("li", { cls: "vault-crews-team-models-last", text: line });
             const settings = models.createEl("a", { cls: "vault-crews-team-models-settings", text: team.models.settingsLabel, attr: { href: "#", role: "button" } });
             settings.addEventListener("click", (ev) => { ev.preventDefault(); this.host.openSettings(); });
           }

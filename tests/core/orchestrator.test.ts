@@ -911,3 +911,37 @@ describe('executeRun — Anfrage-Profil (Modus structured)', () => {
   });
 });
 
+
+// Die Modellanzeige je Crew nennt das Modell des letzten Laufs: RunResult trägt je llm-Task, welches Modell er aufgelöst hat.
+describe('executeRun — Modell je llm-Task im Ergebnis', () => {
+  const twoLlmTeam = (): TeamFm => triageTeamFm({
+    tasks: [
+      { id: 'collect', kind: 'collector', collector: 'vault.list', params: { folder: '10_Aufgaben' } },
+      { id: 'analyse', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'Bewerte.', output_schema: 'triage-v1', on_error: 'abort' },
+      { id: 'zweite', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'Nochmal.', output_schema: 'triage-v1', on_error: 'skip' },
+      { id: 'apply', kind: 'actions', inputs: ['analyse'], allowed_actions: ['frontmatter.patch'], allowed_keys: ['priority'] },
+    ],
+  });
+
+  it('nennt je gelaufenem llm-Task das aufgelöste Modell, in der Reihenfolge der Crew', async () => {
+    const llm = new ScriptLlmClient([{ content: TRIAGE_OK }, { content: TRIAGE_OK }]);
+    const h = await harness({ teamFm: twoLlmTeam(), llm });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.models).toEqual([{ taskId: 'analyse', model: 'test-model' }, { taskId: 'zweite', model: 'test-model' }]);
+  });
+
+  it('lässt einen übersprungenen llm-Task aus (kein erfundener Eintrag)', async () => {
+    const llm = new ScriptLlmClient([{ content: '{"items":[]}' }]);
+    const h = await harness({ teamFm: twoLlmTeam(), files: {}, llm });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(llm.calls).toHaveLength(0);
+    expect(result.models).toEqual([]);
+  });
+
+  it('ein Lauf, der wegen fehlendem Modell vor dem Start abbricht, nennt keins', async () => {
+    const h = await harness({ settings: { endpoints: [{ url: 'http://localhost:1234' }] } });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.status).toBe('refused');
+    expect(result.models).toEqual([]);
+  });
+});

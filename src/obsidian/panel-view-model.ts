@@ -5,7 +5,7 @@
 // via createEl — sie trifft selbst keine Entscheidung mehr.
 import { t } from "../vendor/kit/i18n";
 import type { RunEvent } from "../core/ports";
-import type { ErrorKind, RunResult, RunStatus } from "../core/types";
+import type { ErrorKind, RunResult, RunStatus, TaskModel } from "../core/types";
 import type { CrewModelRow } from "../core/model-resolution";
 
 // ── Navigations- und Lauf-Zustand (zwei orthogonale Achsen, §2 der Spec) ──────
@@ -176,7 +176,13 @@ export interface TeamRowVM {
   models: ModelsVM | null;
 }
 
-export interface ModelsVM { heading: string; lines: string[]; settingsLabel: string; }
+export interface ModelsVM {
+  heading: string;
+  lines: string[];
+  /** Je Agent das Modell, das der letzte Lauf der Crew aufgelöst hat; leer ohne letzten Lauf oder ohne gemerktes Modell. */
+  lastUsed: string[];
+  settingsLabel: string;
+}
 
 export interface SummaryVM {
   /** Bei Verlauf-Karten der Crew-Name, sonst null (Crews-Done kennt seine Crew im Header). */
@@ -215,7 +221,7 @@ export interface TeamInfo {
   id: string;
   name: string;
   description: string;
-  lastRun: { status: RunStatus; when: number; errorKind?: ErrorKind | null; emptyCollector?: string | null } | null;
+  lastRun: { status: RunStatus; when: number; errorKind?: ErrorKind | null; emptyCollector?: string | null; models?: ReadonlyArray<TaskModel> } | null;
   /** Siehe TeamRowVM.problem — null, solange die Definition sauber parst. */
   problem: string | null;
   /** Eine Zeile je `llm`-Task (`describeCrewModels`); fehlt bei einer Crew, die nicht parst. */
@@ -282,19 +288,31 @@ function buildCrewsBody(runState: RunState, teams: TeamInfo[], nowMs: number, st
         : `${t(`panel.status.${tm.lastRun.status}`)} · ${formatRelative(nowMs, tm.lastRun.when)}${lastRunReason(tm.lastRun)}`,
       runLabel: t("panel.idle.run"),
       problem: tm.problem,
-      models: buildModelsVM(tm.models ?? []),
+      models: buildModelsVM(tm.models ?? [], tm.lastRun?.models ?? []),
     })),
   };
 }
 
 /** Die Zeilen der Modellanzeige: sagt, was das Panel weiß, und nicht mehr (es pingt den Endpunkt nie, das wirkliche Modell steht erst beim Start fest). */
-function buildModelsVM(rows: CrewModelRow[]): ModelsVM | null {
+function buildModelsVM(rows: CrewModelRow[], lastModels: ReadonlyArray<TaskModel>): ModelsVM | null {
   if (rows.length === 0) return null;
   return {
     heading: t("panel.models.heading"),
     lines: rows.map(modelLine),
+    lastUsed: lastUsedLines(rows, lastModels),
     settingsLabel: t("panel.models.settings"),
   };
+}
+
+/** „Zuletzt benutzt“ je Zeile der Crew; Namen und Reihenfolge kommen aus `describeCrewModels` (die Zeilen), nicht aus dem Lauf: ein `taskId`, den die
+ *  Crew-Datei seither nicht mehr führt, und ein leeres Modell erzeugen keine Zeile. */
+function lastUsedLines(rows: CrewModelRow[], lastModels: ReadonlyArray<TaskModel>): string[] {
+  const out: string[] = [];
+  for (const r of rows) {
+    const model = lastModels.find((m) => m.taskId === r.taskId)?.model.trim() ?? "";
+    if (model !== "") out.push(t("panel.models.lastUsed", `${r.agentName} (${r.taskId})`, model));
+  }
+  return out;
 }
 
 function modelLine(r: CrewModelRow): string {

@@ -37,7 +37,7 @@ Local servers almost always need a port, for example `http://localhost:1234/v1`.
 
 **Cause:** the active endpoint has no model chosen (the dropdown of its row reads **— (server picks)**), or the chosen model is not loaded on the server. (The plugin has no global "default model" — the model belongs to the endpoint row.) The run log names the model: "Modell nicht geladen: …" or "Für diesen Endpunkt ist kein Modell gewählt".
 
-**Fix:** in **Settings → Vault Crews → Connection** choose the model in the dropdown of the active row, press **Refresh model list** if it is missing, and load it on the server. An agent note may pin its own `model:` — that only counts when the active endpoint carries that model, otherwise the row's model is used. The **Models** line under each crew in the panel shows both (the agent's wish, and the row's model as the fallback); it cannot tell which applies, because the panel does not ask the endpoint before a run.
+**Fix:** in **Settings → Vault Crews → Connection** choose the model in the dropdown of the active row, press **Refresh model list** if it is missing, and load it on the server. An agent note may pin its own `model:` — that only counts when the active endpoint carries that model, otherwise the row's model is used. The **Models** line under each crew in the panel shows both (the agent's wish, and the row's model as the fallback); it cannot tell which applies before a run, because the panel does not ask the endpoint. After a run it adds a **Last run** line per agent with the model that run used.
 
 ## The panel only says Waiting for output
 

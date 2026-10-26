@@ -486,6 +486,7 @@ class RunFsm {
 			errorKind: this.state.errorKind,
 			alwaysOnThinker: this.state.alwaysOnThinker,
 			emptyCollector: this.state.tasks.find((r) => r.collected?.count === 0)?.collected?.source ?? null,
+			models: this.state.tasks.flatMap((r) => (r.kind === 'llm' && r.model !== null && r.model !== '' ? [{ taskId: r.taskId, model: r.model }] : [])),
 		};
 	}
 

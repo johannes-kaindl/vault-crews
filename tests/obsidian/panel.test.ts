@@ -147,6 +147,20 @@ describe("RunPanelView — crews idle", () => {
       expect(findAll(blocks[0] as HTMLElement, (e) => e.hasClass("vault-crews-team-models-summary"))[0]?.textContent).toBe("Models");
     });
 
+    it("adds the last-run model lines after the configured ones, only when the last run named a model", async () => {
+      const teams: PanelTeam[] = [
+        { ...withModels[0]!, lastRun: { status: "ok", when: 0, models: [{ taskId: "analyse", model: "gross-27b" }] } },
+        { ...withModels[0]!, id: "other", name: "Other", lastRun: { status: "ok", when: 0 } },
+      ];
+      const view = new RunPanelView(makeLeaf(), makeHost({ getTeams: vi.fn().mockReturnValue(teams) }));
+      await view.onOpen();
+      const [withLast, without] = findAll(view.contentEl, (e) => e.tagName === "DETAILS" && e.hasClass("vault-crews-team-models"));
+      const texts = (b: HTMLElement | undefined) => findAll(b as HTMLElement, (e) => e.tagName === "LI").map((i) => i.textContent);
+      expect(texts(withLast)).toHaveLength(2);
+      expect(texts(withLast)[1]).toBe("Last run: Analyst (analyse): gross-27b");
+      expect(texts(without)).toHaveLength(1);
+    });
+
     it("has no control that switches anything: no select, no input, no button inside the block", async () => {
       const view = new RunPanelView(makeLeaf(), makeHost({ getTeams: vi.fn().mockReturnValue(withModels) }));
       await view.onOpen();

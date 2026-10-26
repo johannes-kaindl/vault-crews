@@ -75,7 +75,7 @@ import { buildDenylist } from "./core/paths";
 import { buildUndoPlan, type UndoPlan } from "./core/undo-plan";
 import type { LlmClient, MetadataPort, RunEvent, RunReporter, SnapshotStore, VaultPort } from "./core/ports";
 import { realClock, type ClockPort } from "./vendor/kit/clock";
-import type { AgentDef, ErrorKind, LlmTaskDef, RunLimits, RunResult, RunStatus } from "./core/types";
+import type { AgentDef, ErrorKind, LlmTaskDef, RunLimits, RunResult, RunStatus, TaskModel } from "./core/types";
 
 /** Feste V1-Grenzen, die die Settings-UI (bewusst) nicht exponiert. */
 const MAX_NOTE_BYTES = 65_536;
@@ -96,6 +96,8 @@ interface LastRunInfo {
   durationS?: number;
   errorKind?: ErrorKind | null;
   emptyCollector?: string | null;
+  /** Das Modell je `llm`-Task des Laufs (Modellanzeige „zuletzt benutzt“); Alt-Einträge ohne Feld bleiben gültig. */
+  models?: TaskModel[];
 }
 type LastRuns = Record<string, LastRunInfo>;
 
@@ -592,6 +594,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       durationS: result.durationS,
       errorKind: result.errorKind,
       emptyCollector: result.emptyCollector ?? null,
+      ...(result.models !== undefined ? { models: result.models.map((m) => ({ ...m })) } : {}),
     };
     void this.saveSettings();
   }
@@ -613,7 +616,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
         id: tm.id,
         name: tm.name,
         description: tm.description,
-        lastRun: info ? { status: info.status, when: info.when, errorKind: info.errorKind ?? null, emptyCollector: info.writes === 0 ? info.emptyCollector ?? null : null } : null,
+        lastRun: info ? { status: info.status, when: info.when, errorKind: info.errorKind ?? null, emptyCollector: info.writes === 0 ? info.emptyCollector ?? null : null, ...(info.models !== undefined ? { models: info.models } : {}) } : null,
         problem: tm.problem,
         models: describeCrewModels(tm.agents, this.panelFallbackModel(), null),
       };
@@ -1061,7 +1064,19 @@ function filterValidLastRuns(raw: Record<string, unknown>): LastRuns {
     const undoable = typeof info.undoable === "boolean"
       ? info.undoable
       : typeof info.commitSha === "string";
-    out[teamId] = { ...(info as unknown as LastRunInfo), undoable };
+    const models = validTaskModels(info.models);
+    const { models: _roh, ...rest } = info;
+    out[teamId] = { ...(rest as unknown as LastRunInfo), undoable, ...(models !== undefined ? { models } : {}) };
   }
   return out;
+}
+
+/** data.json ist handeditierbar: aus `models` bleiben nur Einträge mit `taskId` und nichtleerem `model` (beides Text); ohne Liste oder ohne gültigen Eintrag `undefined`. */
+function validTaskModels(raw: unknown): TaskModel[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: TaskModel[] = [];
+  for (const m of raw) {
+    if (isRecord(m) && typeof m.taskId === "string" && typeof m.model === "string" && m.model.trim() !== "") out.push({ taskId: m.taskId, model: m.model });
+  }
+  return out.length > 0 ? out : undefined;
 }
