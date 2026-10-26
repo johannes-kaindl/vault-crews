@@ -9,7 +9,7 @@ Vault Crews talks to any OpenAI-compatible server. The default address is `http:
 1. Start the server and load a chat model.
 2. Enable CORS on the server, otherwise the live token stream is blocked. In LM Studio: Settings → Developer → *Enable CORS* (or `lms server start --cors`). Ollama needs the environment variable `OLLAMA_ORIGINS` to allow Obsidian. Without CORS the run still completes, but the panel shows "Waiting for output…" until the task is done — see [Troubleshooting](troubleshooting.md#the-panel-only-says-waiting-for-output).
 
-New to local models? The [local LLM setup guide](https://uplink.jkaindl.de/llm-setup) covers server, model and access from other devices.
+New to local models? The [local LLM setup guide](https://jkaindl.de/uplink/llm-setup/) covers server, model and access from other devices.
 
 ## 2. Install and enable the plugin
 
