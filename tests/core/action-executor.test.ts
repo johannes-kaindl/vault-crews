@@ -286,6 +286,47 @@ describe('executeActions — note.create', () => {
   });
 });
 
+// Wie `section.replace`: der Elternordner einer neuen Notiz wird angelegt. Heute erzeugt kein Schema `note.create`, aber der erste, der es tut, stößt im
+// ersten Lauf in einen neuen Ordner sonst auf einen `io`-Fehler (wie vor 407558c der erste Lauf ohne `runs/`). `requireExistingFolders` bildet Obsidians Verhalten nach.
+describe('executeActions — note.create legt den Elternordner an', () => {
+  const mkdirs = (vault: InMemoryVaultPort): string[] => {
+    const calls: string[] = [];
+    const orig = vault.mkdir.bind(vault);
+    vault.mkdir = async (path: string) => { calls.push(path); await orig(path); };
+    return calls;
+  };
+
+  it('in einen noch nicht vorhandenen Ordner (auch mehrstufig) schreibt die Notiz statt eines io-Fehlers', async () => {
+    const vault = await seed({ 'Daily/alt.md': 'x' });
+    vault.requireExistingFolders();
+    const action: Action = { type: 'note.create', path: '10_Aufgaben/neu/tief/neu.md', content: '# Neu\n' };
+    const res = await executeActions([action], ctxOf([]), vault);
+    expect(res.outcomes[0]?.result).toBe('applied');
+    expect(res.writes).toEqual(['10_Aufgaben/neu/tief/neu.md']);
+    expect(await vault.read('10_Aufgaben/neu/tief/neu.md')).toBe('# Neu\n');
+  });
+
+  it('ein Ziel in der Wurzel legt keinen Ordner an (kein Geister-Ordner)', async () => {
+    const vault = await seed({ 'Daily/alt.md': 'x' });
+    vault.requireExistingFolders();
+    const calls = mkdirs(vault);
+    const action: Action = { type: 'note.create', path: 'neu.md', content: 'x' };
+    const res = await executeActions([action], ctxOf([], { team: makeTeam({ writeScope: ['neu.md'] }) }), vault);
+    expect(res.outcomes[0]?.result).toBe('applied');
+    expect(calls).toEqual([]);
+  });
+
+  it('eine abgewiesene Aktion legt keinen Ordner an', async () => {
+    const vault = await seed({});
+    vault.requireExistingFolders();
+    const calls = mkdirs(vault);
+    const action: Action = { type: 'note.create', path: '10_Aufgaben/neu/x.txt', content: 'x' };
+    const res = await executeActions([action], ctxOf([], { team: makeTeam({ writeScope: ['10_Aufgaben/**'] }) }), vault);
+    expect(res.outcomes[0]?.result).toBe('rejected');
+    expect(calls).toEqual([]);
+  });
+});
+
 describe('executeActions — note.append', () => {
   it('hängt ohne heading ans Dateiende an', async () => {
     const vault = await seed({ 'Daily/2026-07-02.md': '# Daily\n\nText\n' });

@@ -10,6 +10,10 @@ All notable changes to this project are documented here. The format follows
 
 - The **Models** line of a crew in the run panel now also names the model each agent used in its last run (**Last run: Analyst (analyse): …**), next to the wish and the fallback it already shows. The line comes from the run itself and is kept per crew, so it survives a restart; before a crew has run, or for a crew saved by an earlier version, it is absent.
 
+### Fixed
+
+- A `note.create` action into a folder that does not exist yet creates the folder, the way `section.replace` already did, instead of ending the run with an `io` error. No built-in schema produces this action yet, so no run is affected today.
+
 ## [0.22.0] — 2026-10-25
 
 ### Added

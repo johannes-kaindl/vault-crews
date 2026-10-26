@@ -241,6 +241,8 @@ async function applyAction(v: ValidatedAction, ctx: ExecutorContext, vault: Vaul
 	if (action.type === 'frontmatter.patch') {
 		await vault.patchFrontmatter(v.path, v.mappedSet ?? {}, action.remove);
 	} else if (action.type === 'note.create') {
+		const slash = v.path.lastIndexOf('/');
+		if (slash > 0) await vault.mkdir(v.path.slice(0, slash)); // wie bei section.replace: mkdir ist idempotent + rekursiv (VaultPort); Wurzelziele legen keinen Ordner an
 		await vault.create(v.path, action.content);
 	} else if (action.type === 'note.append') {
 		const current = await vault.read(v.path);
