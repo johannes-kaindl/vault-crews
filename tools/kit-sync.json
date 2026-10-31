@@ -46,7 +46,14 @@
         "timeout",
         "local-stamp",
         "rel-path",
-        "folder-scope"
+        {
+          "name": "folder-scope",
+          "ref": "0.44.0"
+        },
+        {
+          "name": "fold-case",
+          "ref": "0.44.0"
+        }
       ]
     },
     {

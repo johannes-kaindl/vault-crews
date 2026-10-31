@@ -1,4 +1,5 @@
-// vendored from code-kit@0.38.0, src/ts/pure/folder-scope.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.44.0, src/ts/pure/folder-scope.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+import { foldCase } from "./fold-case";
 import { normalizeRelPath } from "./rel-path";
 
 /** Which paths lie inside a folder, and the entries of a list that mean "this note" or "all notes in this folder". The same few
@@ -103,8 +104,8 @@ export interface FolderScopeOptions {
 function filesystemName(segment: string): string | null {
   const cut = (segment.replace(/[\u00a0\u202f]/g, " ").split(":")[0] ?? "").replace(/[ .]+$/, "");
   if (cut === "") return null;
-  const read = cut.normalize("NFKC").toUpperCase().toLowerCase();
-  if (read === "." || read === ".." || read.includes("/") || read.includes("\\")) return cut.normalize("NFC").toUpperCase().toLowerCase();
+  const read = foldCase(cut.normalize("NFKC"));
+  if (read === "." || read === ".." || read.includes("/") || read.includes("\\")) return foldCase(cut);
   return read;
 }
 
