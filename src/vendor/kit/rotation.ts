@@ -1,4 +1,4 @@
-// vendored from code-kit@0.38.0, src/ts/pure/rotation.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.60.0, src/ts/pure/rotation.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Which of a set of timestamp-named directories have to go, so that the newest `keep`
  *  survive. Used for rotating backups, snapshots and any other write-once, keep-N store.
  *
@@ -272,7 +272,9 @@ export function selectGfsRetention(
  *  Not carried: a stamp without milliseconds (obsidian-transmute drops them). Such a name is `null`
  *  — and so kept. */
 
-const STAMP_RE = /(?<!\d)(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z(?!\d)/;
+// Group 1 is the character in front (not a digit, or the start): a lookbehind written out, because iOS Safari before 16.4 does not
+// parse `(?<!\d)` and the whole bundle would fail to load (eslint-plugin-obsidianmd `regex-lookbehind`).
+const STAMP_RE = /(^|\D)(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z(?!\d)/;
 
 /** The name for an instant: `prefix` + `YYYY-MM-DDTHH-MM-SS-mmmZ` (UTC) + `suffix`. Prefix and
  *  suffix are taken verbatim, so the caller puts the separator and the extension in
@@ -292,8 +294,8 @@ export function stampedName(time: number, affixes: { prefix?: string; suffix?: s
 export function timeFromStampedName(name: string): number | null {
   const m = STAMP_RE.exec(name);
   if (!m) return null;
-  const [y, mo, d, h, mi, s, ms] = m.slice(1).map(Number) as [number, number, number, number, number, number, number];
+  const [y, mo, d, h, mi, s, ms] = m.slice(2).map(Number) as [number, number, number, number, number, number, number];
   const time = Date.UTC(y, mo - 1, d, h, mi, s, ms);
   // Round trip: the same stamp must come back, otherwise the fields were out of range and rolled over.
-  return Number.isNaN(time) || new Date(time).toISOString().replace(/[:.]/g, "-") !== m[0] ? null : time;
+  return Number.isNaN(time) || new Date(time).toISOString().replace(/[:.]/g, "-") !== m[0].slice(m[1]?.length ?? 0) ? null : time;
 }
