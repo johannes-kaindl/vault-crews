@@ -242,11 +242,13 @@ describe("RunPanelView — running state & status line", () => {
       { type: "token", taskId: "collect", isThink: true, text: "th" },
       { type: "taskFinished", taskId: "collect", status: "ok" },
     ]);
-    // Status-Indikator: Lucide-Icon + Zustandsklasse + Statustext als aria-label (kein Sonderzeichen mehr).
-    const [icon] = findAll(view.contentEl, (e) => e.classList.contains("vault-crews-task-icon"));
-    expect(icon?.classList.contains("is-ok")).toBe(true);
+    // Status-Indikator aus dem Kit (`buildStatus`/`paintStatus`): Lucide-Icon + Zustandsklasse + Text als aria-label (kein Sonderzeichen mehr).
+    const [status] = findAll(view.contentEl, (e) => e.classList.contains("okit-status"));
+    expect(status?.classList.contains("vault-crews-task-row")).toBe(true);
+    expect(status?.classList.contains("is-ok")).toBe(true);
+    expect(status?.getAttribute("aria-label")).toBe("collect — Ok");
+    const [icon] = findAll(status as unknown as typeof view.contentEl, (e) => e.classList.contains("okit-status-icon"));
     expect((icon as unknown as { dataset?: Record<string, string> }).dataset?.icon).toBe("circle-check");
-    expect(icon?.getAttribute("aria-label")).toBe("Ok");
     expect(view.contentEl.textContent).not.toContain("✓");
     // Der Denkblock entsteht lazy (buildStreamArea: kein Ballast vor dem ersten Gedanken) —
     // aber der Token kam vor `taskFinished`, dessen voller Render das Kit-Modul neu baut;

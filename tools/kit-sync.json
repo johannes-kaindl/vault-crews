@@ -127,7 +127,11 @@
         "llm-connection-strings",
         "secrets",
         "shortcuts-bridge",
-        "plugin-api"
+        "plugin-api",
+        {
+          "name": "status-indicator",
+          "ref": "0.76.0"
+        }
       ],
       "rewrite": [
         [

@@ -22,19 +22,20 @@ function appendCapped(buf: string, add: string): string {
   return next.length > MAX_LIVE_CHARS ? next.slice(next.length - MAX_LIVE_CHARS) : next;
 }
 
-// Status-Indikator nach UI-STANDARD §8: Lucide-Icon (`loader` / `circle-check` / `circle-x` /
-// `alert-triangle`) UND Zustandsklasse (`is-checking` / `is-ok` / `is-error` / `is-warning`) UND
-// ein Text als `aria-label` — Farbe allein trägt nie. Die zwei Zustände, die der Standard nicht
-// kennt (wartet, übersprungen), bekommen neutrale Icons ohne Zustandsklasse.
+// Status-Indikator nach UI-STANDARD §8: Der Kit-Baustein `status-indicator` (`buildStatus`/`paintStatus`) zeichnet
+// Lucide-Icon UND Zustandsklasse UND Text als `aria-label` — Farbe allein trägt nie. Dieses Modul bleibt frei von
+// `obsidian`-Importen und nennt deshalb nur die Phase (gleiche Namen wie `StatusPhase` im Kit) und, für die zwei Zustände,
+// die der Standard nicht kennt (wartet, übersprungen), das neutrale Symbol der Phase `idle`.
 export type TaskLineStatus = "waiting" | "running" | "ok" | "failed" | "skipped" | "stale";
-export interface TaskIconVM { name: string; cls: string; }
-const TASK_ICON: Record<TaskLineStatus, TaskIconVM> = {
-  waiting: { name: "circle-dashed", cls: "" },
-  running: { name: "loader", cls: "is-checking" },
-  ok: { name: "circle-check", cls: "is-ok" },
-  failed: { name: "circle-x", cls: "is-error" },
-  skipped: { name: "circle-minus", cls: "" },
-  stale: { name: "alert-triangle", cls: "is-warning" },
+export type TaskPhase = "idle" | "checking" | "ok" | "error" | "warning";
+export interface TaskStatusVM { phase: TaskPhase; idleIcon: string; }
+const TASK_STATUS: Record<TaskLineStatus, TaskStatusVM> = {
+  waiting: { phase: "idle", idleIcon: "circle-dashed" },
+  running: { phase: "checking", idleIcon: "circle" },
+  ok: { phase: "ok", idleIcon: "circle" },
+  failed: { phase: "error", idleIcon: "circle" },
+  skipped: { phase: "idle", idleIcon: "circle-minus" },
+  stale: { phase: "warning", idleIcon: "circle" },
 };
 
 export interface TaskLine { taskId: string; status: TaskLineStatus; }
@@ -204,7 +205,7 @@ export interface CrewHistoryRowVM { teamId: string; text: string; }
 
 export type BodyVM =
   | { kind: "crewsIdle"; empty: boolean; emptyText: string; installLabel: string; teams: TeamRowVM[]; strayText: string | null }
-  | { kind: "crewsRunning"; lines: { icon: TaskIconVM; label: string; statusText: string }[]; streamText: string; thinkText: string; streamEmptyText: string; thinkingLabel: string }
+  | { kind: "crewsRunning"; lines: { status: TaskStatusVM; label: string }[]; streamText: string; thinkText: string; streamEmptyText: string; thinkingLabel: string }
   | { kind: "crewsDone"; summary: SummaryVM; backLabel: string }
   | { kind: "history"; empty: boolean; emptyText: string; latest: SummaryVM | null; crewsHeading: string; crews: CrewHistoryRowVM[] };
 
@@ -254,9 +255,8 @@ function buildCrewsBody(runState: RunState, teams: TeamInfo[], nowMs: number, st
     return {
       kind: "crewsRunning",
       lines: runState.lines.map((l) => ({
-        icon: TASK_ICON[l.status],
+        status: TASK_STATUS[l.status],
         label: `${l.taskId} — ${t(`panel.status.${l.status}`)}`,
-        statusText: t(`panel.status.${l.status}`),
       })),
       streamText: runState.streamText,
       thinkText: runState.thinkText,

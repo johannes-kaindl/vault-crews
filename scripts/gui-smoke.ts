@@ -1508,9 +1508,10 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
           if (${PLUGIN}.runActive === true) w.gestartet = true;
           if (w.gestartet && ${PLUGIN}.runActive === false) break;
           if (${PLUGIN}.runActive === true) {
-            for (const ik of leaf.querySelectorAll(".vault-crews-task-icon")) {
+            for (const zeile of leaf.querySelectorAll(".vault-crews-task-row.okit-status")) {
+              const ik = zeile.querySelector(".okit-status-icon") ?? zeile;
               const svg = ik.querySelector("svg");
-              const probe = { cls: [...ik.classList].filter((c) => c.startsWith("is-")).join(" "), aria: ik.getAttribute("aria-label") ?? "",
+              const probe = { cls: [...zeile.classList].filter((c) => c.startsWith("is-")).join(" "), aria: zeile.getAttribute("aria-label") ?? "",
                 svg: svg !== null, anim: svg ? getComputedStyle(svg).animationName : "", farbe: getComputedStyle(ik).color };
               if (!w.ikonen.some((x) => x.cls === probe.cls && x.aria === probe.aria && x.anim === probe.anim)) w.ikonen.push(probe);
             }
@@ -1591,12 +1592,12 @@ async function w20Lauf(cdp: Cdp): Promise<void> {
     }
 
     // (2b) Status-Symbole der Aufgabenzeilen (Welle 23): während des Laufs steht mindestens ein Symbol im Zustand „läuft“ mit
-    // Icon, Zustandsklasse `is-checking`, Textalternative „Running“ UND laufender Animation (die Klasse steht auch ohne die
+    // Icon, Zustandsklasse `is-checking`, Textalternative „… — Running“ UND laufender Animation (die Klasse steht auch ohne die
     // CSS-Regel da, UI-STANDARD §8: nur `getComputedStyle(svg).animationName` belegt die Bewegung). Ein Endzustand darf stillstehen.
-    if (!w || w.ikonen.length === 0) unmeasured(P_STATUSSYMBOLE, w ? "kein .vault-crews-task-icon während des Laufs gesehen" : keinLauf);
+    if (!w || w.ikonen.length === 0) unmeasured(P_STATUSSYMBOLE, w ? "keine .vault-crews-task-row.okit-status während des Laufs gesehen" : keinLauf);
     else {
       const lauf = w.ikonen.find((x) => x.cls === "is-checking");
-      const ok = lauf !== undefined && lauf.svg && lauf.aria === "Running" && lauf.anim !== "none" && lauf.anim !== "";
+      const ok = lauf !== undefined && lauf.svg && lauf.aria.endsWith(" — Running") && lauf.anim !== "none" && lauf.anim !== "";
       const alle = w.ikonen.every((x) => x.svg && x.aria !== "");
       const farben = new Set(w.ikonen.map((x) => x.farbe)).size;
       record(P_STATUSSYMBOLE, ok && alle,

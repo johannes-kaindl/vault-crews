@@ -176,8 +176,8 @@ describe("buildPanelViewModel — crews body", () => {
     const vm = buildPanelViewModel({ navState: "crews", runState: running, teams, latest: null, nowMs: 0 , strayCount: 0 });
     expect(vm.body.kind).toBe("crewsRunning");
     if (vm.body.kind === "crewsRunning") {
-      expect(vm.body.lines[0]?.icon).toEqual({ name: "circle-check", cls: "is-ok" });
-      expect(vm.body.lines[0]?.statusText).toBe("Ok");
+      expect(vm.body.lines[0]?.status).toEqual({ phase: "ok", idleIcon: "circle" });
+      expect(vm.body.lines[0]?.label).toBe("collect — Ok");
       expect(vm.body.streamText).toBe("");
       expect(vm.body.thinkingLabel).toContain("0");   // leeres Denk-Stück: keine Zeichen, keine Token
     }
@@ -206,17 +206,17 @@ describe("buildPanelViewModel — crews body", () => {
     const vm = buildPanelViewModel({ navState: "crews", runState: running, teams, latest: null, nowMs: 0, strayCount: 0 });
     expect(vm.body.kind).toBe("crewsRunning");
     if (vm.body.kind !== "crewsRunning") return;
-    expect(vm.body.lines.map((l) => l.icon)).toEqual([
-      { name: "circle-dashed", cls: "" },
-      { name: "loader", cls: "is-checking" },
-      { name: "circle-check", cls: "is-ok" },
-      { name: "circle-x", cls: "is-error" },
-      { name: "circle-minus", cls: "" },
-      { name: "alert-triangle", cls: "is-warning" },
+    // Phasen des Kit-Bausteins `status-indicator`; wartet/übersprungen sind `idle` mit eigenem Symbol (kein Erfolg, kein Fehler).
+    expect(vm.body.lines.map((l) => l.status)).toEqual([
+      { phase: "idle", idleIcon: "circle-dashed" },
+      { phase: "checking", idleIcon: "circle" },
+      { phase: "ok", idleIcon: "circle" },
+      { phase: "error", idleIcon: "circle" },
+      { phase: "idle", idleIcon: "circle-minus" },
+      { phase: "warning", idleIcon: "circle" },
     ]);
-    // Textalternative: jede Zeile trägt den Statustext, nie nur ein Zeichen.
-    expect(vm.body.lines.map((l) => l.statusText)).toEqual(["Waiting", "Running", "Ok", "Failed", "Skipped", "Stale"]);
-    for (const l of vm.body.lines) expect(l.label.endsWith(l.statusText)).toBe(true);
+    // Textalternative: jede Zeile trägt den Statustext, nie nur ein Zeichen (der Baustein setzt ihn auch als aria-label).
+    expect(vm.body.lines.map((l) => l.label.split(" — ")[1])).toEqual(["Waiting", "Running", "Ok", "Failed", "Skipped", "Stale"]);
   });
 
   it("running body exposes live streamText/thinkText and an empty-placeholder", () => {

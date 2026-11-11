@@ -8,6 +8,7 @@
 // puren panel-view-model.ts (node-testbar); dieses Modul trifft keine Entscheidung.
 // DOM ausschließlich über createEl/createDiv/createSpan — nie HTML-String-Zuweisung.
 import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
+import { buildStatus, paintStatus } from "../vendor/kit-obsidian/status-indicator";
 import { t } from "../vendor/kit/i18n";
 import { buildHubInto, type HubController, type HubPanel } from "../vendor/kit-obsidian/hub";
 import { buildStreamArea, type StreamArea } from "../vendor/kit-obsidian/stream-area";
@@ -248,12 +249,8 @@ export class RunPanelView extends ItemView {
       case "crewsRunning": {
         const list = root.createDiv({ cls: "vault-crews-task-list" });
         for (const line of body.lines) {
-          const row = list.createDiv({ cls: "vault-crews-task-row" });
-          // Status-Indikator (UI-STANDARD §8): Form + Farbe + Zustandsklasse + aria-label (Statustext).
-          const icon = row.createSpan({ cls: `vault-crews-task-icon ${line.icon.cls}`.trim() });
-          setIcon(icon, line.icon.name);
-          icon.setAttribute("aria-label", line.statusText);
-          row.createSpan({ cls: "vault-crews-task-label", text: line.label });
+          // Status-Indikator (UI-STANDARD §8, Kit `status-indicator`): Symbol + Zustandsklasse + Text, derselbe Text als aria-label.
+          paintStatus(buildStatus(list, "vault-crews-task-row", { idleIcon: line.status.idleIcon }), line.status.phase, line.label);
         }
         // Streaming-Antwortbereich aus dem Kit (UI-STANDARD §8, `buildStreamArea`):
         // Gedankenblock (lazy, nur bei vorhandenem Denktext) über dem laufenden Absatz.
