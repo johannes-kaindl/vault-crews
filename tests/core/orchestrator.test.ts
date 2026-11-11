@@ -257,6 +257,66 @@ describe('executeRun — repair loop', () => {
     expect(h.snapshot.finalized).toContain(result.runId);
   });
 
+  it('der Reparatur-Call trägt die History: Ausgangs-Prompt, schlechte Antwort, Grund und Aufforderung (Befund „Reparatur-Call ohne Ausgangs-Prompt“)', async () => {
+    const llm = new ScriptLlmClient([{ content: 'kein json' }, { content: TRIAGE_OK }]);
+    const h = await harness({ llm });
+    await executeRun(h.teamPath, h.deps);
+    const [first, second] = llm.calls;
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    const n = first!.messages.length;
+    // Der Ausgangs-Prompt (System mit Schema und Format, Nutzer mit Material) steht unverändert am Anfang ...
+    expect(second!.messages.slice(0, n)).toEqual(first!.messages);
+    // ... danach die schlechte Antwort als Zug des Modells und eine Nutzer-Nachricht mit dem Grund.
+    expect(second!.messages[n]).toEqual({ role: 'assistant', content: 'kein json' });
+    expect(second!.messages).toHaveLength(n + 2);
+    const last = second!.messages[n + 1]!;
+    expect(last.role).toBe('user');
+    expect(last.content).toMatch(/was not valid: - /);
+    expect(last.content.endsWith('Antworte erneut, exakt in dem im System-Prompt geforderten Format.')).toBe(true);
+    expect(last.content).not.toContain('im im');
+  });
+
+  it('nach einem Overflow trägt der Reparatur-Call die verkleinerte Fassung, die durchging — nicht die große, die überlief', async () => {
+    // Zwei LLM-Tasks heben das Call-Limit auf vier; der zweite Task läuft nur mit, damit Platz für Overflow, Antwort und Reparatur bleibt.
+    const teamFm = triageTeamFm({
+      tasks: [
+        { id: 'collect', kind: 'collector', collector: 'vault.read', params: { paths: ['10_Aufgaben/a.md', ...Array.from({ length: 12 }, (_, i) => `10_Aufgaben/b${i}.md`)] } },
+        { id: 'analyse', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'Bewerte.', output_schema: 'triage-v1', on_error: 'abort' },
+        { id: 'zweit', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'Bewerte nochmal.', output_schema: 'triage-v1', on_error: 'skip' },
+        { id: 'apply', kind: 'actions', inputs: ['analyse'], allowed_actions: ['frontmatter.patch'], allowed_keys: ['priority'] },
+      ],
+    });
+    const llm = new ScriptLlmClient([{ error: 'overflow' }, { content: 'kein json' }, { content: TRIAGE_OK }, { content: TRIAGE_OK }]);
+    // Genug Material, dass die halbe Budget-Fassung wirklich weniger Einträge trägt (Notizen à 1 200 Zeichen, zusammen mehr als das halbe Budget).
+    const files: Record<string, string> = { '10_Aufgaben/a.md': TASK_NOTE };
+    for (let i = 0; i < 12; i++) files[`10_Aufgaben/b${i}.md`] = `---\npriority: 1\n---\n${'x'.repeat(1200)}\n`;
+    const h = await harness({ llm, teamFm, files });
+    await executeRun(h.teamPath, h.deps);
+    const [big, halved, repair] = llm.calls;
+    expect(repair).toBeDefined();
+    expect(halved!.messages).not.toEqual(big!.messages);   // der Overflow hat das Material wirklich verkleinert (sonst beweist der Test nichts)
+    expect(repair!.messages.slice(0, halved!.messages.length)).toEqual(halved!.messages);
+  });
+
+  it('beim erreichten Call-Limit gibt es keine Reparatur-Runde: invalid_output wie bisher', async () => {
+    // Das Limit ist zwei Calls je LLM-Task; der Overflow-Versuch zählt mit, die Reparatur wäre der dritte.
+    const llm = new ScriptLlmClient([{ error: 'overflow' }, { content: 'kein json' }]);
+    const h = await harness({ llm });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.status).toBe('failed');
+    expect(result.errorKind).toBe('invalid_output');
+    expect(llm.calls).toHaveLength(2);
+  });
+
+  it('ein Fehler im Reparatur-Call (Server) bleibt ein Fehler dieser Klasse, kein invalid_output', async () => {
+    const llm = new ScriptLlmClient([{ content: 'kein json' }, { error: 'http', httpDetail: { status: 500, detail: 'kaputt' } }]);
+    const h = await harness({ llm });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.status).toBe('failed');
+    expect(result.errorKind).toBe('endpoint_error');
+  });
+
   it('repair-fail-abort: invalid twice, on_error abort → failed invalid_output, no writes → not undoable', async () => {
     const llm = new ScriptLlmClient([{ content: 'kaputt' }, { content: 'immer noch kaputt' }]);
     const h = await harness({ llm });

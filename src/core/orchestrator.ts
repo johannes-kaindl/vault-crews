@@ -8,7 +8,7 @@ import { parseAgentDef, parseTeamDef } from './crew-parser';
 import { collectorSource, emptyInputSource, runCollector } from './collectors';
 import { buildPrompt } from './prompt-builder';
 import { buildSchema } from './schemas';
-import { buildRepairPrompt, validateOutput } from './output-validator';
+import { validateOutput } from './output-validator';
 import { executeActions, type ExecutorContext } from './action-executor';
 import { buildRunMd, buildStateJson } from './run-log';
 import { fnv1a } from './collectors';
@@ -16,6 +16,7 @@ import { isAlwaysOnThinker } from './model-info';
 import { resolveTaskModel } from './model-resolution';
 import { buildCrewParams } from './crew-request';
 import { redactKeysInValue } from '../vendor/kit/redact';
+import { askUntilValid, type AskReply, type AskUntilValidResult, type TextMessage, type Verdict } from '../vendor/kit/answer-retry';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { resolveActiveEndpointConfig, type EndpointConfig } from '../vendor/kit/endpoint_config';
 import { localDate, localParts } from '../vendor/kit/local-stamp';
@@ -61,6 +62,9 @@ interface Refusal { kind: ErrorKind; message: string; }
 
 const BUDGET_RESERVE = 0.15;
 const CONTEXT_FALLBACK = 8192;
+/** Die Aufforderung am Ende der Reparatur-Nachricht (Kit `askUntilValid`, `instruction`): der Ausgangs-Prompt mit dem Format steht davor in der History. */
+const REPAIR_INSTRUCTION = 'Antworte erneut, exakt in dem im System-Prompt geforderten Format.';
+type ValidatedOutput = { ok: true; json: unknown; actions: Action[] };
 
 export function executeRun(teamPath: string, deps: RunDeps): Promise<RunResult> {
 	return new RunFsm(teamPath, deps).run();
@@ -70,6 +74,9 @@ export function executeRun(teamPath: string, deps: RunDeps): Promise<RunResult> 
 class RedactionFailed extends Error {
 	constructor(reason: string) { super(`Lauf-Zustand nicht schwärzbar: ${reason}`); }
 }
+
+/** Der Stream wurde vom Nutzer abgebrochen, während eine Reparatur-Antwort lief (kein Fehler des Modells). */
+class StreamAborted extends Error {}
 
 class RunFsm {
 	private readonly state: RunState;
@@ -327,12 +334,14 @@ class RunFsm {
 
 		// Primärer Call mit genau einem reaktiven Overflow-Retry (Material halbieren).
 		let result: LlmStreamResult;
+		let usedMessages: LlmMessage[] = [];   // der Ausgangs-Prompt, der durchging (nach einem Overflow die verkleinerte Fassung)
 		let overflowRetried = false;
 		for (;;) {
 			const b = overflowRetried ? Math.max(1, Math.floor(budget / 2)) : budget;
 			try {
 				const prompt = buildPrompt(agent, task, inputs, schema, b);
 				rec.promptHash = prompt.promptHash;
+				usedMessages = prompt.messages;
 				result = await this.stream(prompt.messages, params, task.id, check);
 			} catch (e) {
 				if (e instanceof LlmCallError && e.kind === 'overflow' && !overflowRetried) {
@@ -347,31 +356,53 @@ class RunFsm {
 		if (params.thinkingLevel === 'off' && result.reasoned) this.state.alwaysOnThinker = true;
 		if (result.finishReason === 'aborted') { this.abortRun(task.id, 'Stream abgebrochen'); rec.error = { kind: 'aborted', message: 'Stream abgebrochen' }; return 'failed'; }
 
-		let validated = validateOutput(result.content, schema, sources, slugTables, target);
-		if (!validated.ok) await this.writeArtifact(task.id, 1, result.content);
-		// Am Token-Limit abgeschnitten UND ungültig: die Reparatur-Runde träfe dieselbe Grenze
-		// und wäre ein verbrannter Call. Ursache ist ein Budget, nicht das Modell — also auch
-		// nicht als invalid_output melden, sonst sucht der Nutzer an der falschen Stelle.
-		if (!validated.ok && result.finishReason === 'length') {
-			return this.failLlm(task, rec, 'output_truncated', truncatedMsg(sentMax));
+		// Prüfen, bei Bedarf EINE Reparatur-Runde (Kit `askUntilValid`, maxRetries 1): der Reparatur-Call trägt die History — den
+		// Ausgangs-Prompt, der tatsächlich durchging (nach einem Overflow die verkleinerte Fassung), die schlechte Antwort und den Grund.
+		// Die erste Antwort liegt schon vor (Overflow-Schleife oben), deshalb gibt der erste `ask` sie zurück. Die Reparatur entfällt,
+		// sobald das Call-Limit erreicht ist (`stream` würfe dann; die Meldung bleibt invalid_output).
+		let lastErrors: string[] = [];
+		const rawByAsk: string[] = [];
+		let pending: AskReply | null = { content: result.content, truncated: result.finishReason === 'length' };
+		let asks = 0;
+		const ask = async (messages: TextMessage[]): Promise<AskReply> => {
+			asks += 1;
+			if (pending !== null) { const first = pending; pending = null; return first; }
+			// Eine zweite Frage heißt: die erste Antwort war ungültig. Ihren Rohtext vor dem Call sichern (Absturz mitten in der Reparatur).
+			await this.writeArtifact(task.id, asks - 1, rawByAsk[asks - 2] ?? '');
+			const repair = await this.stream(messages, params, task.id, check);
+			rec.thinkTokens += repair.thinkTokens;
+			if (params.thinkingLevel === 'off' && repair.reasoned) this.state.alwaysOnThinker = true;
+			if (repair.finishReason === 'aborted') throw new StreamAborted();
+			return { content: repair.content, truncated: repair.finishReason === 'length' };
+		};
+		const validate = (content: string): Verdict<ValidatedOutput> => {
+			rawByAsk.push(content);
+			const v = validateOutput(content, schema, sources, slugTables, target);
+			if (v.ok) return { ok: true, value: v };
+			lastErrors = v.errors;
+			return { ok: false, problem: v.errors.map((e) => `- ${e}`).join('\n') };
+		};
+		let outcome: AskUntilValidResult<ValidatedOutput>;
+		try {
+			outcome = await askUntilValid(ask, validate, {
+				messages: usedMessages,
+				instruction: REPAIR_INSTRUCTION,
+				maxRetries: this.state.llmCalls < this.limits.maxLlmCalls ? 1 : 0,
+				// Am Token-Limit abgeschnitten UND ungültig: die Reparatur träfe dieselbe Grenze und wäre ein verbrannter Call.
+				// Die Ursache ist ein Budget, nicht das Modell (Fehlerart output_truncated).
+				stopOnTruncated: true,
+			});
+		} catch (e) {
+			if (e instanceof StreamAborted) { this.abortRun(task.id, 'Stream abgebrochen'); rec.error = { kind: 'aborted', message: 'Stream abgebrochen' }; return 'failed'; }
+			return this.failLlm(task, rec, llmErrorKind(e), errMsg(e));
 		}
-		if (!validated.ok && this.state.llmCalls < this.limits.maxLlmCalls) {
-			// genau ein Repair-Zyklus
-			try {
-				const repair = await this.stream(buildRepairPrompt(result.content, validated.errors), params, task.id, check);
-				rec.thinkTokens += repair.thinkTokens;
-				if (params.thinkingLevel === 'off' && repair.reasoned) this.state.alwaysOnThinker = true;
-				if (repair.finishReason === 'aborted') { this.abortRun(task.id, 'Stream abgebrochen'); rec.error = { kind: 'aborted', message: 'Stream abgebrochen' }; return 'failed'; }
-				validated = validateOutput(repair.content, schema, sources, slugTables, target);
-				if (!validated.ok) await this.writeArtifact(task.id, 2, repair.content);
-				if (!validated.ok && repair.finishReason === 'length') {
-					return this.failLlm(task, rec, 'output_truncated', truncatedMsg(sentMax));
-				}
-			} catch (e) {
-				return this.failLlm(task, rec, llmErrorKind(e), errMsg(e));
-			}
+		if (!outcome.ok) {
+			// Der Rohtext der letzten (ungültigen) Antwort bleibt lesbar, nie als Schreibvorgang registriert.
+			await this.writeArtifact(task.id, outcome.attempts, outcome.raw);
+			if (outcome.truncated) return this.failLlm(task, rec, 'output_truncated', truncatedMsg(sentMax));
+			return this.failLlm(task, rec, 'invalid_output', lastErrors.join('; '));
 		}
-		if (!validated.ok) return this.failLlm(task, rec, 'invalid_output', validated.errors.join('; '));
+		const validated = outcome.value;
 
 		// Zusatz-Vertrag: llm-Artifact.json = { output, actions }; files/slugTables geerbt.
 		const artifact: Artifact = { taskId: task.id, json: { output: validated.json, actions: validated.actions }, files: sources, slugTables };
@@ -632,7 +663,7 @@ class RunFsm {
 	 *  §9: „fehlerfall-artifacts"). Fixture-Korpus, kein Vault-Write des Modells: NICHT im
 	 *  writeRegister, zählt nicht gegen max_writes — der runDir-Verzeichnis-Pathspec
 	 *  (git-plan.ts) staged artifacts/ trotzdem automatisch für den Commit. */
-	private async writeArtifact(taskId: string, attempt: 1 | 2, content: string): Promise<void> {
+	private async writeArtifact(taskId: string, attempt: number, content: string): Promise<void> {
 		const dir = `${this.runDir()}/artifacts`;
 		try { await this.deps.vault.mkdir(dir); } catch { /* existiert bereits */ }
 		await this.writeFile(`${dir}/${taskId}-${attempt}.txt`, content);

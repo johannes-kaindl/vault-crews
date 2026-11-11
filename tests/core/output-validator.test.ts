@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { stripThinkBlocks } from '../../src/vendor/kit/think-splitter';
-import { buildRepairPrompt, extractJson, extractText, validateOutput } from '../../src/core/output-validator';
+import { extractJson, extractText, validateOutput } from '../../src/core/output-validator';
 import { pruefeLinear } from '../vendor/kit/linear-probe';
 import { BUILTIN_SCHEMAS } from '../../src/core/schemas';
 import type { CollectedFile, SlugTableData } from '../../src/core/types';
@@ -243,17 +243,6 @@ describe('extractText gegen die alte Fassung (Differentialtest)', () => {
 	it('entzäunt einen Zaun in einer einzigen Zeile nicht mehr', () => {
 		expect(alt('```Hallo```')).toBe('Hallo');
 		expect(extractText('```Hallo```')).toBe('```Hallo```');
-	});
-});
-
-describe('buildRepairPrompt', () => {
-	it('enthält Roh-Output und konkrete Fehlerliste, ist format-neutral (kein "JSON" im System-Text)', () => {
-		const msgs = buildRepairPrompt('kaputt{', ['items: fehlt']);
-		expect(msgs[0]?.role).toBe('system');
-		expect(msgs[0]?.content).not.toContain('JSON');
-		expect(msgs[1]?.content).toContain('kaputt{');
-		expect(msgs[1]?.content).toContain('items: fehlt');
-		expect(msgs[1]?.content).toContain('System-Prompt geforderten Format');
 	});
 });
 

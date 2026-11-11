@@ -59,6 +59,10 @@
         {
           "name": "fold-case",
           "ref": "0.44.0"
+        },
+        {
+          "name": "answer-retry",
+          "ref": "0.63.0"
         }
       ]
     },

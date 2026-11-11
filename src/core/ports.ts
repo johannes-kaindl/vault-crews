@@ -22,7 +22,8 @@ export interface MetadataPort {
 	getBody(path: string): Promise<string>;
 }
 
-export interface LlmMessage { role: 'system' | 'user'; content: string; }
+/** `assistant` kommt nur im Reparatur-Call vor (die schlechte Antwort als Zug des Modells, Kit `answer-retry`). */
+export interface LlmMessage { role: 'system' | 'user' | 'assistant'; content: string; }
 /** Was ein Modellaufruf braucht — fertig aufgelöst. Die Werte baut `buildCrewParams`
  *  (crew-request.ts) aus Profil-Tabelle, Plugin-Überschreibung und Persona; der Client sendet
  *  sie unverändert und erfindet nichts dazu. */

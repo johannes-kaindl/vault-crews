@@ -3,7 +3,6 @@
  *  Quellbindung, Slug-Wertemengen). Die JSON-Suche liefert das Kit-Modul `llm-json`. */
 import { extractJsonCandidates } from '../vendor/kit/llm-json';
 import { unwrapAnswer } from '../vendor/kit/llm-answer';
-import type { LlmMessage } from './ports';
 import type { SchemaDef } from './schemas';
 import type { Action, CollectedFile, SlugTableData } from './types';
 
@@ -47,17 +46,4 @@ export function validateOutput(
 	const validated = schema.validate(extracted.json, sources, slugTables, target);
 	if (!validated.ok) return { ok: false, errors: validated.errors };
 	return { ok: true, json: extracted.json, actions: validated.actions };
-}
-
-export function buildRepairPrompt(raw: string, errors: string[]): LlmMessage[] {
-	return [
-		{
-			role: 'system',
-			content: 'Deine vorherige Antwort war ungültig. Antworte erneut, exakt im im System-Prompt geforderten Format.',
-		},
-		{
-			role: 'user',
-			content: `Deine vorherige Ausgabe:\n${raw}\n\nKonkrete Fehler:\n${errors.map((e) => `- ${e}`).join('\n')}\n\nAntworte erneut, exakt im im System-Prompt geforderten Format.`,
-		},
-	];
 }
