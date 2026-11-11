@@ -33,11 +33,7 @@ ever touches your vault.
   is snapshotted (copy-on-write) into a hidden store via the Obsidian vault/adapter API.
   "Undo last run" restores changed notes from the snapshot and moves run-created notes to
   the trash — no git repository required, works in any vault.
-- **Four shipped example crews**, installable via a command: **Task-Triage** (reviews
-  backlog TaskNotes, proposes metadata corrections on soft fields only),
-  **Daily-Briefing** (summarizes open tasks into today's daily note),
-  **Notiz-Tagger** (proposes tags for notes that have none) and **Reifegrad-Tagger**
-  (estimates a note's maturity from its content and writes it to the frontmatter).
+- **Four shipped example crews**, installable via a command, in the language of the Obsidian interface (English or German): **Task triage** (reviews backlog TaskNotes, proposes metadata corrections on soft fields only), **Daily briefing** (summarizes open tasks into today's daily note), **Note tagger** (proposes tags for notes that have none) and **Maturity tagger** (estimates a note's maturity from its content and writes it to the frontmatter). They point at the neutral folders `Tasks`, `Daily` and `Notes` (German: `Aufgaben`, `Tagesnotizen`, `Notizen`); each team's text says to adjust them before the first run.
 - **Full observability, in the vault.** Every run writes a human-readable `run.md`
   (frontmatter + per-task detail, Bases-compatible) and a machine-readable
   `state.json`, plus a shipped `runs.base` dashboard.
@@ -108,8 +104,9 @@ npm run build   # produces main.js
 Copy `main.js`, `manifest.json` and `styles.css` into `<vault>/.obsidian/plugins/vault-crews/`.
 
 **After enabling** (whichever route), run the command **"Install example crews"** to seed `_crews/`
-(default root, configurable in settings) with the four example teams (Task-Triage,
-Daily-Briefing, Notiz-Tagger, Reifegrad-Tagger), their agents, and the `runs.base` dashboard. Installed files are never
+(default root, configurable in settings) with the four example teams (Task triage,
+Daily briefing, Note tagger, Maturity tagger; German interface: Task-Triage, Daily-Briefing,
+Notiz-Tagger, Reifegrad-Tagger), their agents, and the `runs.base` dashboard. Installed files are never
 overwritten by a second run — edit them freely afterwards.
 
 ## Usage

@@ -12,7 +12,7 @@ Each entry starts with what you see — the wording is the plugin's own English 
 
 ## The run is refused before it starts
 
-> Notiz-Tagger: run refused — Start LM Studio, then run again.
+> Note tagger: run refused — Start LM Studio, then run again.
 
 **With the LLM Endpoint Manager installed,** the notice names the manager's reason instead of "Start LM Studio": for example that the endpoint you chose has no API key, is switched off, or answers nothing. Each message says where to fix it (in the manager's settings), and the run log (`run.md`) carries the manager's code in brackets, such as `(secret-missing)`.
 
@@ -33,7 +33,7 @@ Local servers almost always need a port, for example `http://localhost:1234/v1`.
 
 ## Model not found
 
-> Notiz-Tagger: run refused — Model not found — choose a model on the active endpoint row, or check the model field in the agent note.
+> Note tagger: run refused — Model not found — choose a model on the active endpoint row, or check the model field in the agent note.
 
 **Cause:** the active endpoint has no model chosen (the dropdown of its row reads **— (server picks)**), or the chosen model is not loaded on the server. (The plugin has no global "default model" — the model belongs to the endpoint row.) The run log names the model: "Modell nicht geladen: …" or "Für diesen Endpunkt ist kein Modell gewählt".
 
@@ -49,7 +49,7 @@ Local servers almost always need a port, for example `http://localhost:1234/v1`.
 
 ## The collector found 0 matching notes
 
-> Notiz-Tagger: the collector found 0 matching notes in Notizen — check the folder/filter.
+> Note tagger: the collector found 0 matching notes in Notes — check the folder/filter.
 
 **Cause:** the collector's `folder:` does not exist, is empty, or every note in it already satisfies the filter (for example `where_missing: [tags]` — all notes already have tags). No model call is made and nothing is written; the run ends as partial.
 
@@ -57,7 +57,7 @@ Local servers almost always need a port, for example `http://localhost:1234/v1`.
 
 ## The team or agent file has an error
 
-> Task-Triage: run refused — The team or agent file has an error — check its fields.
+> Task triage: run refused — The team or agent file has an error — check its fields.
 
 **Cause:** the team or one of its agents does not parse: an unknown field value, a missing agent note, a `write_scope` that touches the denylist (`.obsidian/**`, `.git/**`, the crew root itself, dotfiles) or contains a `..` segment (`../x/**`, `a/../b/**`; the log says `".." is not allowed in write_scope`) or a NUL byte (the log says `NUL-Byte ist in write_scope nicht erlaubt`), or an entry that points at the vault root (`.`, `./`, `/`; the log says `ungültiger Eintrag`). An entry that ends in a slash or a `.` segment (`a/`, `a/**/`, `a/.`) is refused too (the log says `abschließender Schrägstrich oder Punkt-Segment ist in write_scope nicht erlaubt`). An absolute path (a leading `/` or `\`, as in `/abs/**`) is refused too: `write_scope` is relative to the vault (the log says `absoluter Pfad, write_scope ist vault-relativ`). A leading `./`, a `\` between names and doubled slashes are fine: `./a/**` is read as `a/**`. The panel warns before you start: "This crew has a problem and will likely fail: …".
 

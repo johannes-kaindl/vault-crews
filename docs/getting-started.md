@@ -27,21 +27,21 @@ If the **LLM Endpoint Manager** plugin is installed, the endpoint and model come
 
 ## 4. Install the example crews
 
-Run the command **Install example crews** (or press the button of the same name under **Crews** in the settings). It creates the crew folder `_crews` with four ready-made teams — **Task-Triage**, **Daily-Briefing**, **Notiz-Tagger**, **Reifegrad-Tagger** — their agents, and the `runs.base` dashboard. A notice says "Example crews installed (N file(s))."; running it again changes nothing that already exists.
+Run the command **Install example crews** (or press the button of the same name under **Crews** in the settings). It creates the crew folder `_crews` with four ready-made teams — **Task triage**, **Daily briefing**, **Note tagger**, **Maturity tagger** (with a German Obsidian interface they come in German: Task-Triage, Daily-Briefing, Notiz-Tagger, Reifegrad-Tagger) — their agents, and the `runs.base` dashboard. A notice says "Example crews installed (N file(s))."; running it again changes nothing that already exists.
 
 ## 5. Prepare a few notes
 
-The **Notiz-Tagger** crew reads notes in the folder `Notizen` that have no `tags` property and proposes two to four tags for each. Create the folder `Notizen` in your vault and put two or three short notes in it, without a `tags` property.
+The **Note tagger** crew reads notes in the folder `Notes` that have no `tags` property and proposes two to four tags for each. Create the folder `Notes` in your vault and put two or three short notes in it, without a `tags` property.
 
-The folder is set in the team file `_crews/teams/notiz-tagger.md`, in two places that must match: the collector's `folder:` and the team's `write_scope:`. Change both if your notes live elsewhere.
+The folder is set in the team file `_crews/teams/note-tagger.md`, in two places that must match: the collector's `folder:` and the team's `write_scope:`. Change both if your notes live elsewhere.
 
 ## 6. Run the crew
 
 1. Click the list icon in the ribbon, or run **Open crews panel**. The panel opens in the sidebar and lists the teams it found.
-2. Press **Run** on **Notiz-Tagger**. Or use the command **Run crew: Notiz-Tagger**.
+2. Press **Run** on **Note tagger**. Or use the command **Run crew: Note tagger**.
 3. Watch the panel: each task shows Waiting → Running → Ok. With CORS enabled the model's reasoning and output stream in live.
 
-When the run ends a notice reads "Notiz-Tagger: run completed — N file(s) written." Open one of your notes: it now has a `tags` property.
+When the run ends a notice reads "Note tagger: run completed — N file(s) written." Open one of your notes: it now has a `tags` property.
 
 ## 7. Read the log and undo
 

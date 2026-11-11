@@ -11,22 +11,22 @@ properties:
   writes:
     displayName: Writes
   llm_calls:
-    displayName: LLM-Calls
+    displayName: Model calls
   duration_s:
-    displayName: Dauer (s)
+    displayName: Duration (s)
   model:
-    displayName: Modell
+    displayName: Model
   formula.fehlerklasse:
-    displayName: Fehlerklasse
+    displayName: Error class
   error_task:
-    displayName: Fehler-Task
+    displayName: Error task
   commit:
     displayName: Commit
   started:
-    displayName: Gestartet
+    displayName: Started
 views:
   - type: table
-    name: 🤖 Alle Läufe
+    name: 🤖 All runs
     order:
       - file.name
       - team
@@ -42,7 +42,7 @@ views:
       - property: started
         direction: DESC
   - type: table
-    name: ⚠️ Braucht Aufmerksamkeit
+    name: ⚠️ Needs attention
     filters:
       and:
         - or:
@@ -60,7 +60,7 @@ views:
       - property: started
         direction: DESC
   - type: table
-    name: ✅ Erfolgreich
+    name: ✅ Successful
     filters:
       and:
         - or:

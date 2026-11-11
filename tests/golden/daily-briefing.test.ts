@@ -115,9 +115,9 @@ describe('Golden-Run: ausgelieferte Daily-Briefing-Crew, end-to-end', () => {
 
 		// (a) echte, anonymisierte Pallas-TaskNotes-Fixtures (bereits in
 		// tests/core/collectors.test.ts genutzt) unter dem Ordner, den `collect`
-		// tatsächlich abfragt (10_Aufgaben, s. DAILY_BRIEFING_TEAM.tasks[0].params.folder).
+		// tatsächlich abfragt (Aufgaben, s. DAILY_BRIEFING_TEAM.tasks[0].params.folder).
 		for (const f of readdirSync(FIXTURE_DIR)) {
-			await vault.create(`10_Aufgaben/${f}`, readFileSync(join(FIXTURE_DIR, f), 'utf8'));
+			await vault.create(`Aufgaben/${f}`, readFileSync(join(FIXTURE_DIR, f), 'utf8'));
 		}
 
 		// (b) existierende Daily Note am expandierten {{today}}-Ziel
@@ -125,7 +125,7 @@ describe('Golden-Run: ausgelieferte Daily-Briefing-Crew, end-to-end', () => {
 		const clock = new FakeClock(START_MS);
 		const today = expandTarget('{{today}}', clock.now());
 		const todayMdName = `${today}.md`;
-		const dailyPath = `30_Chronos/10_Tage/${todayMdName}`;
+		const dailyPath = `Tagesnotizen/${todayMdName}`;
 		await vault.create(dailyPath, EXISTING_DAILY);
 
 		const reporter = new RecorderReporter();
@@ -233,13 +233,13 @@ model: test-model
 
 - Status: ok
 - Dauer: 0.0 s
-- Gefunden: 3 Notiz(en) in \`10_Aufgaben\`
+- Gefunden: 3 Notiz(en) in \`Aufgaben\`
 
 \`\`\`json
 {
   "files": [
     {
-      "path": "10_Aufgaben/zahnarzt.md",
+      "path": "Aufgaben/zahnarzt.md",
       "contentHash": "85deb0f6",
       "frontmatter": {
         "title": "Zahnarzt: Termin vereinbaren",
@@ -255,7 +255,7 @@ model: test-model
       "content": null
     },
     {
-      "path": "10_Aufgaben/plugin.md",
+      "path": "Aufgaben/plugin.md",
       "contentHash": "694f0a89",
       "frontmatter": {
         "title": "Plugin-Release vorbereiten",
@@ -268,7 +268,7 @@ model: test-model
       "content": null
     },
     {
-      "path": "10_Aufgaben/steuer.md",
+      "path": "Aufgaben/steuer.md",
       "contentHash": "53378a49",
       "frontmatter": {
         "title": "Steuererklärung 2025 einreichen",
@@ -289,7 +289,7 @@ model: test-model
 - Status: ok
 - Dauer: 0.0 s
 - Modell: test-model
-- Prompt-Hash: f80a8c24
+- Prompt-Hash: d9b55a22
 
 \`\`\`json
 {
@@ -297,7 +297,7 @@ model: test-model
   "actions": [
     {
       "type": "section.replace",
-      "path": "30_Chronos/10_Tage/<TODAY>.md",
+      "path": "Tagesnotizen/<TODAY>.md",
       "content": "## Heute fällig\\n- Plugin-Release vorbereiten\\n\\n## Überfällig\\nKeine überfälligen Aufgaben — alles im Rahmen.\\n\\n## Eine nächste Handlung\\nSteuererklärung 2025 einreichen."
     }
   ]
@@ -314,14 +314,14 @@ model: test-model
   "actions": [
     {
       "type": "section.replace",
-      "path": "30_Chronos/10_Tage/<TODAY>.md",
+      "path": "Tagesnotizen/<TODAY>.md",
       "content": "## Heute fällig\\n- Plugin-Release vorbereiten\\n\\n## Überfällig\\nKeine überfälligen Aufgaben — alles im Rahmen.\\n\\n## Eine nächste Handlung\\nSteuererklärung 2025 einreichen."
     }
   ]
 }
 \`\`\`
 
-- ✓ section.replace 30_Chronos/10_Tage/<TODAY>.md
+- ✓ section.replace Tagesnotizen/<TODAY>.md
 
 Rückgängig: über das Vault-Crews-Panel (Verlauf → Rückgängig).
 `;

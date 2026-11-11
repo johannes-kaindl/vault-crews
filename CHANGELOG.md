@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The example crews no longer carry folder names from the author's own vault.** "Install example crews" used to write the folders `10_Aufgaben`, `30_Chronos/10_Tage` and `20_Zettel` into the teams' `params.folder`, `write_scope` and `target`; they now point at neutral folders (`Tasks`, `Daily`, `Notes`; `Aufgaben`, `Tagesnotizen`, `Notizen` in a German vault), and each team's text says to adjust them before the first run. Crews you installed earlier are not touched (installed files are never overwritten). The format example that the `frontmatter.set` prompt shows the model uses a neutral path (`Aufgaben/beispiel.md`) as well.
+- **The example crews follow the language of the Obsidian interface.** A vault with an English interface now gets English teams, agents, prompts and dashboard (Task triage, Daily briefing, Note tagger, Maturity tagger; their files are `task-triage.md`, `daily-briefing.md`, `note-tagger.md`, `maturity-tagger.md`, the agents `triage-analyst.md`, `briefing-author.md`, `note-tagger.md`, `maturity-tagger.md`); a German interface keeps the German names. In English the frontmatter fields are `context`, `project`, `due` and `maturity` (values `seed`/`growing`/`mature`) instead of the German `kontext`, `projekt`, `frist` and `reifegrad`. Running "Install example crews" in an English vault where the German files already exist adds the English ones next to them.
+- Paragraphs in the example teams and agents sit on a single line; they no longer break in the middle of a sentence in the editor.
+
 ## [0.23.0] — 2026-10-26
 
 ### Added

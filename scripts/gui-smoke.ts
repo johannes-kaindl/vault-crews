@@ -86,6 +86,7 @@ const P_KONTROLLE_ABSATZ = "Welle 20 — Folge-Regel (Kontrolle, absatzgroße St
 const N1_PUNKT = "N1 Abschnitt Request ist vorhanden, klappt auf und zeigt die Felder";
 // Welle 27: die nur lesende Modellanzeige je Crew im Lauf-Panel (V-a bis V-f); Welle 28: das Modell des letzten Laufs (V-g, V-h).
 const P_V_ENDE = "Modelle — Abschnitt lief bis zum Ende";
+const P_BEISPIEL_NEUTRAL = "Welle 32 — Beispiel-Crews: englische Oberfläche bekommt englische Beispiele ohne Namen aus einem privaten Vault";
 const P_V_A = "Modelle V-a — Beispiel-Crews: je Agent Modell und Denkstufe, thinking off aus der mitgelieferten Persona";
 const P_V_B = "Modelle V-b — Persona mit eigenem model: zeigt Wunsch und Rückfall, eine ohne nur das Modell der Zeile";
 const P_V_C = "Modelle V-c — die Anzeige ist nur lesend: kein Dropdown, kein Schalter, nur ein Link";
@@ -142,6 +143,7 @@ const PUNKTE = [
   "Welle 8 — Abschnitt lief bis zum Ende",
   "Welle 8 — Knopf „Beispiel-Crews installieren“ ist da",
   "Welle 8 — der Settings-Knopf installiert die Beispiel-Crews",
+  P_BEISPIEL_NEUTRAL,
   "Welle 8 — kein Verweis mehr auf die Befehlspalette",
   "Welle 8 — Ausblenden aus: kein Regelsatz für den Crew-Ordner",
   "Welle 8 — Ausblenden an: Regelsatz für den Crew-Ordner steht",
@@ -833,9 +835,10 @@ async function panelMessungen(cdp: Cdp): Promise<void> {
 // --- Abschnitt: Welle 8 — Beispiel-Knopf, Lauf-Transparenz, Ordner ausblenden, Manager -----
 
 const PLUGIN = `app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]`;
+/** Die Zweitinstanz läuft mit `--lang=en-US`; der Installer wählt nach der Oberflächensprache, also kommen die englischen Beispiele (Welle 32). */
 const BEISPIEL_PFADE = [
-  "agents/triage-analyst.md", "agents/briefing-autor.md", "teams/task-triage.md", "teams/daily-briefing.md",
-  "runs/runs.base", "agents/notiz-tagger.md", "agents/reifegrad-tagger.md", "teams/notiz-tagger.md", "teams/reifegrad-tagger.md",
+  "agents/triage-analyst.md", "agents/briefing-author.md", "teams/task-triage.md", "teams/daily-briefing.md",
+  "runs/runs.base", "agents/note-tagger.md", "agents/maturity-tagger.md", "teams/note-tagger.md", "teams/maturity-tagger.md",
 ];
 
 /** Text des Einstellungs-Fensters (zwei Sprachen, deshalb Muster statt Literal). */
@@ -883,6 +886,26 @@ async function w8Beispielknopf(cdp: Cdp): Promise<void> {
     const alleDa = await wartetAuf(cdp, `${JSON.stringify(BEISPIEL_PFADE)}.every((p) => app.vault.getAbstractFileByPath(${JSON.stringify(root + "/")} + p))`, 8000);
     record("Welle 8 — der Settings-Knopf installiert die Beispiel-Crews", alleDa,
       alleDa ? `alle ${BEISPIEL_PFADE.length} Ziele vorhanden (${neu.length} neu angelegt)` : "nach 8 s fehlen Ziele");
+    if (alleDa) {
+      // Welle 32: der Inhalt, den der Knopf in den Vault geschrieben hat — keine Namen aus einem privaten Vault, Ordner neutral, englische Oberfläche = englische Texte.
+      const inhalt = await cdp.evaluate<Array<{ pfad: string; text: string }>>(`
+        const out = [];
+        for (const p of ${JSON.stringify(BEISPIEL_PFADE)}) {
+          const f = app.vault.getAbstractFileByPath(${JSON.stringify(root + "/")} + p);
+          out.push({ pfad: p, text: f ? await app.vault.read(f) : "" });
+        }
+        return out;
+      `);
+      const privat = /\d\d_[A-Za-zÄÖÜäöü]|Chronos|Zettel|Pallas|periodic-notes|daily-notes\.json/;
+      const treffer = inhalt.filter((i) => privat.test(i.text)).map((i) => i.pfad);
+      const teams = inhalt.filter((i) => i.pfad.startsWith("teams/"));
+      const ordnerOk = teams.every((i) => /^  - "(Tasks|Daily|Notes)\//m.test(i.text));
+      const deutsch = inhalt.filter((i) => /\b(Aufgaben|Notizen|Tagesnotizen|Du bist|Schreibe)\b/.test(i.text)).map((i) => i.pfad);
+      record(P_BEISPIEL_NEUTRAL, treffer.length === 0 && ordnerOk && deutsch.length === 0 && teams.length === 4,
+        `${inhalt.length} Dateien gelesen · private Namen in: ${JSON.stringify(treffer)} · Teams mit neutralem write_scope: ${teams.filter((i) => /^  - "(Tasks|Daily|Notes)\//m.test(i.text)).length}/${teams.length} · deutsche Texte in: ${JSON.stringify(deutsch)}`);
+    } else {
+      unmeasured(P_BEISPIEL_NEUTRAL, "die Beispiele wurden nicht angelegt");
+    }
     const hinweis = await notices(cdp);
     const verweistAufPalette = /befehlspalette|command palette/i.test(hinweis);
     record("Welle 8 — kein Verweis mehr auf die Befehlspalette", !verweistAufPalette, hinweis ? `Notice: ${hinweis.slice(0, 80)}` : "keine Notice-Restzeichen");
@@ -2166,7 +2189,7 @@ async function modelleMessungen(cdp: Cdp): Promise<void> {
     }
 
     // V-a: die vier Beispiel-Crews
-    const beispiele = ["Task-Triage", "Daily-Briefing", "Notiz-Tagger", "Reifegrad-Tagger"].map((n) => ({ n, z: mit(n) }));
+    const beispiele = ["Task triage", "Daily briefing", "Note tagger", "Maturity tagger"].map((n) => ({ n, z: mit(n) }));
     const va = beispiele.every(({ z }) => z !== undefined && z.lines.length > 0 && z.lines.every((l) => l.includes("thinking off") && l.includes(`${ZEILE} — the endpoint row's model`)));
     record(P_V_A, va, beispiele.map(({ n, z }) => `${n}: ${z ? JSON.stringify(z.lines) : "keine Zeile"}`).join(" · "));
 
@@ -2214,7 +2237,7 @@ async function modelleMessungen(cdp: Cdp): Promise<void> {
       const leaf = app.workspace.getLeavesOfType("vault-crews-panel")[0];
       leaf.view.refreshFromVault();
       await new Promise((r) => setTimeout(r, 400));
-      return { offen: lies("ZZ Smoke Modelle")?.open === true, andereZu: lies("Task-Triage")?.open === false };
+      return { offen: lies("ZZ Smoke Modelle")?.open === true, andereZu: lies("Task triage")?.open === false };
     `);
     record(P_V_E, e.offen && e.andereZu, `nach refreshFromVault: die geöffnete Crew ist ${e.offen ? "offen" : "ZU"}, eine andere ${e.andereZu ? "zu" : "OFFEN"}`);
 

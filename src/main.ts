@@ -882,7 +882,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
 
   private async runInstallExamples(): Promise<void> {
     try {
-      const { created } = await installExampleCrews(this.vault, this.settings.crewRoot);
+      const { created } = await installExampleCrews(this.vault, this.settings.crewRoot, getLang());
       new Notice(created.length > 0 ? t("notice.install.ok", created.length) : t("notice.install.exists"));
       await this.refreshTeams();
       this.registerTeamCommands();

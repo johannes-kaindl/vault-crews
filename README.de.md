@@ -38,12 +38,7 @@ wird eingeschränkt und dann geprüft, bevor sie deinen Vault berührt.
   die Vault-/Adapter-API von Obsidian). „Letzten Lauf rückgängig machen" stellt geänderte
   Notizen aus dem Snapshot wieder her und verschiebt im Lauf angelegte Notizen in den
   Papierkorb — kein Git-Repository nötig, funktioniert in jedem Vault.
-- **Vier mitgelieferte Beispiel-Crews**, per Befehl installierbar: **Task-Triage**
-  (sichtet Backlog-TaskNotes und schlägt Metadaten-Korrekturen nur auf weichen Feldern
-  vor), **Daily-Briefing** (fasst offene Aufgaben in der heutigen Tagesnotiz
-  zusammen), **Notiz-Tagger** (schlägt Tags für Notizen ohne Tags vor) und
-  **Reifegrad-Tagger** (schätzt den Reifegrad einer Notiz aus ihrem Inhalt und schreibt
-  ihn ins Frontmatter).
+- **Vier mitgelieferte Beispiel-Crews**, per Befehl installierbar, in der Sprache der Obsidian-Oberfläche (Deutsch oder Englisch): **Task-Triage** (sichtet Backlog-TaskNotes und schlägt Metadaten-Korrekturen nur auf weichen Feldern vor), **Daily-Briefing** (fasst offene Aufgaben in der heutigen Tagesnotiz zusammen), **Notiz-Tagger** (schlägt Tags für Notizen ohne Tags vor) und **Reifegrad-Tagger** (schätzt den Reifegrad einer Notiz aus ihrem Inhalt und schreibt ihn ins Frontmatter). Sie zeigen auf die neutralen Ordner `Aufgaben`, `Tagesnotizen` und `Notizen` (englisch: `Tasks`, `Daily`, `Notes`); der Text jedes Teams sagt, dass du sie vor dem ersten Lauf anpasst.
 - **Volle Nachvollziehbarkeit, im Vault.** Jeder Lauf schreibt eine menschenlesbare
   `run.md` (Frontmatter + Detail je Aufgabe, Bases-kompatibel) und eine
   maschinenlesbare `state.json`, dazu ein mitgeliefertes `runs.base`-Dashboard.
@@ -118,7 +113,7 @@ npm run build   # erzeugt main.js
 
 **Nach dem Aktivieren** (egal auf welchem Weg) den Befehl **„Install example crews"** ausführen, um `_crews/`
 (Standard-Wurzel, in den Einstellungen änderbar) mit den vier Beispiel-Teams (Task-Triage,
-Daily-Briefing, Notiz-Tagger, Reifegrad-Tagger), ihren Agenten und dem `runs.base`-Dashboard zu befüllen. Installierte
+Daily-Briefing, Notiz-Tagger, Reifegrad-Tagger; bei englischer Oberfläche Task triage, Daily briefing, Note tagger, Maturity tagger), ihren Agenten und dem `runs.base`-Dashboard zu befüllen. Installierte
 Dateien werden von einem zweiten Lauf nie überschrieben — bearbeite sie danach frei.
 
 ## Verwendung
