@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.24.0] — 2026-11-11
+
 ### Changed
 
 - **The example crews no longer carry folder names from the author's own vault.** "Install example crews" used to write the folders `10_Aufgaben`, `30_Chronos/10_Tage` and `20_Zettel` into the teams' `params.folder`, `write_scope` and `target`; they now point at neutral folders (`Tasks`, `Daily`, `Notes`; `Aufgaben`, `Tagesnotizen`, `Notizen` in a German vault), and each team's text says to adjust them before the first run. Crews you installed earlier are not touched (installed files are never overwritten). The format example that the `frontmatter.set` prompt shows the model uses a neutral path (`Aufgaben/beispiel.md`) as well.
