@@ -7,6 +7,7 @@ import { fnv1a } from '../../src/core/collectors';
 import { buildDenylist } from '../../src/core/paths';
 import { parseTeamDef } from '../../src/core/crew-parser';
 import { InMemoryVaultPort } from '../helpers/in-memory-vault';
+import { applyPolicy, DEFAULT_FILENAME_POLICY } from '../../src/vendor/kit/filename-policy';
 
 const LIMITS: RunLimits = {
   maxWrites: 10, maxLlmCalls: 4, wallClockMs: 600_000,
@@ -283,6 +284,76 @@ describe('executeActions — note.create', () => {
     const res = await executeActions([action], ctxOf([], { limits: { ...LIMITS, maxNoteBytes: 16 } }), vault);
     expect(res.outcomes[0]?.result).toBe('rejected');
     expect(res.outcomes[0]?.reason).toContain('maxNoteBytes');
+  });
+});
+
+// Welle 32 (Dach-Task safeFileName): der Dateiname einer vom Modell vorgeschlagenen Notiz geht vor den Schreibwächtern durch den Sanitizer
+// (`ExecutorContext.safeName`, in main.ts `safeFileName` des Kits). Ordner, Denylist und write_scope sehen erst den bereinigten Pfad.
+describe('executeActions — note.create: Dateiname über safeName', () => {
+  const kitName = (segment: string): string => applyPolicy(segment, DEFAULT_FILENAME_POLICY, 'file').name;
+
+  it('bereinigt das letzte Segment, der Ordner bleibt; geschrieben und registriert wird der bereinigte Pfad', async () => {
+    const vault = await seed({});
+    const res = await executeActions(
+      [{ type: 'note.create', path: 'Daily/Plan: Q1?.md', content: 'x' }],
+      ctxOf([], { safeName: kitName }),
+      vault,
+    );
+    expect(res.outcomes[0]?.result).toBe('applied');
+    expect(res.writes).toEqual(['Daily/Plan — Q1.md']);
+    expect(await vault.read('Daily/Plan — Q1.md')).toBe('x');
+    expect(await vault.exists('Daily/Plan: Q1?.md')).toBe(false);
+  });
+
+  it('ein Name, der schon sauber ist, bleibt unverändert', async () => {
+    const vault = await seed({});
+    const res = await executeActions([{ type: 'note.create', path: 'Daily/2026-11-11.md', content: 'x' }], ctxOf([], { safeName: kitName }), vault);
+    expect(res.writes).toEqual(['Daily/2026-11-11.md']);
+  });
+
+  it('der bereinigte Pfad läuft durch write_scope: außerhalb bleibt abgelehnt', async () => {
+    const vault = await seed({});
+    const res = await executeActions(
+      [{ type: 'note.create', path: 'Anderswo/Plan: Q1.md', content: 'x' }],
+      ctxOf([], { safeName: kitName }),
+      vault,
+    );
+    expect(res.outcomes[0]?.result).toBe('rejected');
+    expect(res.writes).toEqual([]);
+  });
+
+  it('der bereinigte Name trifft eine vorhandene Notiz: nichts wird überschrieben', async () => {
+    const vault = await seed({ 'Daily/Plan — Q1.md': 'alt' });
+    const res = await executeActions([{ type: 'note.create', path: 'Daily/Plan: Q1.md', content: 'neu' }], ctxOf([], { safeName: kitName }), vault);
+    expect(res.outcomes[0]?.result).toBe('rejected');
+    expect(await vault.read('Daily/Plan — Q1.md')).toBe('alt');
+  });
+
+  it.each(['../../.obsidian/x.md', 'a/b.md', '', '.', '..'])('ein Sanitizer, der %j liefert, gilt nicht als ein Dateiname: abgelehnt, nichts geschrieben', async (liefert) => {
+    const vault = await seed({});
+    const res = await executeActions(
+      [{ type: 'note.create', path: 'Daily/x.md', content: 'x' }],
+      ctxOf([], { safeName: () => liefert, team: makeTeam({ writeScope: ['**'] }) }),
+      vault,
+    );
+    expect(res.outcomes[0]?.result).toBe('rejected');
+    expect(res.writes).toEqual([]);
+  });
+
+  it('ohne safeName bleibt alles wie vorher (Plugin-Umgebungen ohne Sanitizer-Verdrahtung)', async () => {
+    const vault = await seed({});
+    const res = await executeActions([{ type: 'note.create', path: 'Daily/neu.md', content: 'x' }], ctxOf([]), vault);
+    expect(res.writes).toEqual(['Daily/neu.md']);
+  });
+
+  it('section.replace mit create_if_missing bleibt unberührt: sein Ziel nennt der Team-Autor, nicht das Modell', async () => {
+    const vault = await seed({});
+    const res = await executeActions(
+      [{ type: 'section.replace', path: 'Daily/2026-11-11.md', content: 'x' }],
+      ctxOf([], { safeName: () => 'Umbenannt.md', task: makeTask({ createIfMissing: true, target: 'Daily/2026-11-11.md' }) }),
+      vault,
+    );
+    expect(res.writes).toEqual(['Daily/2026-11-11.md']);
   });
 });
 

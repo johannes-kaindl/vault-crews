@@ -24,6 +24,11 @@ export interface ExecutorContext {
 	 *  Ein Throw wird wie ein Write-Fehler behandelt (Aktion failed). Optional:
 	 *  Tests/Läufe ohne Undo lassen ihn weg. */
 	preWrite?: (path: string) => Promise<void>;
+	/** Bringt den Dateinamen (das letzte Segment, kein Pfad) einer vom Modell vorgeschlagenen neuen Notiz in die Namensrichtlinie des Vaults
+	 *  (main.ts: `safeFileName` des Kits, erst die API des Plugins `filename-sanitizer`, sonst die Kit-Regeln). Läuft VOR Denylist und
+	 *  write_scope, die also den bereinigten Pfad sehen. Optional: Tests und Umgebungen ohne Verdrahtung lassen ihn weg. Nur `note.create`
+	 *  bildet einen Namen aus Modellvorschlag; das Ziel von `section.replace` nennt der Team-Autor. */
+	safeName?: (segment: string) => string;
 }
 
 export const CREW_MARKER = (teamId: string): { start: string; end: string } => ({
@@ -62,6 +67,17 @@ async function validateAction(action: Action, ctx: ExecutorContext, vault: Vault
 	} catch {
 		v.outcome = outcomeOf(action, 'rejected', `Pfad ungültig ('..' oder NUL): ${action.path}`);
 		return v;
+	}
+	// 1b. Der Dateiname einer neuen Notiz ist ein Modellvorschlag: durch die Namensrichtlinie, bevor die Wächter ihn sehen.
+	if (action.type === 'note.create' && ctx.safeName !== undefined) {
+		const slash = v.path.lastIndexOf('/');
+		const name = ctx.safeName(v.path.slice(slash + 1));
+		// Ein Sanitizer (auch ein Fremdplugin) liefert ein Segment; alles andere ist kein Dateiname und schreibt nichts.
+		if (name === '' || name === '.' || name === '..' || name.includes('/') || name.includes('\\')) {
+			v.outcome = outcomeOf(action, 'rejected', `Dateiname von der Namensrichtlinie nicht brauchbar: ${action.path}`);
+			return v;
+		}
+		v.path = `${v.path.slice(0, slash + 1)}${name}`;
 	}
 	// 2. Denylist überstimmt jede Whitelist
 	if (isDenied(v.path, ctx.denylist)) {

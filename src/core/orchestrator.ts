@@ -55,6 +55,8 @@ export interface RunDeps {
 		request: RequestSettings;
 	};
 	abort: AbortSignal;
+	/** Namensrichtlinie für den Dateinamen einer vom Modell vorgeschlagenen neuen Notiz (`note.create`), siehe `ExecutorContext.safeName`. */
+	safeName?: (segment: string) => string;
 }
 
 type TaskStatus = TaskRecord['status'];
@@ -419,6 +421,7 @@ class RunFsm {
 		const ctx: ExecutorContext = {
 			team: this.team as TeamDef, task, limits: this.limits,
 			writeCount: this.uniqueWrites().length,
+			...(this.deps.safeName !== undefined ? { safeName: this.deps.safeName } : {}),
 			sources: inputs.flatMap((a) => a.files),
 			slugTables: mergeSlugTables(inputs),
 			denylist: this.denylist,

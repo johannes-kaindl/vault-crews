@@ -49,6 +49,7 @@ import { managerErrorText, resolveLlmConnectionStrings } from "./vendor/kit-obsi
 import { RecoveryModal, checkOrphanedRun } from "./obsidian/recovery";
 import { revealCrewFolder } from "./obsidian/reveal-crew-folder";
 import { confirmAction } from "./vendor/kit-obsidian/confirm";
+import { safeFileName } from "./vendor/kit-obsidian/safe-file-name";
 import { installExampleCrews } from "./obsidian/install-examples";
 import { findEndpointManager } from "./vendor/kit-obsidian/endpoint-source";
 import { resolveEndpointSource, type EndpointSourceResult } from "./vendor/kit/endpoint-source";
@@ -552,6 +553,8 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
         request: this.settings.request,
       },
       abort: controller.signal,
+      // Dateinamen aus Modellvorschlag (note.create) durch die Namensrichtlinie: erst die API des Plugins filename-sanitizer, sonst die Kit-Regeln.
+      safeName: (segment) => safeFileName(this.app, segment, { caller: "vault-crews" }).name,
     };
     try {
       await executeRun(teamPath, deps);

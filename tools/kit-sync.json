@@ -63,6 +63,10 @@
         {
           "name": "answer-retry",
           "ref": "0.63.0"
+        },
+        {
+          "name": "filename-policy",
+          "ref": "0.63.0"
         }
       ]
     },
@@ -73,7 +77,11 @@
       "modules": [
         "endpoint-source",
         "endpoint-secret-hook",
-        "folder-hide"
+        "folder-hide",
+        {
+          "name": "filename-sanitizer-source",
+          "ref": "0.82.2"
+        }
       ],
       "rewrite": [
         [
@@ -135,6 +143,10 @@
         {
           "name": "status-indicator",
           "ref": "0.76.0"
+        },
+        {
+          "name": "safe-file-name",
+          "ref": "0.82.2"
         }
       ],
       "rewrite": [
