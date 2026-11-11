@@ -903,6 +903,16 @@ async function w8Beispielknopf(cdp: Cdp): Promise<void> {
       const deutsch = inhalt.filter((i) => /\b(Aufgaben|Notizen|Tagesnotizen|Du bist|Schreibe)\b/.test(i.text)).map((i) => i.pfad);
       record(P_BEISPIEL_NEUTRAL, treffer.length === 0 && ordnerOk && deutsch.length === 0 && teams.length === 4,
         `${inhalt.length} Dateien gelesen · private Namen in: ${JSON.stringify(treffer)} · Teams mit neutralem write_scope: ${teams.filter((i) => /^  - "(Tasks|Daily|Notes)\//m.test(i.text)).length}/${teams.length} · deutsche Texte in: ${JSON.stringify(deutsch)}`);
+      // Bild zum Ansehen: die installierte Beispiel-Crew im Editor (Absätze auf einer Zeile, neutrale Ordner).
+      if (process.env.SMOKE_SHOT_DIR) {
+        await cdp.evaluate(`
+          const f = app.vault.getAbstractFileByPath(${JSON.stringify(root + "/teams/daily-briefing.md")});
+          if (f) await app.workspace.getLeaf(true).openFile(f);
+          await new Promise((r) => setTimeout(r, 800));
+          return true;`).catch(() => undefined);
+        writeFileSync(`${process.env.SMOKE_SHOT_DIR}/beispiel-crew-daily-briefing.png`, await capture(cdp));
+        await cdp.evaluate(`app.workspace.detachLeavesOfType("markdown"); return true;`).catch(() => undefined);
+      }
     } else {
       unmeasured(P_BEISPIEL_NEUTRAL, "die Beispiele wurden nicht angelegt");
     }
@@ -1680,6 +1690,9 @@ async function w25PflichtLauf(cdp: Cdp): Promise<void> {
       unmeasured(P_ERREICHBAR, grund);
       return;
     }
+
+    // Bild zum Ansehen (Welle 32, Status-Indikator aus dem Kit): die Aufgabenzeilen mitten im Lauf — eine fertig, eine läuft, eine wartet.
+    if (process.env.SMOKE_SHOT_DIR) writeFileSync(`${process.env.SMOKE_SHOT_DIR}/lauf-aufgabenzeilen.png`, await capture(cdp));
 
     // (c) Denkblock kopierbar samt Gegenprobe: die Bausteine der Brücke, Selektoren des Panels (ein Leaf, ein Block).
     zeichneDenkblock(bilanz, { kopie: P_KOPIE, gegen: P_KOPIE_GEGEN }, await messeDenkblockKopierbar(cdp, {
