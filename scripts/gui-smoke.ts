@@ -1692,7 +1692,12 @@ async function w25PflichtLauf(cdp: Cdp): Promise<void> {
     }
 
     // Bild zum Ansehen (Welle 32, Status-Indikator aus dem Kit): die Aufgabenzeilen mitten im Lauf — eine fertig, eine läuft, eine wartet.
-    if (process.env.SMOKE_SHOT_DIR) writeFileSync(`${process.env.SMOKE_SHOT_DIR}/lauf-aufgabenzeilen.png`, await capture(cdp));
+    if (process.env.SMOKE_SHOT_DIR) {
+      // Notices anderer Punkte würden die oberste Aufgabenzeile verdecken: für die Aufnahme ausblenden, danach zurück.
+      await cdp.evaluate(`document.querySelectorAll(".notice-container").forEach((n) => { n.style.display = "none"; }); return true;`);
+      writeFileSync(`${process.env.SMOKE_SHOT_DIR}/lauf-aufgabenzeilen.png`, await capture(cdp));
+      await cdp.evaluate(`document.querySelectorAll(".notice-container").forEach((n) => { n.style.display = ""; }); return true;`);
+    }
 
     // (c) Denkblock kopierbar samt Gegenprobe: die Bausteine der Brücke, Selektoren des Panels (ein Leaf, ein Block).
     zeichneDenkblock(bilanz, { kopie: P_KOPIE, gegen: P_KOPIE_GEGEN }, await messeDenkblockKopierbar(cdp, {
