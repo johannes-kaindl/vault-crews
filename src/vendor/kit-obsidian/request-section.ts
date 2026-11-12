@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.82.2, src/obsidian/request-section.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.84.0, src/obsidian/request-section.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 import { Notice, Setting } from "obsidian";
 import { buildStatus, paintStatus, type StatusParts } from "./status-indicator";
 import { collapsibleSection, type CollapsibleStorage } from "./collapsible";
@@ -7,7 +7,7 @@ import type { RequestSession } from "./request-session";
 import type { EndpointTransport } from "../kit/endpoint-source";
 import { isModelLoaded, type LoadedModel } from "../kit/capabilities";
 import {
-  FAMILY_IDS, resolveRequestParams, resolveThinkingLevel, thinkingFor, thinkingLevels, validateOverride,
+  FAMILY_IDS, resolveRequestParams, resolveThinkingLevel, thinkingFor, thinkingLevels, validateOverride, withThinkingLevel,
   type BackendId, type FamilyId, type FamilyKey, type FieldExplain, type FieldId, type ModeId, type ModelFamilyId,
   type RequestSettings, type ThinkingLevel, type DeviationKind,
 } from "../kit/sampling-profiles";
@@ -219,10 +219,8 @@ export function buildRequestSection(opts: RequestSectionOptions): void {
       new Setting(body).setName(st.thinkingLevel).addDropdown((d) => {
         for (const l of offered.levels) d.addOption(l, st.level(l));
         d.setValue(resolveThinkingLevel(level, state.family, state.backend, model)).onChange((v) => {
-          const next = clone(opts.settings());
-          next.thinking[mode] = v as ThinkingLevel;
-          if (v !== "off") next.lastOnLevel[mode] = v as ThinkingLevel;
-          persist(next, () => opts.rerender());
+          // Der Handler klont vorher: `withThinkingLevel` teilt `overrides` und was es nicht ändert mit dem Eingang, und das Ergebnis geht in `save`.
+          persist(withThinkingLevel(clone(opts.settings()), mode, v as ThinkingLevel), () => opts.rerender());
         });
       });
     }

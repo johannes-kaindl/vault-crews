@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { buildCrewParams, thinkingLevelFor, MODE } from '../../src/core/crew-request';
-import { DEFAULT_REQUEST_SETTINGS, type BackendId, type FamilyId, type RequestSettings } from '../../src/vendor/kit/sampling-profiles';
+import {
+	DEFAULT_REQUEST_SETTINGS, resolveRequestParams, resolveThinkingLevel, thinkingLevels,
+	type BackendId, type FamilyId, type RequestSettings,
+} from '../../src/vendor/kit/sampling-profiles';
 
 /* Goldene Requests: was ein Lauf tatsächlich sendet, je Modellfamilie × Backend. Sie laufen gegen
    `buildCrewParams` — die Request-Bau-Funktion DES PLUGINS mit festem Modus (`structured`) und den drei
@@ -101,7 +104,8 @@ describe('gpt-oss-Wächter (früher in local-llm-client.test.ts, Fix 3394839)', 
 /* Anzeige = Draht (Welle 33, Entscheidung Johannes): der Abschnitt „Request“ rechnet mit dem Modell, das auf den Draht geht
    (`sentModel`), und zeigt die Stufe, die dessen Liste hat. Dieselbe Rechnung gilt für Claude beim Senden; ohne `model` ging bei
    Opus 4.6 `off` als `effort: low` hinaus, während der Abschnitt `high` zeigte. Für alle anderen Familien bleibt es beim alten
-   Weg: ein durchgereichtes Modell ändert dort nichts (bei gpt-oss würde es `minimal` zu `low` machen, goldener Request!). */
+   Weg: ein durchgereichtes Modell ändert dort nichts (bis code-kit 0.64.0 hätte es bei gpt-oss `minimal` zu `low` gemacht, goldener Request;
+   mit 0.66.0 ist `minimal` die unterste Stufe von gpt-oss und beide Wege stimmen überein). */
 describe('Claude: das Modell klemmt die Stufe wie der Abschnitt „Request“', () => {
 	const OPUS_46 = 'claude-opus-4-6'; // Liste: low, medium, high, max; Standard high (code-kit 0.63.0, CLAUDE_MODEL_LEVELS)
 	const claude = (stored: string, model: string | undefined) =>
@@ -137,5 +141,43 @@ describe('Claude: das Modell klemmt die Stufe wie der Abschnitt „Request“', 
 			n++;
 		}
 		expect(n).toBe(FAMILIES.length * BACKENDS.length * stufen.length);
+	});
+});
+
+/* Anzeige = Draht für JEDE Familie, nicht nur für Claude: so rechnet der Kit-Abschnitt „Request“ (`request-section`): das Modell, das auf den
+   Draht geht, klemmt die gespeicherte Stufe (`resolveThinkingLevel`), `resolveRequestParams` bekommt es mit. `buildCrewParams` mit demselben
+   `sentModel` muss dieselben Parameter senden. Vor code-kit 0.66.0 war das bei gpt-oss/off nicht so (Abschnitt `low`, Draht `minimal`). */
+describe('Anzeige = Draht (Abschnitt „Request“ gegen buildCrewParams)', () => {
+	const MODELLE: Record<string, string> = {
+		'qwen3.8': 'qwen/qwen3.8-27b', 'qwen3.6': 'qwen3.6-35b', gemma4: 'gemma-4-27b', 'gpt-oss': 'openai/gpt-oss-20b', claude: 'claude-opus-4-6', null: 'irgendein-modell',
+	};
+	const ALLE_BACKENDS: BackendId[] = ['lmstudio', 'ollama', 'openwebui', 'anthropic', 'openai', 'unknown'];
+	const STUFEN = ['off', 'low', 'medium', 'high'] as const;
+	const alleFamilien: Family[] = ['qwen3.8', 'qwen3.6', 'gemma4', 'gpt-oss', 'claude', null];
+
+	it('gpt-oss: ein gespeichertes off zeigt minimal (unterste Stufe des Modells) und sendet minimal', () => {
+		const model = MODELLE['gpt-oss']!;
+		for (const backend of ['lmstudio', 'ollama', 'openwebui', 'openai', 'unknown'] as BackendId[]) {
+			expect(thinkingLevels('gpt-oss', backend, model).levels[0], backend).toBe('minimal');
+			expect(resolveThinkingLevel('off', 'gpt-oss', backend, model), backend).toBe('minimal');
+			const { params } = buildCrewParams({ family: 'gpt-oss', backend, agent: PERSONA, settings: settings(), model });
+			expect(params.reasoning_effort, backend).toBe('minimal');
+		}
+	});
+
+	it('alle Familien × Backends × Stufen: die Rechnung des Abschnitts und buildCrewParams senden dasselbe', () => {
+		let n = 0;
+		for (const family of alleFamilien) for (const backend of ALLE_BACKENDS) for (const stored of STUFEN) {
+			const model = MODELLE[String(family)]!;
+			const abschnitt = resolveRequestParams({
+				family, mode: MODE, backend, thinking: stored, model, maxTokens: PERSONA.maxTokens,
+			}).params;
+			const draht = buildCrewParams({
+				family, backend, agent: PERSONA, settings: settings({ thinking: { [MODE]: stored } }), model,
+			}).params;
+			expect(draht, `${family}|${backend}|${stored}`).toEqual(abschnitt);
+			n++;
+		}
+		expect(n).toBe(alleFamilien.length * ALLE_BACKENDS.length * STUFEN.length);
 	});
 });

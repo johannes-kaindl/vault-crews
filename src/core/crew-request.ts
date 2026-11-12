@@ -30,8 +30,11 @@ export function thinkingLevelFor(agent: Pick<AgentDef, 'thinking'>, settings: Re
 
 /** `model` ist das Modell, das auf den Draht geht (`sentModel`). Es zählt nur bei Claude: dort hängt die Liste der Stufen am Modell
  *  (Opus 4.6: low, medium, high, max; ein gespeichertes `off` heißt „keine eigene Wahl“ und wird zum Standard des Modells), und der Abschnitt
- *  „Request“ rechnet mit demselben Modell. Bei den lokalen Familien bliebe `model` ohne Nutzen und würde nur `off` auf gpt-oss von
- *  `minimal` auf `low` heben (goldener Request), deshalb geht es dort nicht in die Rechnung. */
+ *  „Request“ rechnet mit demselben Modell. Bei den lokalen Familien sendet der Draht mit code-kit 0.66.0 mit und ohne Modell dasselbe
+ *  (gemessen 2026-11-12, 144 Fälle Familie × Backend × Stufe, einzige Abweichung Claude/Anthropic/off); sie bleiben auf dem alten Weg,
+ *  weil `thinkingLevel` im Ergebnis die gewünschte Stufe bleiben muss: der Hinweis „Modell dachte trotz thinking: off“ (`alwaysOnThinker`)
+ *  hängt an `off` und würde bei gpt-oss und Gemma stumm, wenn hier die geklemmte Stufe stünde. Bis code-kit 0.64.0 hob das Modell bei gpt-oss
+ *  `off` von `minimal` auf `low` (goldener Request). */
 export function buildCrewParams(input: {
 	family: FamilyId | null;
 	backend: BackendId;

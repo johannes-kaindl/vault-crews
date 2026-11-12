@@ -46,7 +46,7 @@
         },
         {
           "name": "sampling-profiles",
-          "ref": "0.63.0"
+          "ref": "0.66.0"
         },
         "secrets",
         "settings",
@@ -136,7 +136,7 @@
         "collapsible",
         {
           "name": "request-section",
-          "ref": "0.82.2"
+          "ref": "0.84.0"
         },
         "request-session",
         "backend-probe",
@@ -144,7 +144,7 @@
         "endpoint-status-text",
         {
           "name": "llm-connection-strings",
-          "ref": "0.82.2"
+          "ref": "0.84.0"
         },
         "secrets",
         "shortcuts-bridge",
