@@ -326,7 +326,7 @@ class RunFsm {
 		const ctxLen = this.modelCtx.get(rec.model) ?? CONTEXT_FALLBACK;
 		const { family, sentModel } = this.deps.request.describe(rec.model);
 		const { params: wire, thinkingLevel } = buildCrewParams({
-			family, backend: this.backend, agent, settings: this.deps.settings.request,
+			family, backend: this.backend, agent, settings: this.deps.settings.request, model: sentModel,
 		});
 		const params: LlmParams = { model: rec.model, sentModel, params: wire, thinkingLevel, thinkChannel: family === 'gemma4', restoreContent: schema.outputFormat === 'json' ? 'json' : 'text' };
 		const check = { family, thinking: thinkingLevel, backend: this.backend };

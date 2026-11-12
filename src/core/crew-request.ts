@@ -10,7 +10,7 @@
  *  Verträge sind Prosa + `validate()` (kein `json_schema`), deshalb ist `structured` der Modus:
  *  Ablauf steht vorher fest, das Modell füllt nur schema-validierte Verträge. */
 import {
-	resolveRequestParams, thinkingFor,
+	resolveRequestParams, resolveThinkingLevel, thinkingFor,
 	type BackendId, type FamilyId, type FieldId, type RequestSettings, type ThinkingLevel,
 } from '../vendor/kit/sampling-profiles';
 import type { AgentDef } from './types';
@@ -28,13 +28,20 @@ export function thinkingLevelFor(agent: Pick<AgentDef, 'thinking'>, settings: Re
 	return thinkingFor(settings, MODE); // auto: die Wahl des Plugins, sonst die Modusvorgabe (off)
 }
 
+/** `model` ist das Modell, das auf den Draht geht (`sentModel`). Es zählt nur bei Claude: dort hängt die Liste der Stufen am Modell
+ *  (Opus 4.6: low, medium, high, max; ein gespeichertes `off` heißt „keine eigene Wahl“ und wird zum Standard des Modells), und der Abschnitt
+ *  „Request“ rechnet mit demselben Modell. Bei den lokalen Familien bliebe `model` ohne Nutzen und würde nur `off` auf gpt-oss von
+ *  `minimal` auf `low` heben (goldener Request), deshalb geht es dort nicht in die Rechnung. */
 export function buildCrewParams(input: {
 	family: FamilyId | null;
 	backend: BackendId;
 	agent: Pick<AgentDef, 'temperature' | 'maxTokens' | 'thinking'>;
 	settings: RequestSettings;
+	model?: string;
 }): { params: Record<string, number | string>; thinkingLevel: ThinkingLevel } {
-	const thinkingLevel = thinkingLevelFor(input.agent, input.settings);
+	const wanted = thinkingLevelFor(input.agent, input.settings);
+	const modelPart = input.family === 'claude' && input.model !== undefined && input.model !== '' ? { model: input.model } : {};
+	const thinkingLevel = 'model' in modelPart ? resolveThinkingLevel(wanted, input.family, input.backend, modelPart.model) : wanted;
 	const fromPlugin = input.settings.overrides[MODE]?.[input.family ?? 'unknown'] ?? {};
 	const overrides: Partial<Record<FieldId, number | string>> = {
 		...fromPlugin,
@@ -42,7 +49,7 @@ export function buildCrewParams(input: {
 	};
 	const { params } = resolveRequestParams({
 		family: input.family, mode: MODE, backend: input.backend, thinking: thinkingLevel,
-		maxTokens: input.agent.maxTokens, overrides,
+		maxTokens: input.agent.maxTokens, overrides, ...modelPart,
 	});
 	return { params, thinkingLevel };
 }

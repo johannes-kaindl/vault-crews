@@ -97,3 +97,45 @@ describe('gpt-oss-Wächter (früher in local-llm-client.test.ts, Fix 3394839)', 
 		}
 	});
 });
+
+/* Anzeige = Draht (Welle 33, Entscheidung Johannes): der Abschnitt „Request“ rechnet mit dem Modell, das auf den Draht geht
+   (`sentModel`), und zeigt die Stufe, die dessen Liste hat. Dieselbe Rechnung gilt für Claude beim Senden; ohne `model` ging bei
+   Opus 4.6 `off` als `effort: low` hinaus, während der Abschnitt `high` zeigte. Für alle anderen Familien bleibt es beim alten
+   Weg: ein durchgereichtes Modell ändert dort nichts (bei gpt-oss würde es `minimal` zu `low` machen, goldener Request!). */
+describe('Claude: das Modell klemmt die Stufe wie der Abschnitt „Request“', () => {
+	const OPUS_46 = 'claude-opus-4-6'; // Liste: low, medium, high, max; Standard high (code-kit 0.63.0, CLAUDE_MODEL_LEVELS)
+	const claude = (stored: string, model: string | undefined) =>
+		buildCrewParams({
+			family: 'claude', backend: 'anthropic', agent: { maxTokens: 2048, thinking: 'auto' },
+			settings: settings({ thinking: { [MODE]: stored as never } }), ...(model !== undefined ? { model } : {}),
+		});
+
+	it.each([
+		['off', 'high'], ['low', 'low'], ['medium', 'medium'], ['high', 'high'], ['xhigh', 'high'], ['max', 'max'],
+	])('Opus 4.6: gespeichert %s → gesendet effort %s, Stufe im Ergebnis dieselbe', (stored, erwartet) => {
+		const { params, thinkingLevel } = claude(stored, OPUS_46);
+		expect(params.effort).toBe(erwartet);
+		expect(thinkingLevel).toBe(erwartet);
+	});
+
+	it('ohne Modell bleibt alles beim Alten (off → effort low), die Gegenprobe zum Test oben', () => {
+		expect(claude('off', undefined).params.effort).toBe('low');
+	});
+
+	it('ein Claude-Modell mit anderer Liste (Sonnet 4.5) klemmt nach dieser Liste, nicht nach der von Opus 4.6', () => {
+		expect(claude('off', 'claude-sonnet-4-5').params.effort).toBe('low');
+	});
+
+	it('ein durchgereichtes Modell ändert für die Nicht-Claude-Familien nichts (alle Stufen × Backends × Familien)', () => {
+		const stufen = ['off', 'low', 'medium', 'high'] as const;
+		let n = 0;
+		for (const family of FAMILIES) for (const backend of BACKENDS) for (const stored of stufen) {
+			const basis = { family, backend, agent: PERSONA, settings: settings({ thinking: { [MODE]: stored } }) };
+			const ohne = buildCrewParams(basis);
+			const mit = buildCrewParams({ ...basis, model: 'irgendein-modell' });
+			expect(mit, `${family}|${backend}|${stored}`).toEqual(ohne);
+			n++;
+		}
+		expect(n).toBe(FAMILIES.length * BACKENDS.length * stufen.length);
+	});
+});
