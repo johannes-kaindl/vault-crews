@@ -455,7 +455,7 @@ describe("sanitizeChoice", () => {
 });
 
 describe("SettingsTab — Abschnitt „Request“ (Modus structured)", () => {
-  it("zeichnet Modus, Felder und Denkstufe aus dem Kit-Abschnitt und sagt, dass die Persona darüber entscheidet", () => {
+  it("zeichnet Modus, Felder und letzte Anfrage aus dem Kit-Abschnitt; ohne bekannte Familie gibt es keine Denkstufen-Zeile (Kit 0.76.0: sie zeigte etwas, das nie gesendet wird)", () => {
     const host = makeFakeHost();
     const texts = captureSettingTexts();
     const tab = new SettingsTab(makeFakePlugin(), host);
@@ -465,8 +465,29 @@ describe("SettingsTab — Abschnitt „Request“ (Modus structured)", () => {
     const joined = texts.join(" | ");
     expect(joined).toContain("Structured");
     expect(joined).toContain("Temperature (temperature)");
-    expect(joined).toContain("Thinking level");
+    expect(joined).not.toContain("Thinking level");
     expect(joined).toContain("Last request");
+  });
+
+  it("zeigt die Denkstufe, wenn Familie und Backend Stufen kennen (Qwen auf LM Studio: aus, niedrig, mittel, hoch)", () => {
+    const host = makeFakeHost({
+      requestSectionState: () => ({
+        family: "qwen3.8", familySource: "name", backend: "lmstudio", backendSource: "probe", model: "qwen/qwen3.8-27b", sentModel: "qwen/qwen3.8-27b",
+      }),
+    });
+    const texts = captureSettingTexts();
+    const dropdowns: DropdownComponent[] = [];
+    vi.spyOn(DropdownComponent.prototype, "setValue").mockImplementation(function (this: DropdownComponent & { _value: string }, v: string) {
+      this._value = String(v ?? "");
+      if (!dropdowns.includes(this)) dropdowns.push(this);
+      return this;
+    });
+    new SettingsTab(makeFakePlugin(), host).display();
+
+    expect(texts.join(" | ")).toContain("Thinking level");
+    const stufen = dropdowns.find((d) => "medium" in d.options && "off" in d.options);
+    expect(stufen, "Dropdown mit der Stufenliste").toBeDefined();
+    expect(Object.keys(stufen?.options ?? {})).toEqual(["off", "low", "medium", "high"]);
   });
 
   it("löst die Quelle für den Abschnitt je Öffnen genau einmal auf und beim nächsten Öffnen wieder", () => {

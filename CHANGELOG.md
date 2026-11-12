@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The "Thinking level" row in the Request settings now offers only the levels the model really has.** With a known model family on a backend that supports levels it lists them (for a local model: off, low, medium, high; for Claude on Anthropic up to the model's own list, including the new levels "extra high" and "max"); with an unknown family, or Claude behind a backend that cannot set a level, the row is gone because it would show something that is never sent. A level you saved before is kept in your settings and is only mapped onto the list for display. What a run sends is unchanged (checked against all combinations of model family, backend and level).
+
 ## [0.24.0] — 2026-11-11
 
 ### Changed

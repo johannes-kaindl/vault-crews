@@ -44,7 +44,10 @@
           "name": "rotation",
           "ref": "0.60.0"
         },
-        "sampling-profiles",
+        {
+          "name": "sampling-profiles",
+          "ref": "0.63.0"
+        },
         "secrets",
         "settings",
         "sse",
@@ -131,12 +134,18 @@
         "hub",
         "clipboard",
         "collapsible",
-        "request-section",
+        {
+          "name": "request-section",
+          "ref": "0.82.2"
+        },
         "request-session",
         "backend-probe",
         "endpoint-secrets",
         "endpoint-status-text",
-        "llm-connection-strings",
+        {
+          "name": "llm-connection-strings",
+          "ref": "0.82.2"
+        },
         "secrets",
         "shortcuts-bridge",
         "plugin-api",
