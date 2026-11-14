@@ -61,6 +61,7 @@ import { hydrateLocalEndpoints, prepareLocalEndpoints } from "./vendor/kit-obsid
 import { createRequestPort } from "./obsidian/request-port";
 import { deviationNotice } from "./obsidian/request-text";
 import { installFolderHide, type FolderHideHandle } from "./vendor/kit-obsidian/folder-hide";
+import { createStatusBarItem, statusBarEnabled, type StatusBarItemHandle } from "./vendor/kit-obsidian/status-bar-item";
 import { noticeWithLink, NOTICE_WITH_LINK_MS } from "./obsidian/run-notice";
 import { ObsidianMetadataPort, ObsidianVaultPort } from "./obsidian/vault-port";
 import { RequestUrlJsonTransport } from "./obsidian/transports";
@@ -152,7 +153,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
   });
   private clock!: ClockPort;
 
-  private statusBarEl: HTMLElement | null = null;
+  private statusItem: StatusBarItemHandle | null = null;
 
   // Ein-Lauf-Mutex (Spec §6.2 „genau ein Lauf gleichzeitig"): synchron in runCrew
   // gesetzt, in einem finally wieder freigegeben.
@@ -172,7 +173,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     this.addRibbonIcon("list-checks", t("cmd.openPanel"), () => {
       void this.activatePanel();
     });
-    this.statusBarEl = this.addStatusBarItem();
+    this.statusItem = createStatusBarItem({ plugin: this, visible: statusBarEnabled(this.settings.showStatusBar), text: null });
 
     this.addSettingTab(new SettingsTab(this, this));
     this.registerStaticCommands();
@@ -233,6 +234,8 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     // Dasselbe für das gestrichene `verboseLogging` (ohne Leser, Welle 22).
     delete (this.settings as unknown as Record<string, unknown>).verboseLogging;
     this.settings.choice = sanitizeChoice(this.settings.choice);
+    // Ein Boolean gilt, alles andere (alte data.json ohne den Schlüssel, Müll) fällt auf „an": ein Update schaltet keine Anzeige ab.
+    this.settings.showStatusBar = statusBarEnabled(raw?.showStatusBar);
     // Die gespeicherten Anfrage-Einstellungen sind handeditierbar: was die Prüfung nicht besteht,
     // fällt auf das Profil zurück — und wird gemeldet, statt still zu verschwinden.
     const { settings: request, dropped } = sanitizeRequestSettings(raw?.request);
@@ -250,6 +253,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
   async saveSettings(): Promise<void> {
     await this.saveData({ ...this.settings, lastRuns: this.lastRuns });
     this.applyFolderHide();
+    this.statusItem?.setVisible(statusBarEnabled(this.settings.showStatusBar));
   }
 
   /** Ephemerer Client statt `this.llm` (PROF-OBS-XX): `this.llm` ist der GETEILTE,
@@ -578,9 +582,9 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       if (leaf.view instanceof RunPanelView) leaf.view.handleEvent(e);
     }
     if (e.type === "taskStarted") {
-      this.statusBarEl?.setText(`⚙ ${e.index}/${e.total}`);
+      this.statusItem?.set(`⚙ ${e.index}/${e.total}`);
     } else if (e.type === "runFinished") {
-      this.statusBarEl?.setText("");
+      this.statusItem?.set(null);
       this.onRunFinished(teamId, e.result);
     }
   }

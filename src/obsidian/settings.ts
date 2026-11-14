@@ -1,4 +1,4 @@
-import { PluginSettingTab, Setting, type Plugin, type SettingDefinitionItem } from "obsidian";
+import { PluginSettingTab, Setting, type Plugin, type SettingDefinitionItem, type SettingDefinitionRender } from "obsidian";
 import { getLang, t } from "../vendor/kit/i18n";
 import { ENDPOINT_PRESETS, type EndpointStatus } from "../vendor/kit/endpoint_diagnostics";
 import { parseEndpointList } from "../vendor/kit/endpoint";
@@ -13,6 +13,7 @@ import { createModelListCache, type ModelListCache } from "../vendor/kit/model-l
 import { guessFromName, type Capabilities } from "../vendor/kit/capabilities";
 import { buildEndpointSourceSection } from "../vendor/kit-obsidian/endpoint-source";
 import { buildEndpointList, type EndpointListStrings } from "../vendor/kit-obsidian/endpoint-list";
+import { statusBarEnabled, statusBarSettingDefinition } from "../vendor/kit-obsidian/status-bar-item";
 import { githubHelpUrls, helpSettingDefinition } from "../vendor/kit-obsidian/help-setting";
 import { installTabRefreshOnOpen, renderSettingDefinitions, settingBodyHost, refreshSettingsTab } from "../vendor/kit-obsidian/settings_walker";
 import { LLM_CONNECTION_STRINGS_DE, LLM_CONNECTION_STRINGS_EN } from "../vendor/kit-obsidian/llm-connection-strings";
@@ -39,6 +40,8 @@ export interface PluginSettings {
   crewRoot: string;
   /** Crew-Ordner im Datei-Explorer verstecken (rein kosmetisch, Muster aus vault-rag/slide-deck). */
   hideCrewFolder: boolean;
+  /** Laufanzeige (⚙ n/m) in der Statusleiste. Standard an: ein Update lässt keine genutzte Anzeige verschwinden. */
+  showStatusBar: boolean;
   maxWrites: number;
   wallClockMinutes: number;
   callTimeoutS: number;
@@ -53,6 +56,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   request: DEFAULT_REQUEST_SETTINGS,
   crewRoot: "_crews",
   hideCrewFolder: false,
+  showStatusBar: true, // = STATUS_BAR_DEFAULT des Kit-Bausteins (Test hält beide gleich)
   maxWrites: 10,
   wallClockMinutes: 10,
   callTimeoutS: 300,
@@ -155,7 +159,7 @@ function capabilityLines(caps: Capabilities): string[] {
  *  während der Fallback-Walker sie zeichnet (Fund yijing-oracle, REGISTRY). Der Wächter dazu
  *  steht in `tests/obsidian/settings-definitions.test.ts`. */
 type ControlDef = { type: "text" | "number" | "toggle"; key: keyof PluginSettings; placeholder?: string };
-type ItemDef = { name?: string; desc?: string; control?: ControlDef; render?: (setting: Setting) => void };
+type ItemDef = { name?: string; desc?: string | DocumentFragment; control?: ControlDef; render?: SettingDefinitionRender["render"] };
 type GroupDef = { type: "group"; heading: string; items: ItemDef[] };
 
 /**
@@ -259,6 +263,11 @@ export class SettingsTab extends PluginSettingTab {
             desc: t("settings.crews.hideFolder.desc"),
             control: { type: "toggle", key: "hideCrewFolder" },
           },
+          statusBarSettingDefinition({
+            value: statusBarEnabled(this.host.settings.showStatusBar),
+            onChange: (v) => this.setControlValue("showStatusBar", v),
+            strings: { lang: getLang() === "de" ? "de" : "en" },
+          }),
           {
             name: t("settings.crews.installExamples.name"),
             desc: t("settings.crews.installExamples.desc"),
@@ -332,6 +341,8 @@ export class SettingsTab extends PluginSettingTab {
         return s.crewRoot;
       case "hideCrewFolder":
         return s.hideCrewFolder;
+      case "showStatusBar":
+        return s.showStatusBar;
       case "maxWrites":
         return s.maxWrites;
       case "wallClockMinutes":
@@ -362,6 +373,9 @@ export class SettingsTab extends PluginSettingTab {
         break;
       case "hideCrewFolder":
         s.hideCrewFolder = Boolean(value);
+        break;
+      case "showStatusBar":
+        s.showStatusBar = Boolean(value);
         break;
       case "maxWrites":
         s.maxWrites = asInt(s.maxWrites);

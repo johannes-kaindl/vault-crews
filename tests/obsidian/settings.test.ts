@@ -174,6 +174,7 @@ describe("DEFAULT_SETTINGS", () => {
       request: { overrides: {}, thinking: {}, lastOnLevel: {}, levelPickerInChat: false },
       crewRoot: "_crews",
       hideCrewFolder: false,
+      showStatusBar: true,
       maxWrites: 10,
       wallClockMinutes: 10,
       callTimeoutS: 300,
@@ -202,7 +203,8 @@ describe("SettingsTab.display()", () => {
     // +1 seit 0.11.0: die Hilfe-Zeile steht als erstes Element vor den Gruppen.
     // +1 seit 0.13.0: die Zeile „Request" (Kit-Abschnitt Anfrage) sitzt in der Gruppe Connection.
     // −1 seit Welle 22: der Schalter „Verbose logging“ ist gestrichen.
-    expect(tab.containerEl.children.length).toBe(16);
+    // +1 seit Welle 34: die Zeile „Status bar“ (Kit-Baustein status-bar-item) in der Gruppe Crews.
+    expect(tab.containerEl.children.length).toBe(17);
   });
 
   it("gibt dem Kit-Endpunkt-Editor eine Zeile, die er auch füllt", () => {

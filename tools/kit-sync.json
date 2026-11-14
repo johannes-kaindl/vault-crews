@@ -156,6 +156,10 @@
         {
           "name": "safe-file-name",
           "ref": "0.82.2"
+        },
+        {
+          "name": "status-bar-item",
+          "ref": "0.88.0"
         }
       ],
       "rewrite": [
@@ -188,7 +192,10 @@
       "modules": [
         "kit-css",
         "linear-probe",
-        "obsidian-mock",
+        {
+          "name": "obsidian-mock",
+          "ref": "0.88.0"
+        },
         "window-timers"
       ]
     }

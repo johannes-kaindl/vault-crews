@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A "Status bar" switch in the settings (Crews group), on by default.** It shows or hides the run counter ("⚙ 2/5") in the status bar. An existing install keeps the counter; turning the switch off removes the entry from the bar, turning it on puts it back at the end of the bar. The status bar is not shown on phones, the plugin works there as before.
+
 ## [0.25.0] — 2026-11-12
 
 ### Changed

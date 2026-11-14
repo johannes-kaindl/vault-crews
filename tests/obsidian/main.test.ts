@@ -334,6 +334,60 @@ describe("VaultCrewsPlugin.loadSettings — Migration", () => {
   });
 });
 
+describe("VaultCrewsPlugin — Statusleiste (Welle 34)", () => {
+  type Handle = { shown: boolean; el: { textContent?: string } | null };
+  const item = (p: VaultCrewsPlugin): Handle => (p as unknown as { statusItem: Handle }).statusItem;
+  const settings = (p: VaultCrewsPlugin): Record<string, unknown> => (p as unknown as { settings: Record<string, unknown> }).settings;
+  const loaded = async (data: unknown): Promise<VaultCrewsPlugin> => {
+    const plugin = makePlugin();
+    (plugin as unknown as { loadData(): Promise<unknown> }).loadData = () => Promise.resolve(data);
+    await plugin.onload();
+    return plugin;
+  };
+
+  it("frische Installation und alte data.json ohne den Schluessel: Eintrag steht in der Leiste", async () => {
+    expect(settings(await loaded(null)).showStatusBar).toBe(true);
+    const alt = await loaded({ maxWrites: 7, hideCrewFolder: true });
+    expect(settings(alt).showStatusBar).toBe(true);
+    expect(item(alt).shown).toBe(true);
+  });
+
+  it("Muell im Schluessel faellt auf an, ein gespeichertes false bleibt aus (kein Eintrag angelegt)", async () => {
+    expect(settings(await loaded({ showStatusBar: "nein" })).showStatusBar).toBe(true);
+    const aus = await loaded({ showStatusBar: false });
+    expect(item(aus).shown).toBe(false);
+    expect(item(aus).el).toBeNull();
+  });
+
+  it("Umschalten ueber die Einstellungen haengt den Eintrag ab und legt ihn neu an, der Wert wird gespeichert", async () => {
+    const plugin = await loaded(null);
+    const saved: unknown[] = [];
+    (plugin as unknown as { saveData(d: unknown): Promise<void> }).saveData = (d) => { saved.push(d); return Promise.resolve(); };
+    const tab = (plugin as unknown as { settingTabs: { setControlValue(k: string, v: unknown): void }[] }).settingTabs[0];
+
+    tab.setControlValue("showStatusBar", false);
+    await Promise.resolve(); await Promise.resolve();
+    expect(item(plugin).shown).toBe(false);
+    expect(saved.at(-1)).toMatchObject({ showStatusBar: false });
+
+    tab.setControlValue("showStatusBar", true);
+    await Promise.resolve(); await Promise.resolve();
+    expect(item(plugin).shown).toBe(true);
+    expect(saved.at(-1)).toMatchObject({ showStatusBar: true });
+  });
+
+  it("die Laufanzeige schreibt in den Eintrag und raeumt ihn am Laufende; bei ausgeschalteter Leiste bricht nichts", async () => {
+    const plugin = await loaded(null);
+    const onRunEvent = (plugin as unknown as { onRunEvent(id: string, e: unknown): void }).onRunEvent.bind(plugin);
+    onRunEvent("t", { type: "taskStarted", index: 2, total: 5 });
+    expect(item(plugin).el!.textContent).toBe("⚙ 2/5");
+
+    const aus = await loaded({ showStatusBar: false });
+    const onRunEventAus = (aus as unknown as { onRunEvent(id: string, e: unknown): void }).onRunEvent.bind(aus);
+    expect(() => onRunEventAus("t", { type: "taskStarted", index: 1, total: 3 })).not.toThrow();
+  });
+});
+
 // Zwei der drei stummen Panel-Zustaende haengen an der Wiring-Schicht, nicht am ViewModel:
 // das Zaehlen verirrter Dateien und das Nachziehen bei Vault-Aenderungen.
 describe("VaultCrewsPlugin — verirrte Crew-Dateien und Live-Aktualisierung", () => {
