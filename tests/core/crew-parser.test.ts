@@ -715,3 +715,114 @@ describe('per_note (ein Modellaufruf je Notiz)', () => {
 		expect(r.errors.join('\n')).toMatch(/per_note.*true\|false/);
 	});
 });
+
+describe('note.file und note.move', () => {
+	const NF = { family: 'note.file', destinations: [{ folder: '10_Aufgaben/Meyer', when: 'Kunde Meyer' }, { folder: '10_Aufgaben/Archiv' }], destinations_from: '10_Aufgaben' };
+	const tasks = (output: unknown, actions: Record<string, unknown>[] = [{ id: 'apply', kind: 'actions', inputs: ['sort'], allowed_actions: ['note.move'] }]) => [
+		{ id: 'collect', kind: 'collector', collector: 'vault.list', params: { folder: '10_Aufgaben' } },
+		{ id: 'sort', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'Sortiere.', output },
+		...actions,
+	];
+	const parse = (output: unknown, actions?: Record<string, unknown>[], team: Record<string, unknown> = {}) =>
+		parseTeamDef(TEAM_PATH, teamFm({ tasks: tasks(output, actions), ...team }), OPTS);
+	const errs = (r: ReturnType<typeof parse>): string => (r.ok ? '' : r.errors.join('\n'));
+	const outputOf = (r: ReturnType<typeof parse>): unknown => (r.ok ? (r.value.tasks[1] as { output: unknown }).output : null);
+
+	it('parst feste Ziele (when optional) und destinations_from; der Ordner wird normalisiert', () => {
+		const r = parse({ ...NF, destinations: [{ folder: './10_Aufgaben//Meyer/', when: ' Kunde Meyer ' }, { folder: '10_Aufgaben/Archiv' }] });
+		expect(r.ok, errs(r)).toBe(true);
+		expect(outputOf(r)).toEqual({
+			family: 'note.file', destinationsFrom: '10_Aufgaben',
+			destinations: [{ folder: '10_Aufgaben/Meyer', when: 'Kunde Meyer' }, { folder: '10_Aufgaben/Archiv', when: null }],
+		});
+	});
+
+	it('nur destinations oder nur destinations_from genügt', () => {
+		expect(parse({ family: 'note.file', destinations: [{ folder: '10_Aufgaben/Meyer' }] }).ok).toBe(true);
+		const only = parse({ family: 'note.file', destinations_from: '10_Aufgaben' });
+		expect(only.ok, errs(only)).toBe(true);
+		expect(outputOf(only)).toEqual({ family: 'note.file', destinations: [], destinationsFrom: '10_Aufgaben' });
+	});
+
+	it('ohne destinations und ohne destinations_from ist es ein Fehler', () => {
+		const r = parse({ family: 'note.file' });
+		expect(r.ok).toBe(false);
+		expect(errs(r)).toMatch(/destinations/);
+		expect(parse({ family: 'note.file', destinations: [] }).ok).toBe(false);
+	});
+
+	it('jeder feste Ordner läuft durch checkFixedFolder: außerhalb write_scope und auf der Sperrliste sind Fehler mit Ordner und Regel', () => {
+		const out = parse({ family: 'note.file', destinations: [{ folder: 'Anderswo' }] });
+		expect(errs(out)).toMatch(/destinations\[0\]\.folder.*'Anderswo'.*write_scope/);
+		const deny = parse({ family: 'note.file', destinations: [{ folder: '_crews/x' }] }, undefined, { write_scope: ['**/*.md'] });
+		expect(errs(deny)).toMatch(/'_crews\/x'.*Sperrliste/);
+	});
+
+	it.each([['../x'], [''], [5], ['10_Aufgaben/{{today}}'], ['10_Aufgaben/*']])('lehnt den Ordner %j ab', (folder) => {
+		expect(parse({ family: 'note.file', destinations: [{ folder }] }).ok).toBe(false);
+	});
+
+	it('none ist reserviert: ein Ziel-Ordner namens none ist ein Fehler', () => {
+		const r = parse({ family: 'note.file', destinations: [{ folder: 'none' }] }, undefined, { write_scope: ['**/*.md'] });
+		expect(r.ok).toBe(false);
+		expect(errs(r)).toMatch(/none/);
+		expect(parse({ family: 'note.file', destinations: [{ folder: './None/' }] }, undefined, { write_scope: ['**/*.md'] }).ok).toBe(false);
+	});
+
+	it('lehnt doppelte Ordner, mehrzeilige when-Texte, unbekannte Felder und eine Nicht-Liste ab', () => {
+		expect(parse({ family: 'note.file', destinations: [{ folder: '10_Aufgaben/A' }, { folder: '10_Aufgaben/a' }] }).ok).toBe(false);
+		expect(parse({ family: 'note.file', destinations: [{ folder: '10_Aufgaben/A', when: 'x\ny' }] }).ok).toBe(false);
+		expect(parse({ family: 'note.file', destinations: [{ folder: '10_Aufgaben/A', wenn: 'x' }] }).ok).toBe(false);
+		expect(parse({ family: 'note.file', destinations: '10_Aufgaben/A' }).ok).toBe(false);
+	});
+
+	it('destinations_from: leer, mit .. und auf der Sperrliste sind Fehler', () => {
+		expect(parse({ family: 'note.file', destinations_from: '' }).ok).toBe(false);
+		expect(parse({ family: 'note.file', destinations_from: '../x' }).ok).toBe(false);
+		expect(parse({ family: 'note.file', destinations_from: '_crews' }).ok).toBe(false);
+	});
+
+	it('der Modellschritt note.file verlangt note.move im Aktions-Schritt', () => {
+		const r = parse(NF, [{ id: 'apply', kind: 'actions', inputs: ['sort'], allowed_actions: ['frontmatter.patch'], allowed_keys: ['x'] }]);
+		expect(r.ok).toBe(false);
+		expect(errs(r)).toMatch(/note\.move/);
+	});
+
+	it('note.move ist als allowed_actions erlaubt', () => {
+		const r = parse(NF);
+		expect(r.ok, errs(r)).toBe(true);
+		if (r.ok) expect((r.value.tasks[2] as { allowedActions: string[] }).allowedActions).toEqual(['note.move']);
+	});
+
+	it('zwei Aktions-Schritte mit note.move sind ein Fehler', () => {
+		const r = parse(NF, [
+			{ id: 'apply', kind: 'actions', inputs: ['sort'], allowed_actions: ['note.move'] },
+			{ id: 'apply2', kind: 'actions', inputs: ['sort'], allowed_actions: ['note.move'] },
+		]);
+		expect(r.ok).toBe(false);
+		expect(errs(r)).toMatch(/note\.move muss der letzte Schritt sein/);
+	});
+
+	it('ein Schritt nach dem note.move-Schritt ist ein Fehler „note.move muss der letzte Schritt sein“', () => {
+		const r = parse(NF, [
+			{ id: 'apply', kind: 'actions', inputs: ['sort'], allowed_actions: ['note.move'] },
+			{ id: 'after', kind: 'actions', inputs: ['sort'], allowed_actions: ['frontmatter.patch'], allowed_keys: ['x'] },
+		]);
+		expect(r.ok).toBe(false);
+		expect(errs(r)).toMatch(/tasks\[3\].*note\.move muss der letzte Schritt sein/);
+	});
+
+	it('ein Schritt VOR dem note.move-Schritt ist erlaubt (Abschnitt schreiben, dann verschieben)', () => {
+		const r = parse(NF, [
+			{ id: 'pre', kind: 'actions', inputs: ['collect'], allowed_actions: ['frontmatter.patch'], allowed_keys: ['x'] },
+			{ id: 'apply', kind: 'actions', inputs: ['sort'], allowed_actions: ['note.move'] },
+		]);
+		expect(r.ok, errs(r)).toBe(true);
+	});
+
+	it('allowed_keys und values gelten nicht für note.file', () => {
+		expect(parse({ ...NF, allowed_keys: ['a'] }).ok).toBe(false);
+		expect(parse({ ...NF, values: { a: { from: 'tags' } } }).ok).toBe(false);
+	});
+});
+

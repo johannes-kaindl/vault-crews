@@ -1604,3 +1604,124 @@ describe('executeRun — notes.create', () => {
     expect(await h.vault.exists(`10_Aufgaben/${day}/Kunde`)).toBe(false);
   });
 });
+
+describe('executeRun — note.file und note.move', () => {
+  const SRC = '00_Inbox/a.md';
+  const IN_NOTE = '---\ntitle: A\n---\nAngebot für Meyer.\n';
+  const answer = (to: string, path = SRC): ScriptedCall => ({ content: JSON.stringify({ items: [{ path, to }] }) });
+
+  function fileTeam(output: Record<string, unknown>, scope: string[] = ['00_Inbox/**', '40_Projekte/**'], maxWrites = 10): TeamFm {
+    return triageTeamFm({
+      limits: { max_writes: maxWrites },
+      write_scope: scope,
+      tasks: [
+        { id: 'collect', kind: 'collector', collector: 'vault.read', params: { paths: [SRC] } },
+        { id: 'sort', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'Lege ab.', output: { family: 'note.file', ...output }, on_error: 'abort' },
+        { id: 'apply', kind: 'actions', inputs: ['sort'], allowed_actions: ['note.move'] },
+      ],
+    });
+  }
+  const FILES = {
+    [SRC]: IN_NOTE, '40_Projekte/Meyer/x.md': 'x', '40_Projekte/Zeta/x.md': 'z', '40_Projekte/Privat/x.md': 'p',
+  };
+  const SCOPE = ['00_Inbox/**', '40_Projekte/Meyer/**', '40_Projekte/Zeta/**'];
+
+  it('destinations_from: nimmt die Unterordner aus listFolders auf; Ordner außerhalb write_scope und auf der Sperrliste fehlen im Prompt und stehen in valueNotes', async () => {
+    const llm = new ScriptLlmClient([answer('40_Projekte/Meyer')]);
+    const h = await harness({ teamFm: fileTeam({ destinations_from: '40_Projekte' }, SCOPE), files: FILES, llm });
+    await h.vault.mkdir('40_Projekte/.versteckt');
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    const prompt = llm.calls[0]?.messages[0]?.content ?? '';
+    expect(prompt).toContain('- 40_Projekte/Meyer');
+    expect(prompt).toContain('- 40_Projekte/Zeta');
+    expect(prompt).not.toContain('Privat');
+    expect(prompt).not.toContain('versteckt');
+    const rec = (await stateOf(h, r.runId)).tasks.find((t) => t.taskId === 'sort') as { valueNotes?: string[] } | undefined;
+    const notes = (rec?.valueNotes ?? []).join('\n');
+    expect(notes).toMatch(/40_Projekte\/Privat.*write_scope/);
+    expect(notes).toMatch(/40_Projekte\/\.versteckt/);
+    expect(await h.vault.read(await runMd(h, r.runId))).toContain('40_Projekte/Privat');
+  });
+
+  it('verschiebt die Notiz; im Schreibregister steht der neue Pfad statt des alten', async () => {
+    const h = await harness({ teamFm: fileTeam({ destinations_from: '40_Projekte' }, SCOPE), files: FILES, llm: new ScriptLlmClient([answer('40_Projekte/Meyer')]) });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    expect(r.writes).toBe(1);
+    expect(r.undoable).toBe(true);
+    expect(await h.vault.exists(SRC)).toBe(false);
+    expect(await h.vault.read('40_Projekte/Meyer/a.md')).toBe(IN_NOTE);
+    const state = JSON.parse(await h.vault.read(`_crews/runs/${r.runId}/state.json`)) as { writeRegister: string[] };
+    expect(state.writeRegister).toEqual(['40_Projekte/Meyer/a.md']);
+    // Das Pre-Image des alten Pfads ist gesichert, bevor verschoben wurde.
+    expect(h.snapshot.paths(r.runId)).toContain(SRC);
+  });
+
+  it('feste Ziele stehen vor den Laufzeitzielen, ohne Doppelte; eine Liste ohne Hinweis hat nur die Ordnerzeile', async () => {
+    const llm = new ScriptLlmClient([answer('none')]);
+    const h = await harness({
+      teamFm: fileTeam({ destinations: [{ folder: '40_Projekte/Zeta', when: 'Zeta-Kunden' }, { folder: '00_Inbox' }], destinations_from: '40_Projekte' }, SCOPE),
+      files: FILES, llm,
+    });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    expect(r.writes).toBe(0);
+    expect(await h.vault.exists(SRC)).toBe(true);
+    const prompt = llm.calls[0]?.messages[0]?.content ?? '';
+    expect(prompt.indexOf('- 40_Projekte/Zeta: Zeta-Kunden')).toBeGreaterThan(-1);
+    expect(prompt.indexOf('- 40_Projekte/Zeta: Zeta-Kunden')).toBeLessThan(prompt.indexOf('- 40_Projekte/Meyer'));
+    expect(prompt.match(/^- 40_Projekte\/Zeta/gm)).toHaveLength(1);
+  });
+
+  it('höchstens 100 Ziele (DESTINATIONS_FROM_MAX), die Kürzung steht in valueNotes', async () => {
+    const files: Record<string, string> = { [SRC]: IN_NOTE };
+    for (let i = 1; i <= 120; i++) files[`40_Projekte/f${String(i).padStart(3, '0')}/x.md`] = 'x';
+    const llm = new ScriptLlmClient([answer('none')]);
+    const h = await harness({ teamFm: fileTeam({ destinations_from: '40_Projekte' }), files, llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    const prompt = llm.calls[0]?.messages[0]?.content ?? '';
+    expect(prompt).toContain('- 40_Projekte/f100');
+    expect(prompt).not.toContain('40_Projekte/f101');
+    const rec = (await stateOf(h, r.runId)).tasks.find((t) => t.taskId === 'sort') as { valueNotes?: string[] } | undefined;
+    expect((rec?.valueNotes ?? []).join('\n')).toMatch(/100 von 120/);
+  });
+
+  it('ein Ziel, das nicht in der Liste steht, ist eine ungültige Antwort: keine Verschiebung', async () => {
+    const h = await harness({ teamFm: fileTeam({ destinations_from: '40_Projekte' }, SCOPE), files: FILES, llm: new ScriptLlmClient([answer('40_Projekte/Mayer'), answer('40_Projekte/Mayer')]) });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('failed');
+    expect(r.errorKind).toBe('invalid_output');
+    expect(await h.vault.exists(SRC)).toBe(true);
+  });
+
+  it('Abschnitt schreiben und danach dieselbe Notiz verschieben verbraucht bei max_writes 1 nur einen Schreibvorgang (eigener Stand gilt nicht als stale)', async () => {
+    const team = triageTeamFm({
+      limits: { max_writes: 1 },
+      write_scope: ['00_Inbox/**', '40_Projekte/**'],
+      tasks: [
+        { id: 'collect', kind: 'collector', collector: 'vault.read', params: { paths: [SRC] } },
+        { id: 'brief', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'Schreibe.', output: { family: 'section.write' }, on_error: 'abort' },
+        { id: 'apply1', kind: 'actions', inputs: ['brief'], allowed_actions: ['section.replace'], target: SRC },
+        { id: 'sort', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'Lege ab.', output: { family: 'note.file', destinations: [{ folder: '40_Projekte/Meyer' }] }, on_error: 'abort' },
+        { id: 'apply2', kind: 'actions', inputs: ['sort'], allowed_actions: ['note.move'] },
+      ],
+    });
+    const llm = new ScriptLlmClient([{ content: '## Notiz\n- erledigt' }, answer('40_Projekte/Meyer')]);
+    const h = await harness({ teamFm: team, files: FILES, llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    expect(r.writes).toBe(1);
+    const moved = await h.vault.read('40_Projekte/Meyer/a.md');
+    expect(moved).toContain('- erledigt');
+    expect(await h.vault.exists(SRC)).toBe(false);
+  });
+});
+
+async function runMd(h: Harness, runId: string): Promise<string> {
+  const p = `_crews/runs/${runId}/run.md`;
+  if (!(await h.vault.exists(p))) throw new Error(`run.md fehlt: ${p}`);
+  return p;
+}
+

@@ -27,6 +27,9 @@ export interface ExecutorContext {
 	 *  Ein Throw wird wie ein Write-Fehler behandelt (Aktion failed). Optional:
 	 *  Tests/Läufe ohne Undo lassen ihn weg. */
 	preWrite?: (path: string) => Promise<void>;
+	/** Wie `preWrite`, aber für `note.move`: vor dem Verschieben mit altem und neuem Pfad aufgerufen (`preWrite` läuft für eine Verschiebung nicht).
+	 *  Ein Throw heißt: die Aktion ist `failed`, die Notiz bleibt liegen. Optional: Tests/Läufe ohne Undo lassen ihn weg. */
+	preMove?: (from: string, to: string) => Promise<void>;
 	/** Bringt den Dateinamen (das letzte Segment, kein Pfad) einer vom Modell vorgeschlagenen neuen Notiz in die Namensrichtlinie des Vaults
 	 *  (main.ts: `safeFileName` des Kits, erst die API des Plugins `filename-sanitizer`, sonst die Kit-Regeln). Läuft VOR Denylist und
 	 *  write_scope, die also den bereinigten Pfad sehen. Optional: Tests und Umgebungen ohne Verdrahtung lassen ihn weg. Nur `note.create`
@@ -46,6 +49,8 @@ export const CREW_MARKER = (teamId: string): { start: string; end: string } => (
 interface ValidatedAction {
 	action: Action;
 	path: string;
+	/** Nur `note.move`: der normalisierte Zielpfad. */
+	to: string;
 	outcome: ActionOutcome | null; // null = Validierung bestanden, wird in Phase 2 angewendet
 	mappedSet: Record<string, FmValue> | null; // rückgemappte Werte (frontmatter.patch)
 	mappedAdd: Record<string, (string | number)[]> | null; // rückgemappte Werte, die zur Liste hinzukommen (frontmatter.patch)
@@ -98,7 +103,7 @@ function mapFmValue(key: string, value: FmValue, ctx: ExecutorContext): { ok: tr
 }
 
 async function validateAction(action: Action, ctx: ExecutorContext, vault: VaultPort): Promise<ValidatedAction> {
-	const v: ValidatedAction = { action, path: '', outcome: null, mappedSet: null, mappedAdd: null };
+	const v: ValidatedAction = { action, path: '', to: '', outcome: null, mappedSet: null, mappedAdd: null };
 
 	// 1. Pfad-Normalisierung — '..' ist hart verboten
 	try {
@@ -133,7 +138,40 @@ async function validateAction(action: Action, ctx: ExecutorContext, vault: Vault
 		v.outcome = outcomeOf(action, 'rejected', `Aktionstyp nicht in allowed_actions: ${action.type}`);
 		return v;
 	}
-	if (action.type === 'frontmatter.patch') {
+	if (action.type === 'note.move') {
+		// Quelle und Ziel laufen durch dieselben Wächter; die Quelle ist `action.path` und hat die Schritte 1 bis 3 schon passiert.
+		try {
+			v.to = normalizeVaultPath(action.to);
+		} catch {
+			v.outcome = outcomeOf(action, 'rejected', `Zielpfad ungültig ('..' oder NUL): ${action.to}`);
+			return v;
+		}
+		if (isDenied(v.to, ctx.denylist)) {
+			v.outcome = outcomeOf(action, 'rejected', `Ziel auf Denylist: ${v.to}`);
+			return v;
+		}
+		if (!ctx.team.writeScope.some((g) => globMatch(g, v.to))) {
+			v.outcome = outcomeOf(action, 'rejected', `Ziel außerhalb write_scope: ${v.to}`);
+			return v;
+		}
+		if (!v.path.endsWith('.md') || !v.to.endsWith('.md')) {
+			v.outcome = outcomeOf(action, 'rejected', `nur .md-Dateien erlaubt: ${v.path} → ${v.to}`);
+			return v;
+		}
+		if (!(await vault.exists(v.path))) {
+			v.outcome = outcomeOf(action, 'failed', `Quelle existiert nicht: ${v.path}`);
+			return v;
+		}
+		const slash = v.to.lastIndexOf('/');
+		if (slash > 0 && !(await vault.exists(v.to.slice(0, slash)))) {
+			v.outcome = outcomeOf(action, 'rejected', `Zielordner existiert nicht (wird nicht angelegt): ${v.to.slice(0, slash)}`);
+			return v;
+		}
+		if (await vault.exists(v.to)) {
+			v.outcome = outcomeOf(action, 'rejected', `Zielpfad belegt — note.move überschreibt nie: ${v.to}`);
+			return v;
+		}
+	} else if (action.type === 'frontmatter.patch') {
 		const keys = [...Object.keys(action.set), ...action.remove, ...Object.keys(action.add ?? {})];
 		const allowed = ctx.task.allowedKeys ?? [];
 		const badKey = keys.find((k) => !allowed.includes(k));
@@ -210,7 +248,14 @@ async function validateAction(action: Action, ctx: ExecutorContext, vault: Vault
 	if (action.type !== 'note.create') {
 		const src = ctx.sources.find((f) => f.path === v.path);
 		if (src !== undefined) {
-			const current = await vault.read(v.path);
+			let current: string;
+			try {
+				current = await vault.read(v.path);
+			} catch {
+				// Die Datei verschwand zwischen der Existenzprüfung (oder ihrem Auslassen bei create_if_missing) und dem Lesen.
+				v.outcome = outcomeOf(action, 'failed', `Datei nicht mehr vorhanden: ${v.path}`);
+				return v;
+			}
 			const hash = fnv1a(current);
 			if (hash !== src.contentHash && hash !== ctx.ownHashes?.get(v.path)) {
 				v.outcome = { action, result: 'stale', reason: `Datei seit Collect geändert: ${v.path}` };
@@ -268,6 +313,8 @@ async function applyAction(v: ValidatedAction, ctx: ExecutorContext, vault: Vaul
 	if (action.type === 'frontmatter.patch') {
 		if (v.mappedAdd !== null) await vault.patchFrontmatter(v.path, v.mappedSet ?? {}, action.remove, v.mappedAdd);
 		else await vault.patchFrontmatter(v.path, v.mappedSet ?? {}, action.remove);
+	} else if (action.type === 'note.move') {
+		await vault.rename(v.path, v.to);
 	} else if (action.type === 'note.create') {
 		const slash = v.path.lastIndexOf('/');
 		if (slash > 0) await vault.mkdir(v.path.slice(0, slash)); // wie bei section.replace: mkdir ist idempotent + rekursiv (VaultPort); Wurzelziele legen keinen Ordner an
@@ -293,7 +340,7 @@ export async function executeActions(
 	actions: Action[],
 	ctx: ExecutorContext,
 	vault: VaultPort,
-): Promise<{ outcomes: ActionOutcome[]; writes: string[]; taskFailed: boolean }> {
+): Promise<{ outcomes: ActionOutcome[]; writes: string[]; moves: { from: string; to: string }[]; taskFailed: boolean }> {
 	let taskFailed = false;
 
 	// Phase 1: ALLE Aktionen validieren, bevor irgendetwas geschrieben wird.
@@ -301,20 +348,29 @@ export async function executeActions(
 	const validated: ValidatedAction[] = [];
 	const budgeted = new Set<string>(); // Notizen, die in diesem Durchgang schon einen Schreibvorgang verbrauchen
 	const plannedCreates = new Set<string>();
+	const plannedTargets = new Set<string>();   // Pfade, die in diesem Durchgang neu belegt werden (note.create, Ziel von note.move)
+	const plannedMoveSources = new Set<string>();
 	const alreadyWritten = new Set([...ctx.writtenPaths].map(foldCase));
 	for (const action of actions) {
 		const v = await validateAction(action, ctx, vault);
 		if (v.outcome === null) {
 			const key = foldCase(v.path);
+			const targetKey = action.type === 'note.move' ? foldCase(v.to) : key;
 			if (action.type === 'note.create' && plannedCreates.has(key)) {
 				v.outcome = outcomeOf(action, 'rejected', `derselbe Pfad zweimal in einem Durchgang: ${v.path}`, 'duplicate');
+			} else if (action.type === 'note.move' && plannedMoveSources.has(key)) {
+				// Ohne `code`: nur Ablehnungen von note.create nehmen sich aus der Konsistenz-Schwelle.
+				v.outcome = outcomeOf(action, 'rejected', `dieselbe Quelle zweimal verschoben in einem Durchgang: ${v.path}`);
+			} else if ((action.type === 'note.move' || action.type === 'note.create') && plannedTargets.has(targetKey)) {
+				v.outcome = outcomeOf(action, 'rejected', `derselbe Zielpfad zweimal in einem Durchgang: ${action.type === 'note.move' ? v.to : v.path}`);
 			} else if (!alreadyWritten.has(key) && !budgeted.has(key) && alreadyWritten.size + budgeted.size + 1 > ctx.team.maxWrites) {
 				// 6. Schreiblimit (Notizen aus dem Lauf + in diesem Task budgetierte Notizen)
 				v.outcome = outcomeOf(action, 'rejected', `write_limit: max_writes (${ctx.team.maxWrites}) erreicht`);
 				taskFailed = true;
 			} else {
 				budgeted.add(key);
-				if (action.type === 'note.create') plannedCreates.add(key);
+				if (action.type === 'note.create') { plannedCreates.add(key); plannedTargets.add(key); }
+				if (action.type === 'note.move') { plannedMoveSources.add(key); plannedTargets.add(targetKey); }
 			}
 		} else if (v.outcome.result === 'failed') {
 			taskFailed = true;
@@ -340,20 +396,24 @@ export async function executeActions(
 	// Phase 2: anwenden.
 	const outcomes: ActionOutcome[] = [];
 	const writes: string[] = [];
+	const moves: { from: string; to: string }[] = [];
 	for (const v of validated) {
 		if (v.outcome !== null) {
 			outcomes.push(v.outcome);
 			continue;
 		}
 		try {
-			if (ctx.preWrite) await ctx.preWrite(v.path); // Pre-Image sichern, BEVOR geschrieben wird
+			// Pre-Image sichern, BEVOR geschrieben wird; eine Verschiebung hat ihren eigenen Haken (altes und neues Ziel).
+			if (v.action.type === 'note.move') await ctx.preMove?.(v.path, v.to);
+			else await ctx.preWrite?.(v.path);
 			await applyAction(v, ctx, vault);
 			if (!writes.includes(v.path)) writes.push(v.path);
+			if (v.action.type === 'note.move') moves.push({ from: v.path, to: v.to });
 			outcomes.push({ action: v.action, result: 'applied', reason: null });
 		} catch (e) {
 			taskFailed = true;
 			outcomes.push(outcomeOf(v.action, 'failed', `io: ${e instanceof Error ? e.message : String(e)}`));
 		}
 	}
-	return { outcomes, writes, taskFailed };
+	return { outcomes, writes, moves, taskFailed };
 }

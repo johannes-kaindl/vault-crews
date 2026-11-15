@@ -17,7 +17,7 @@ export interface AgentDef {
 
 export type CollectorId = 'vault.list' | 'vault.read' | 'tasknotes.query';
 export type SchemaId = 'triage-v1' | 'briefing-v1';
-export type ActionType = 'frontmatter.patch' | 'note.create' | 'note.append' | 'section.replace';
+export type ActionType = 'frontmatter.patch' | 'note.create' | 'note.append' | 'section.replace' | 'note.move';
 
 /** Woher die erlaubten Werte eines Feldes kommen (`values.<feld>.from` in der Crew-Datei): eine feste Liste, die Tags des Vaults
  *  oder die Namen der zuletzt geänderten Notizen eines Ordners (der Wert ist dann der Wikilink). */
@@ -36,7 +36,10 @@ export type OutputSpec =
 	| { family: 'text.append'; maxChars: number; heading: string | null }
 	/** Legt aus den Einträgen des Modells (`title`, `body`) neue Notizen an: Ordner und Frontmatter sind fest, nur Titel und Text kommen vom
 	 *  Modell. `linkSource`: Name des Frontmatter-Feldes, das einen Wikilink auf die bearbeitete Notiz (`per_note`) trägt. */
-	| { family: 'notes.create'; folder: string; maxItems: number; frontmatter: Record<string, string | number | string[]>; linkSource: string | null };
+	| { family: 'notes.create'; folder: string; maxItems: number; frontmatter: Record<string, string | number | string[]>; linkSource: string | null }
+	/** Ordnet jede Notiz der Eingabe einem Zielordner zu (Aktion `note.move`): `destinations` sind feste Ziele mit Hinweis, `destinationsFrom` ein Ordner,
+	 *  dessen direkte Unterordner zur Laufzeit dazukommen. Die fertige Liste baut der Orchestrator (`resolveDestinations`). */
+	| { family: 'note.file'; destinations: Destination[]; destinationsFrom: string | null };
 
 /** Ein Zielordner für das Ablegen einer Notiz (Familie `note.file`): `when` sagt dem Modell, wann er passt; `null` heißt ohne Hinweis. */
 export interface Destination { folder: string; when: string | null }
@@ -113,7 +116,9 @@ export interface FrontmatterPatchAction {
 export interface NoteCreateAction { type: 'note.create'; path: string; content: string; }
 export interface NoteAppendAction { type: 'note.append'; path: string; heading: string | null; content: string; }
 export interface SectionReplaceAction { type: 'section.replace'; path: string; content: string; }
-export type Action = FrontmatterPatchAction | NoteCreateAction | NoteAppendAction | SectionReplaceAction;
+/** Verschiebt die Notiz `path` nach `to` (voller Zielpfad mit unverändertem Dateinamen). Obsidian zieht die Links nach. */
+export interface NoteMoveAction { type: 'note.move'; path: string; to: string; }
+export type Action = FrontmatterPatchAction | NoteCreateAction | NoteAppendAction | SectionReplaceAction | NoteMoveAction;
 
 export type ActionResult = 'applied' | 'rejected' | 'stale' | 'failed';
 /** `code` kennzeichnet Ablehnungen von `note.create`, die nicht für die Konsistenz-Schwelle zählen: der Titel ist schon belegt

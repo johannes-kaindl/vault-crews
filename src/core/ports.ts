@@ -14,6 +14,9 @@ export interface VaultPort {
 	/** `add` vereinigt die Werte mit der vorhandenen Liste des Feldes (ein Einzelwert gilt als einelementige Liste, ein fehlendes Feld als leere);
 	 *  die Vereinigung geschieht beim Schreiben, aus dem Stand der Datei in diesem Augenblick. Vergleich exakt, ohne Normalisierung. */
 	patchFrontmatter(path: string, set: Record<string, FmValue>, remove: string[], add?: Record<string, (string | number)[]>): Promise<void>;
+	/** Verschiebt oder benennt eine Datei um (`fileManager.renameFile`: Obsidian zieht Links nach). Wirft, wenn die Quelle fehlt oder der Zielpfad belegt ist;
+	 *  der Zielordner muss existieren (er wird nicht angelegt). */
+	rename(from: string, to: string): Promise<void>;
 	/** Datei in den Obsidian-Papierkorb verschieben (fileManager.trashFile) — nie Hard-Delete. */
 	trash(path: string): Promise<void>;
 }
@@ -26,6 +29,8 @@ export interface MetadataPort {
 	listTags(): Promise<{ tag: string; count: number }[]>;
 	/** Dateinamen (ohne `.md`) der Notizen im Ordner und seinen Unterordnern, zuletzt geänderte zuerst, höchstens `limit`. */
 	recentNoteNames(folder: string, limit: number): Promise<string[]>;
+	/** Die direkten Unterordner von `parent` als vault-relative Pfade, sortiert (UTF-16); ein fehlender Ordner hat keine. */
+	listFolders(parent: string): Promise<string[]>;
 }
 
 /** `assistant` kommt nur im Reparatur-Call vor (die schlechte Antwort als Zug des Modells, Kit `answer-retry`). */

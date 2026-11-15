@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_SCHEMAS, buildSchema, makeFrontmatterSet, makeNotesCreate, makeSectionWrite, makeTextAppend } from '../../src/core/schemas';
+import { BUILTIN_SCHEMAS, buildSchema, makeFrontmatterSet, makeNoteFile, makeNotesCreate, makeSectionWrite, makeTextAppend } from '../../src/core/schemas';
 import type { SchemaRuntime } from '../../src/core/schemas';
 import type { CollectedFile, OutputSpec, SlugTableData } from '../../src/core/types';
 
@@ -318,5 +318,58 @@ describe('Prototyp-Schlüssel in Wertemengen', () => {
 	it('ein Feld namens constructor ohne Wertemenge hat keine (die Tabelle ist nicht die Konstruktorfunktion)', () => {
 		const r = makeFrontmatterSet(['constructor']).validate({ items: [{ path, set: { constructor: 'x' } }] }, sources, {}, null);
 		expect(r).toEqual({ ok: true, actions: [{ type: 'frontmatter.patch', path, set: { constructor: 'x' }, remove: [] }] });
+	});
+});
+
+describe('makeNoteFile', () => {
+	const dests = [{ folder: '40_Projekte/Meyer', when: 'Kunde Meyer' }, { folder: '30_Archiv', when: null }];
+	const a = '10_Aufgaben/a.md';
+
+	it('erzeugt note.move in den gewählten Ordner mit unverändertem Dateinamen', () => {
+		const r = makeNoteFile(dests).validate({ items: [{ path: a, to: '40_Projekte/Meyer' }] }, sources, noSlugs, null);
+		expect(r).toEqual({ ok: true, actions: [{ type: 'note.move', path: a, to: '40_Projekte/Meyer/a.md' }] });
+	});
+
+	it('none und der eigene Ordner erzeugen keine Aktion', () => {
+		const r = makeNoteFile([...dests, { folder: '10_Aufgaben', when: null }]).validate(
+			{ items: [{ path: a, to: 'none' }, { path: a, to: '10_Aufgaben' }] }, sources, noSlugs, null);
+		expect(r).toEqual({ ok: true, actions: [] });
+	});
+
+	it.each(['40_Projekte/Mayer', '../x', '', '40_Projekte/Meyer/', 'NONE'])('lehnt das Ziel %j ab, das nicht in der Liste steht', (to) => {
+		expect(makeNoteFile(dests).validate({ items: [{ path: a, to }] }, sources, noSlugs, null).ok).toBe(false);
+	});
+
+	it('lehnt einen Pfad ab, der nicht im Quellmaterial steht (Quellbindung)', () => {
+		const r = makeNoteFile(dests).validate({ items: [{ path: 'erfunden.md', to: '30_Archiv' }] }, sources, noSlugs, null);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.errors.join('\n')).toMatch(/Quellmaterial/);
+	});
+
+	it('lehnt fehlende Felder und eine Nicht-Liste ab', () => {
+		expect(makeNoteFile(dests).validate({}, sources, noSlugs, null).ok).toBe(false);
+		expect(makeNoteFile(dests).validate({ items: [{ to: '30_Archiv' }] }, sources, noSlugs, null).ok).toBe(false);
+		expect(makeNoteFile(dests).validate({ items: [{ path: a }] }, sources, noSlugs, null).ok).toBe(false);
+	});
+
+	it('dieselbe Notiz zweimal mit gleichem Ziel ergibt eine Aktion, mit widersprüchlichem Ziel einen Fehler', () => {
+		const same = makeNoteFile(dests).validate({ items: [{ path: a, to: '30_Archiv' }, { path: a, to: '30_Archiv' }] }, sources, noSlugs, null);
+		expect(same).toEqual({ ok: true, actions: [{ type: 'note.move', path: a, to: '30_Archiv/a.md' }] });
+		const clash = makeNoteFile(dests).validate({ items: [{ path: a, to: '30_Archiv' }, { path: a, to: '40_Projekte/Meyer' }] }, sources, noSlugs, null);
+		expect(clash.ok).toBe(false);
+	});
+
+	it('der promptContract listet je Zeile "- <ordner>: <wann>" (ohne Hinweis nur den Ordner) und nennt none', () => {
+		const c = makeNoteFile(dests).promptContract;
+		expect(c).toContain('- 40_Projekte/Meyer: Kunde Meyer');
+		expect(c).toMatch(/^- 30_Archiv$/m);
+		expect(c).toContain('none');
+	});
+
+	it('buildSchema nimmt die fertige Liste aus der Laufzeit; ohne Laufzeit wirft es', () => {
+		const spec: OutputSpec = { family: 'note.file', destinations: [], destinationsFrom: null };
+		const rt: SchemaRuntime = { nowMs: 0, notePath: null, destinations: dests };
+		expect(buildSchema(spec, rt).promptContract).toContain('- 30_Archiv');
+		expect(() => buildSchema(spec)).toThrow(/note\.file/);
 	});
 });

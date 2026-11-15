@@ -63,11 +63,46 @@ export class InMemoryVaultPort implements VaultPort {
 	async append(path: string, content: string): Promise<void> {
 		this.files.set(path, (this.files.get(path) ?? '') + content);
 	}
+	/** Wie Obsidians `adapter.exists`: eine Datei, ein Ordner, den `mkdir` angelegt hat oder `requireExistingFolders` führt, und ein Ordner, unter dem
+	 *  eine Datei liegt, sind da. */
 	async exists(path: string): Promise<boolean> {
-		return this.files.has(path);
+		return this.files.has(path) || this.isFolder(path);
 	}
+	private isFolder(path: string): boolean {
+		if (path === '' ) return false;
+		if (this.declared.has(path) || (this.folders?.has(path) ?? false)) return true;
+		const prefix = `${path}/`;
+		for (const f of this.files.keys()) if (f.startsWith(prefix)) return true;
+		return false;
+	}
+	/** Die direkten Unterordner von `parent` (Pfade, sortiert): aus Dateien darunter und aus angelegten Ordnern. */
+	folderChildren(parent: string): string[] {
+		const prefix = parent === '' ? '' : `${parent}/`;
+		const out = new Set<string>();
+		const consider = (p: string): void => {
+			if (!p.startsWith(prefix)) return;
+			const first = p.slice(prefix.length).split('/')[0] ?? '';
+			if (first !== '' && p.slice(prefix.length).includes('/')) out.add(`${prefix}${first}`);
+		};
+		for (const f of this.files.keys()) consider(f);
+		for (const d of this.declared) consider(`${d}/`);
+		return [...out].sort();
+	}
+	/** Verschiebt eine Datei wie `fileManager.renameFile`: die Quelle muss da, der Zielpfad frei und der Zielordner vorhanden sein. Links zieht der Fake nicht nach. */
+	async rename(from: string, to: string): Promise<void> {
+		const content = this.files.get(from);
+		if (content === undefined) throw new Error(`not found: ${from}`);
+		if (await this.exists(to)) throw new Error(`exists: ${to}`);
+		const dir = to.split('/').slice(0, -1).join('/');
+		if (dir !== '' && !this.isFolder(dir)) throw new Error(`ENOENT: Ordner existiert nicht: ${dir}`);
+		this.files.delete(from);
+		this.files.set(to, content);
+	}
+	private readonly declared = new Set<string>();
 	async mkdir(path: string): Promise<void> {
-		// Ordner sind in der Map implizit — außer nach `requireExistingFolders()`.
+		// Ordner sind in der Map implizit — außer nach `requireExistingFolders()`; `exists` kennt zusätzlich, was `mkdir` angelegt hat.
+		const parts = path.split('/').filter((p) => p !== '');
+		for (let i = 1; i <= parts.length; i++) this.declared.add(parts.slice(0, i).join('/'));
 		this.addFolders(path);
 	}
 	async patchFrontmatter(path: string, set: Record<string, FmValue>, remove: string[], add?: Record<string, (string | number)[]>): Promise<void> {
@@ -136,6 +171,9 @@ export class FixtureMetadataPort implements MetadataPort {
 		return fm ? fm.body : raw;
 	}
 	/** Tags aus dem Frontmatter-Feld `tags` aller Dateien (ohne `#`), mit der Zahl der Notizen, die sie tragen. */
+	async listFolders(parent: string): Promise<string[]> {
+		return this.vault.folderChildren(parent.replace(/\/+$/, ''));
+	}
 	async listTags(): Promise<{ tag: string; count: number }[]> {
 		const counts = new Map<string, number>();
 		for (const [path, raw] of this.vault.files) {

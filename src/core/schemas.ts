@@ -5,7 +5,7 @@
  *  HIER (der Executor kennt keine SlugTables, Skelett-ExecutorContext). */
 import { serializeFrontmatter, wikilinkOf } from '../vendor/kit/frontmatter';
 import { expandTarget } from './paths';
-import type { Action, CollectedFile, Destination, FmValue, FrontmatterPatchAction, NoteCreateAction, OutputSpec, SchemaId, SlugTableData } from './types';
+import type { Action, CollectedFile, Destination, FmValue, FrontmatterPatchAction, NoteCreateAction, NoteMoveAction, OutputSpec, SchemaId, SlugTableData } from './types';
 
 export interface SchemaDef {
 	/** Familien-/Alias-Kennung (extern nicht gelesen; rein zur Selbstbeschreibung). */
@@ -231,6 +231,63 @@ export function makeNotesCreate(spec: Extract<OutputSpec, { family: 'notes.creat
 	};
 }
 
+/** Das Ziel, das ein Modell für „nicht ablegen“ nennt; als Ordnername ist es reserviert (der Parser lehnt ihn ab, die Laufzeitliste lässt ihn weg). */
+export const NO_DESTINATION = 'none';
+const MAX_FILE_ITEMS = 50;
+
+/** Ablegen: das Modell wählt je Notiz einen Zielordner aus der fertigen Liste (feste Ziele zuerst, dann Laufzeitziele) oder `none`. Das Schema baut daraus
+ *  `note.move` mit unverändertem Dateinamen. `none` und der eigene Ordner der Notiz erzeugen keine Aktion. Ein Ziel, das nicht in der Liste steht, ist eine
+ *  ungültige Antwort (Reparatur-Runde); die Notiz muss im Quellmaterial stehen (Quellbindung). Ob das Ziel existiert, frei ist und im `write_scope` liegt,
+ *  prüft der Executor. */
+export function makeNoteFile(destinations: Destination[]): SchemaDef {
+	const known = new Set(destinations.map((d) => d.folder));
+	const lines = destinations.map((d) => (d.when === null ? `- ${d.folder}` : `- ${d.folder}: ${d.when}`));
+	return {
+		id: 'note.file',
+		outputFormat: 'json',
+		promptContract:
+			'Antworte ausschließlich mit einem JSON-Objekt in einem ```json-Block, keine Erklärungen davor oder danach. '
+			+ 'Jeder Eintrag in items ordnet eine Notiz einem Ordner zu: path ist der Pfad der Notiz aus dem Material, '
+			+ `to genau einer der folgenden Ordner, oder ${NO_DESTINATION}, wenn die Notiz bleiben soll. Erlaubte Ordner:\n${lines.join('\n')}`,
+		outputExample: `{"items": [{"path": "Inbox/beispiel.md", "to": "${destinations[0]?.folder ?? 'Projekte/Beispiel'}"}, {"path": "Inbox/offen.md", "to": "${NO_DESTINATION}"}]}`,
+		validate(json, sources, _slugTables, _target) {
+			if (!isRecord(json) || !Array.isArray(json.items)) return { ok: false, errors: ['items: fehlt oder ist keine Liste'] };
+			const items: unknown[] = json.items;
+			const errors: string[] = [];
+			if (items.length > MAX_FILE_ITEMS) errors.push(`items: ${items.length} überschreitet Maximum ${MAX_FILE_ITEMS}`);
+			const knownPaths = new Set(sources.map((s) => s.path));
+			const chosen = new Map<string, string | null>();   // Pfad → Zielpfad (null: bleibt), für Wiederholungen derselben Notiz
+			const actions: NoteMoveAction[] = [];
+			for (let i = 0; i < items.length; i++) {
+				const item: unknown = items[i];
+				if (!isRecord(item)) { errors.push(`items[${i}]: ist kein Objekt`); continue; }
+				if (typeof item.path !== 'string') { errors.push(`items[${i}].path: fehlt oder ist kein Text`); continue; }
+				if (!knownPaths.has(item.path)) {
+					errors.push(`items[${i}].path: '${item.path}' kommt im Quellmaterial nicht vor (Quellbindung)`);
+					continue;
+				}
+				if (typeof item.to !== 'string') { errors.push(`items[${i}].to: fehlt oder ist kein Text`); continue; }
+				const to = item.to;
+				if (to !== NO_DESTINATION && !known.has(to)) {
+					errors.push(`items[${i}].to: '${to}' steht nicht in der Liste der Ordner (erlaubt: ${[...known, NO_DESTINATION].join(', ')})`);
+					continue;
+				}
+				const slash = item.path.lastIndexOf('/');
+				// `none` und der eigene Ordner der Notiz heißen beide „bleibt“: kein Widerspruch, keine Aktion.
+				const goal = to === NO_DESTINATION || item.path.slice(0, slash < 0 ? 0 : slash) === to ? null : `${to}/${item.path.slice(slash + 1)}`;
+				if (chosen.has(item.path)) {
+					if (chosen.get(item.path) !== goal) errors.push(`items[${i}].path: '${item.path}' hat zwei verschiedene Ziele`);
+					continue;
+				}
+				chosen.set(item.path, goal);
+				if (goal !== null) actions.push({ type: 'note.move', path: item.path, to: goal });
+			}
+			if (errors.length > 0) return { ok: false, errors };
+			return { ok: true, actions };
+		},
+	};
+}
+
 export function buildSchema(spec: OutputSpec, rt?: SchemaRuntime): SchemaDef {
 	switch (spec.family) {
 		case 'frontmatter.set':
@@ -242,6 +299,9 @@ export function buildSchema(spec: OutputSpec, rt?: SchemaRuntime): SchemaDef {
 		case 'notes.create':
 			if (rt === undefined) throw new Error('notes.create braucht eine SchemaRuntime (Zeitpunkt, Notiz)');
 			return makeNotesCreate(spec, rt);
+		case 'note.file':
+			if (rt === undefined) throw new Error('note.file braucht eine SchemaRuntime (die Liste der Zielordner)');
+			return makeNoteFile(rt.destinations);
 	}
 }
 

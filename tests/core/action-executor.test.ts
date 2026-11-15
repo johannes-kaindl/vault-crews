@@ -69,6 +69,7 @@ function spyVault(vault: VaultPort): {
         patches.push(a === undefined ? { path: p, set: s, remove: r } : { path: p, set: s, remove: r, add: a });
         await vault.patchFrontmatter(p, s, r, a);
       },
+      rename: (f, t) => vault.rename(f, t),
       trash: (p) => vault.trash(p),
     },
   };
@@ -878,5 +879,185 @@ describe('executeActions — Zählung nach Notizen (max_writes)', () => {
     ], ctxOf([], { writtenPaths: new Set() }), vault);
     expect(r.taskFailed).toBe(true);
     expect(r.outcomes.map((o) => o.result)).toEqual(['rejected', 'rejected', 'rejected']);
+  });
+});
+
+describe('executeActions — note.move', () => {
+  const SRC = '10_Aufgaben/a.md';
+  const DST = '40_Projekte/Meyer/a.md';
+  const team = makeTeam({ writeScope: ['10_Aufgaben/**', '40_Projekte/**', '30_Archiv/**'] });
+  const task = makeTask({ allowedActions: ['note.move'] });
+  const move = (to = DST, path = SRC): Action => ({ type: 'note.move', path, to });
+  const world = (extra: Record<string, string> = {}) => seed({ [SRC]: TASK_MD, '40_Projekte/Meyer/x.md': 'x', ...extra });
+  const ctx = (over: Partial<ExecutorContext> = {}) => ctxOf([source(SRC, TASK_MD)], { team, task, ...over });
+
+  it('verschiebt: applied, Quelle weg, Ziel da, moves nennt das Paar, writes den alten Pfad, preMove lief vorher', async () => {
+    const vault = await world();
+    const seen: string[] = [];
+    const preMove = async (from: string, to: string): Promise<void> => {
+      seen.push(`${from}>${to}:${String(await vault.exists(from))}`);
+    };
+    const res = await executeActions([move()], ctx({ preMove }), vault);
+    expect(res.taskFailed).toBe(false);
+    expect(res.outcomes).toEqual([{ action: move(), result: 'applied', reason: null }]);
+    expect(await vault.exists(SRC)).toBe(false);
+    expect(await vault.read(DST)).toBe(TASK_MD);
+    expect(res.moves).toEqual([{ from: SRC, to: DST }]);
+    expect(res.writes).toEqual([SRC]);
+    expect(seen).toEqual([`${SRC}>${DST}:true`]);
+  });
+
+  it('ruft preWrite für eine Verschiebung nicht auf (preMove ersetzt es)', async () => {
+    const vault = await world();
+    const pre: string[] = [];
+    await executeActions([move()], ctx({ preWrite: async (p) => { pre.push(p); } }), vault);
+    expect(pre).toEqual([]);
+  });
+
+  it('wirft preMove, bleibt die Datei liegen und die Aktion ist failed', async () => {
+    const vault = await world();
+    const res = await executeActions([move()], ctx({ preMove: () => Promise.reject(new Error('Platte voll')) }), vault);
+    expect(res.outcomes[0]?.result).toBe('failed');
+    expect(res.outcomes[0]?.reason).toContain('Platte voll');
+    expect(res.taskFailed).toBe(true);
+    expect(await vault.exists(SRC)).toBe(true);
+    expect(res.moves).toEqual([]);
+  });
+
+  it('Ziel außerhalb von write_scope: rejected, nichts bewegt', async () => {
+    const vault = await world({ 'Anderswo/q.md': 'q' });
+    const res = await executeActions([move('Anderswo/a.md')], ctx(), vault);
+    expect(res.outcomes[0]).toMatchObject({ result: 'rejected', reason: expect.stringContaining('write_scope') });
+    expect(await vault.exists(SRC)).toBe(true);
+  });
+
+  it('Quelle außerhalb von write_scope: rejected', async () => {
+    const vault = await world({ 'Anderswo/q.md': 'q' });
+    const res = await executeActions([move(DST, 'Anderswo/q.md')], ctxOf([source('Anderswo/q.md', 'q')], { team, task }), vault);
+    expect(res.outcomes[0]).toMatchObject({ result: 'rejected', reason: expect.stringContaining('write_scope') });
+    expect(await vault.exists('Anderswo/q.md')).toBe(true);
+  });
+
+  it('Ziel auf der Sperrliste: rejected (auch bei offenem write_scope)', async () => {
+    const vault = await world({ '_crews/teams/t.md': 't' });
+    const open = makeTeam({ writeScope: ['**'] });
+    const res = await executeActions([move('_crews/teams/a.md')], ctx({ team: open }), vault);
+    expect(res.outcomes[0]).toMatchObject({ result: 'rejected', reason: expect.stringContaining('Denylist') });
+    expect(await vault.exists(SRC)).toBe(true);
+  });
+
+  it('note.move nicht in allowed_actions: rejected', async () => {
+    const vault = await world();
+    const res = await executeActions([move()], ctx({ task: makeTask({ allowedActions: ['note.create'] }) }), vault);
+    expect(res.outcomes[0]).toMatchObject({ result: 'rejected', reason: expect.stringContaining('allowed_actions') });
+    expect(await vault.exists(SRC)).toBe(true);
+  });
+
+  it('Zielordner fehlt: rejected, und der Ordner wird nicht angelegt (kein mkdir)', async () => {
+    const raw = await world();
+    const made: string[] = [];
+    const vault: VaultPort = { ...spyVault(raw).vault, mkdir: async (p) => { made.push(p); await raw.mkdir(p); } };
+    const res = await executeActions([move('40_Projekte/Neu/a.md')], ctx(), vault);
+    expect(res.outcomes[0]).toMatchObject({ result: 'rejected', reason: expect.stringContaining('Zielordner') });
+    expect(made).toEqual([]);
+    expect(await raw.exists('40_Projekte/Neu')).toBe(false);
+    expect(await raw.exists(SRC)).toBe(true);
+  });
+
+  it('Zielpfad belegt: rejected, die belegende Datei bleibt unberührt', async () => {
+    const vault = await world({ [DST]: 'fremd' });
+    const res = await executeActions([move()], ctx(), vault);
+    expect(res.outcomes[0]).toMatchObject({ result: 'rejected', reason: expect.stringContaining('belegt') });
+    expect(await vault.read(DST)).toBe('fremd');
+    expect(await vault.exists(SRC)).toBe(true);
+  });
+
+  it('derselbe Zielpfad zweimal: der zweite ist rejected, ohne code (zählt für die Schwelle)', async () => {
+    const other = '10_Aufgaben/sub/a.md';
+    const vault = await world({ [other]: 'o' });
+    const res = await executeActions([move(), move(DST, other)], ctxOf([source(SRC, TASK_MD), source(other, 'o')], { team, task }), vault);
+    expect(res.outcomes[0]?.result).toBe('applied');
+    expect(res.outcomes[1]).toMatchObject({ result: 'rejected', reason: expect.stringContaining('zweimal') });
+    expect(res.outcomes[1]).not.toHaveProperty('code');
+    expect(await vault.exists(other)).toBe(true);
+  });
+
+  it('dieselbe Quelle zweimal: die zweite Verschiebung ist rejected, ohne code', async () => {
+    const vault = await world({ '30_Archiv/x.md': 'x' });
+    const res = await executeActions([move(), move('30_Archiv/a.md')], ctx(), vault);
+    expect(res.outcomes[0]?.result).toBe('applied');
+    expect(res.outcomes[1]).toMatchObject({ result: 'rejected', reason: expect.stringContaining('zweimal') });
+    expect(res.outcomes[1]).not.toHaveProperty('code');
+    expect(await vault.exists(DST)).toBe(true);
+    expect(await vault.exists('30_Archiv/a.md')).toBe(false);
+  });
+
+  it('Quelle fehlt im Vault: failed (Review-Focus 2), keine Ausnahme', async () => {
+    const vault = await seed({ '40_Projekte/Meyer/x.md': 'x' });
+    const res = await executeActions([move()], ctx(), vault);
+    expect(res.outcomes[0]).toMatchObject({ result: 'failed', reason: expect.stringContaining('existiert nicht') });
+    expect(res.taskFailed).toBe(true);
+  });
+
+  it('Quelle verschwindet zwischen exists und read: failed „nicht mehr vorhanden“, keine Ausnahme', async () => {
+    const raw = await world();
+    const vault: VaultPort = { ...spyVault(raw).vault, read: () => Promise.reject(new Error('not found')) };
+    const res = await executeActions([move()], ctx(), vault);
+    expect(res.outcomes[0]).toMatchObject({ result: 'failed', reason: expect.stringContaining('nicht mehr vorhanden') });
+    expect(res.taskFailed).toBe(true);
+  });
+
+  it('section.replace mit create_if_missing, Quelle gesammelt aber weg: failed statt Ausnahme', async () => {
+    const vault = await seed({});
+    const action: Action = { type: 'section.replace', path: SRC, content: 'x' };
+    const c = ctxOf([source(SRC, TASK_MD)], { team, task: makeTask({ allowedActions: ['section.replace'], createIfMissing: true }) });
+    const res = await executeActions([action], c, vault);
+    expect(res.outcomes[0]).toMatchObject({ result: 'failed', reason: expect.stringContaining('nicht mehr vorhanden') });
+    expect(res.taskFailed).toBe(true);
+  });
+
+  it('Quelle seit dem Sammeln geändert: stale, nichts bewegt', async () => {
+    const vault = await world();
+    await vault.modify(SRC, `${TASK_MD}FREMD\n`);
+    const res = await executeActions([move()], ctx(), vault);
+    expect(res.outcomes[0]?.result).toBe('stale');
+    expect(await vault.exists(SRC)).toBe(true);
+    expect(await vault.exists(DST)).toBe(false);
+  });
+
+  it('der eigene Schreibstand (ownHashes) zählt nicht als stale: Abschnitt schreiben, dann verschieben', async () => {
+    const vault = await world();
+    const changed = `${TASK_MD}Abschnitt\n`;
+    await vault.modify(SRC, changed);
+    const res = await executeActions([move()], ctx({ ownHashes: new Map([[SRC, fnv1a(changed)]]) }), vault);
+    expect(res.outcomes[0]?.result).toBe('applied');
+    expect(await vault.read(DST)).toBe(changed);
+  });
+
+  it('Zählung: eine Notiz, die dieser Lauf schon geschrieben hat, verbraucht beim Verschieben keinen zweiten Schreibvorgang (maxWrites 1)', async () => {
+    const vault = await world();
+    const res = await executeActions([move()], ctx({ team: makeTeam({ writeScope: team.writeScope, maxWrites: 1 }), writtenPaths: new Set([SRC]) }), vault);
+    expect(res.outcomes[0]?.result).toBe('applied');
+    expect(res.taskFailed).toBe(false);
+  });
+
+  it('Gegenprobe: eine fremde Notiz im Register füllt maxWrites 1, die Verschiebung ist write_limit', async () => {
+    const vault = await world();
+    const res = await executeActions([move()], ctx({ team: makeTeam({ writeScope: team.writeScope, maxWrites: 1 }), writtenPaths: new Set(['fremd.md']) }), vault);
+    expect(res.outcomes[0]).toMatchObject({ result: 'rejected', reason: expect.stringContaining('write_limit') });
+    expect(res.taskFailed).toBe(true);
+  });
+
+  it('nur .md-Dateien: ein Ziel ohne .md ist rejected', async () => {
+    const vault = await world();
+    const res = await executeActions([move('40_Projekte/Meyer/a.txt')], ctx(), vault);
+    expect(res.outcomes[0]?.result).toBe('rejected');
+    expect(await vault.exists(SRC)).toBe(true);
+  });
+
+  it('ein Pfad mit .. im Ziel ist rejected', async () => {
+    const vault = await world();
+    const res = await executeActions([move('40_Projekte/../../x/a.md')], ctx(), vault);
+    expect(res.outcomes[0]?.result).toBe('rejected');
   });
 });

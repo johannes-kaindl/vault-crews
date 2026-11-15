@@ -1,10 +1,13 @@
 /** Wertemengen aus dem Bestand (`values` an `frontmatter.set`): was ein Feld annehmen darf, wird vor dem Modellaufruf aus dem Vault
  *  gelesen (Tags, Namen von Notizen) oder aus der Crew-Datei genommen (feste Liste) und wie jede andere Wertemenge in Kurzformen
  *  (Slugs) übersetzt. Das Modell sieht nur die Kurzformen; der Executor mappt sie byte-genau zurück (Stufe 2). */
+import { foldCase } from '../vendor/kit/fold-case';
 import { wikilinkOf } from '../vendor/kit/frontmatter';
+import { checkFixedFolder } from './paths';
 import type { MetadataPort } from './ports';
+import { NO_DESTINATION } from './schemas';
 import { buildSlugTable } from './slug-mapper';
-import type { SlugTableData, ValueSource } from './types';
+import type { Destination, OutputSpec, SlugTableData, TeamDef, ValueSource } from './types';
 
 /** Obergrenze je Feld; was darüber liegt, wird gekürzt und in `notes` genannt (bei `list` lehnt schon der Parser ab). */
 export const VALUES_MAX = 300;
@@ -90,4 +93,47 @@ export async function resolveValueTables(
 		tables[key] = { toSlug, fromSlug };
 	}
 	return { tables, notes };
+}
+
+/** Höchstzahl der Zielordner einer `note.file`-Liste (feste Ziele und Laufzeitziele zusammen). */
+export const DESTINATIONS_FROM_MAX = 100;
+
+/** Baut die fertige Zielliste für `note.file`: erst die festen Ziele der Crew-Datei, dann (bei `destinations_from`) die direkten Unterordner dieses Ordners,
+ *  alphabetisch, ohne Doppelte (Groß-/Kleinschreibung gefaltet) und höchstens `DESTINATIONS_FROM_MAX` insgesamt. Ein Unterordner außerhalb von `write_scope`,
+ *  auf der Sperrliste oder mit dem reservierten Namen `none` fällt weg und steht in `notes` (Klartext für `run.md`): wählte das Modell ihn, wäre die Aktion
+ *  abgelehnt und zählte für die Konsistenz-Schwelle. */
+export async function resolveDestinations(
+	spec: Extract<OutputSpec, { family: 'note.file' }>,
+	meta: MetadataPort,
+	team: Pick<TeamDef, 'writeScope'>,
+	denylist: string[],
+): Promise<{ destinations: Destination[]; notes: string[] }> {
+	const destinations: Destination[] = [...spec.destinations];
+	const notes: string[] = [];
+	const seen = new Set(destinations.map((d) => foldCase(d.folder)));
+	if (spec.destinationsFrom !== null) {
+		const eligible: string[] = [];
+		for (const folder of await meta.listFolders(spec.destinationsFrom)) {
+			const name = folder.slice(folder.lastIndexOf('/') + 1);
+			if (foldCase(name) === NO_DESTINATION) {
+				notes.push(`destinations_from: „${folder}“ fehlt in der Liste, der Name „${NO_DESTINATION}“ ist für „Notiz bleibt“ reserviert`);
+				continue;
+			}
+			const problem = checkFixedFolder(folder, team, denylist);
+			if (problem !== null) {
+				notes.push(`destinations_from: ${problem}, der Ordner fehlt in der Liste`);
+				continue;
+			}
+			if (seen.has(foldCase(folder))) continue;
+			seen.add(foldCase(folder));
+			eligible.push(folder);
+		}
+		const slots = Math.max(0, DESTINATIONS_FROM_MAX - destinations.length);
+		if (eligible.length > slots) {
+			notes.push(`destinations_from: ${slots} von ${eligible.length} Unterordnern (alphabetisch, höchstens ${DESTINATIONS_FROM_MAX} Ziele), der Rest fehlt in der Liste`);
+		}
+		for (const folder of eligible.slice(0, slots)) destinations.push({ folder, when: null });
+	}
+	if (destinations.length === 0) notes.push(`keine Zielordner gefunden, jede Antwort außer ${NO_DESTINATION} wird abgelehnt`);
+	return { destinations, notes };
 }

@@ -7,7 +7,7 @@ import { buildDenylist, expandTarget } from './paths';
 import { parseAgentDef, parseTeamDef } from './crew-parser';
 import { collectorSource, emptyInputSource, runCollector } from './collectors';
 import { buildPrompt } from './prompt-builder';
-import { resolveValueTables } from './value-sources';
+import { resolveDestinations, resolveValueTables } from './value-sources';
 import { buildSchema } from './schemas';
 import { validateOutput } from './output-validator';
 import { executeActions, type ExecutorContext } from './action-executor';
@@ -28,7 +28,7 @@ import type {
 	LlmClient, LlmMessage, LlmParams, LlmStreamResult, MetadataPort, RequestPort, RunReporter, SnapshotStore, VaultPort,
 } from './ports';
 import type {
-	Action, ActionsTaskDef, AgentDef, Artifact, CollectedFile, CollectorTaskDef, ErrorKind, LlmTaskDef, NoteRecord,
+	Action, ActionsTaskDef, AgentDef, Artifact, CollectedFile, CollectorTaskDef, Destination, ErrorKind, LlmTaskDef, NoteRecord,
 	RunLimits, RunResult, RunState, RunStatus, SlugTableData, TaskDef, TaskRecord, TeamDef,
 } from './types';
 
@@ -87,6 +87,8 @@ interface LlmCallContext {
 	sentMax: number; budget: number;
 	/** Wertemengen aus dem Bestand (`values`), einmal je Schritt aufgelöst: sie liegen über den Tabellen der Eingaben. */
 	extraTables: Record<string, SlugTableData>;
+	/** Die fertige Zielliste von `note.file` (feste Ziele, dann Laufzeitziele), einmal je Schritt aufgelöst; sonst leer. */
+	destinations: Destination[];
 }
 /** Was ein einzelner Aufruf sieht: seine Eingaben, den Namen für Rohantwort-Dateien und, in `per_note`, den Pfad der Notiz. */
 interface NoteCall {
@@ -387,7 +389,17 @@ class RunFsm {
 				return this.failLlm(task, rec, 'io', `Wertemengen nicht lesbar: ${errMsg(e)}`);
 			}
 		}
-		const call: LlmCallContext = { task, rec, agent, model: rec.model, sentModel, wire, thinkingLevel, family, check, sentMax, budget, extraTables };
+		let destinations: Destination[] = [];
+		if (task.output.family === 'note.file') {
+			try {
+				const resolved = await resolveDestinations(task.output, this.deps.meta, this.team as TeamDef, this.denylist);
+				destinations = resolved.destinations;
+				if (resolved.notes.length > 0) rec.valueNotes = resolved.notes;
+			} catch (e) {
+				return this.failLlm(task, rec, 'io', `Zielordner nicht lesbar: ${errMsg(e)}`);
+			}
+		}
+		const call: LlmCallContext = { task, rec, agent, model: rec.model, sentModel, wire, thinkingLevel, family, check, sentMax, budget, extraTables, destinations };
 
 		if (task.perNote) return this.runPerNote(call, inputs);
 
@@ -516,7 +528,7 @@ class RunFsm {
 	private async callModel(ctx: LlmCallContext, call: NoteCall): Promise<CallResult> {
 		const { task, rec, agent } = ctx;
 		// Je Aufruf, nicht je Schritt: Zeitpunkt und Notiz gehören zum einzelnen Aufruf (`{{today}}`, Quell-Link bei `per_note`).
-		const schema = buildSchema(task.output, { nowMs: this.deps.clock.now(), notePath: call.notePath, destinations: [] });
+		const schema = buildSchema(task.output, { nowMs: this.deps.clock.now(), notePath: call.notePath, destinations: ctx.destinations });
 		const sources = call.inputs.flatMap((a) => a.files);
 		const slugTables = { ...mergeSlugTables(call.inputs), ...ctx.extraTables };
 		const target = this.resolveTarget(task, call.notePath);
@@ -628,15 +640,30 @@ class RunFsm {
 				const pre = existed ? await this.deps.vault.read(path) : null;
 				await this.deps.snapshot.capture(this.state.runId, this.state.teamId, this.state.startedAt, path, existed, pre);
 			},
+			// Verschiebung: bis das Undo Züge kennt, sichert der Haken das Pre-Image des alten Pfads (die Notiz ist danach dort weg).
+			preMove: async (from) => {
+				const pre = await this.deps.vault.read(from);
+				await this.deps.snapshot.capture(this.state.runId, this.state.teamId, this.state.startedAt, from, true, pre);
+			},
 		};
-		const { outcomes, writes, taskFailed } = await executeActions(actions, ctx, this.deps.vault);
+		const { outcomes, writes, moves, taskFailed } = await executeActions(actions, ctx, this.deps.vault);
 		rec.outcomes = outcomes;
 		rec.artifactJson = { actions };
 		for (const outcome of outcomes) this.deps.reporter.emit({ type: 'actionApplied', outcome });
 		for (const w of writes) if (!this.state.writeRegister.includes(w)) this.state.writeRegister.push(w);
+		// Eine verschobene Notiz steht danach unter dem neuen Pfad im Register (sie ist ein Schreibvorgang, nicht zwei); der alte Pfad existiert nicht mehr.
+		for (const m of moves) {
+			const at = this.state.writeRegister.indexOf(m.from);
+			if (at !== -1) this.state.writeRegister[at] = m.to;
+			if (!this.state.writeRegister.includes(m.to)) this.state.writeRegister.push(m.to);
+			this.ownHashes.delete(m.from);
+		}
 		// Eigener Schreibstand: ein späterer Schritt darf auf diese Notizen schreiben, ohne am eigenen Stand als stale zu scheitern.
 		for (const w of writes) {
 			try { this.ownHashes.set(w, fnv1a(await this.deps.vault.read(w))); } catch { this.ownHashes.delete(w); /* seither entfernt */ }
+		}
+		for (const m of moves) {
+			try { this.ownHashes.set(m.to, fnv1a(await this.deps.vault.read(m.to))); } catch { this.ownHashes.delete(m.to); }
 		}
 
 		if (taskFailed) {

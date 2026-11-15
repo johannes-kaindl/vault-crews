@@ -104,3 +104,42 @@ describe('ScriptLlmClient', () => {
 		expect(llm.calls.length).toBe(2);
 	});
 });
+
+describe('InMemoryVaultPort — Ordner und rename', () => {
+	it('exists kennt Ordner: einen, unter dem eine Datei liegt, und einen, den mkdir angelegt hat; eine Datei ist kein Ordner', async () => {
+		const v = new InMemoryVaultPort();
+		await v.create('40_Projekte/Meyer/x.md', 'x');
+		await v.mkdir('Leer/Unter');
+		expect(await v.exists('40_Projekte')).toBe(true);
+		expect(await v.exists('40_Projekte/Meyer')).toBe(true);
+		expect(await v.exists('Leer')).toBe(true);
+		expect(await v.exists('Leer/Unter')).toBe(true);
+		expect(await v.exists('40_Proj')).toBe(false);
+		expect(await v.exists('Anderswo')).toBe(false);
+	});
+
+	it('rename verschiebt die Datei samt Inhalt; Ziel belegt, Quelle fehlt und fehlender Zielordner werfen', async () => {
+		const v = new InMemoryVaultPort();
+		await v.create('a/x.md', 'inhalt');
+		await v.create('b/y.md', 'y');
+		await v.rename('a/x.md', 'b/x.md');
+		expect(await v.exists('a/x.md')).toBe(false);
+		expect(await v.read('b/x.md')).toBe('inhalt');
+		await expect(v.rename('b/x.md', 'b/y.md')).rejects.toThrow();
+		await expect(v.rename('fehlt.md', 'b/z.md')).rejects.toThrow();
+		await expect(v.rename('b/x.md', 'neu/x.md')).rejects.toThrow(/Ordner/);
+		expect(await v.read('b/x.md')).toBe('inhalt');
+	});
+
+	it('FixtureMetadataPort.listFolders liefert die direkten Unterordner, sortiert', async () => {
+		const v = new InMemoryVaultPort();
+		await v.create('40_Projekte/Zeta/x.md', 'x');
+		await v.create('40_Projekte/Alpha/sub/y.md', 'y');
+		await v.create('40_Projekte/lose.md', 'l');
+		await v.create('Anderswo/Q/z.md', 'z');
+		await v.mkdir('40_Projekte/Leer');
+		const m = new FixtureMetadataPort(v);
+		expect(await m.listFolders('40_Projekte')).toEqual(['40_Projekte/Alpha', '40_Projekte/Leer', '40_Projekte/Zeta']);
+		expect(await m.listFolders('Fehlt')).toEqual([]);
+	});
+});

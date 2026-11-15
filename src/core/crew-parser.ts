@@ -5,9 +5,10 @@ import { checkFixedFolder, isDenied, normalizeVaultPath } from './paths';
 import { foldCase } from '../vendor/kit/fold-case';
 import { normalizeRelPath } from '../vendor/kit/rel-path';
 import { MIN_INTERVAL_MINUTES, parseIntervalMinutes } from './heartbeat';
-import { VALUES_MAX } from './value-sources';
+import { DESTINATIONS_FROM_MAX, VALUES_MAX } from './value-sources';
+import { NO_DESTINATION } from './schemas';
 import type {
-	ActionType, AgentDef, CollectorId, LlmTaskDef, OutputSpec, RunLimits, TaskDef, TeamDef, ValueSource,
+	ActionType, AgentDef, CollectorId, Destination, LlmTaskDef, OutputSpec, RunLimits, TaskDef, TeamDef, ValueSource,
 } from './types';
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
@@ -21,7 +22,7 @@ const NOTES_CREATE_DEFAULT_ITEMS = 5;
 const NOTES_CREATE_MAX_ITEMS = 50;
 /** Ein Feldname im festen Frontmatter: ein Wort ohne `:`, `#`, Anführungszeichen und Zeilenumbruch, damit die Zeile `<name>: <wert>` stimmt. */
 const FRONTMATTER_KEY = /^[\p{L}\p{N}_][\p{L}\p{N}_ -]*$/u;
-const ACTIONS: ActionType[] = ['frontmatter.patch', 'note.create', 'note.append', 'section.replace'];
+const ACTIONS: ActionType[] = ['frontmatter.patch', 'note.create', 'note.append', 'section.replace', 'note.move'];
 
 /** Schlüssel, unter dem zwei `target`-Angaben als dieselbe Datei gelten: `normalizeVaultPath` (`./`, `//`, `\`, führendes `/`) und `foldCase`
  *  (Groß-/Kleinschreibung, NFC), wie das Dateisystem sie vergleicht. Die Platzhalter `{{…}}` bleiben unverändert, nur der Text
@@ -202,6 +203,92 @@ function parseNotesCreate(
 	return ok ? { family: 'notes.create', folder, maxItems, frontmatter, linkSource } : null;
 }
 
+/** Ein einzeiliger Hinweistext (`when`) einer Zielliste: höchstens 200 Zeichen, damit eine Zeile im Prompt eine Zeile bleibt. */
+const WHEN_MAX_CHARS = 200;
+
+/** `destinations:` an `note.file`: eine Liste von `{ folder, when? }`. Jeder Ordner ist ein fester Ordner (`checkFixedFolder`, ohne Platzhalter), `none` ist
+ *  reserviert, zwei Einträge für denselben Ordner (gefaltet) sind ein Fehler. */
+function parseDestinations(
+	raw: unknown,
+	feld: string,
+	err: (feld: string, problem: string) => void,
+	writeScope: string[],
+	denylist: string[],
+): Destination[] | null {
+	if (raw === undefined) return [];
+	if (!Array.isArray(raw)) { err(feld, 'ist keine Liste (erwartet - folder: <ordner>, when: <hinweis>)'); return null; }
+	if (raw.length > DESTINATIONS_FROM_MAX) { err(feld, `${raw.length} Einträge überschreiten Maximum ${DESTINATIONS_FROM_MAX}`); return null; }
+	const out: Destination[] = [];
+	const seen = new Set<string>();
+	let ok = true;
+	const entries: unknown[] = raw;
+	for (let i = 0; i < entries.length; i++) {
+		const e: unknown = entries[i];
+		const f = `${feld}[${i}]`;
+		if (!isRecord(e)) { err(f, 'ist kein Objekt (erwartet folder: <ordner>)'); ok = false; continue; }
+		const unknown = Object.keys(e).filter((k) => k !== 'folder' && k !== 'when');
+		if (unknown.length > 0) { err(f, `unbekanntes Feld '${unknown.join("', '")}' (erwartet folder, when)`); ok = false; continue; }
+		if (typeof e.folder !== 'string' || e.folder.trim() === '') { err(`${f}.folder`, 'fehlt oder leer (erwartet den Zielordner)'); ok = false; continue; }
+		if (e.folder.includes('{{')) { err(`${f}.folder`, `'${e.folder}': Platzhalter sind in einem Zielordner nicht erlaubt (das Modell nennt den Ordner wörtlich)`); ok = false; continue; }
+		const problem = checkFixedFolder(e.folder, { writeScope }, denylist);
+		if (problem !== null) { err(`${f}.folder`, problem); ok = false; continue; }
+		const folder = normalizeVaultPath(e.folder);
+		if (foldCase(folder) === NO_DESTINATION) {
+			err(`${f}.folder`, `'${folder}': der Name „${NO_DESTINATION}“ ist für „Notiz bleibt“ reserviert`);
+			ok = false;
+			continue;
+		}
+		if (seen.has(foldCase(folder))) { err(`${f}.folder`, `'${folder}' steht schon in der Liste`); ok = false; continue; }
+		seen.add(foldCase(folder));
+		let when: string | null = null;
+		if (e.when !== undefined) {
+			const w = typeof e.when === 'string' ? e.when.trim() : '';
+			if (w === '' || /[\r\n]/.test(w) || w.length > WHEN_MAX_CHARS) {
+				err(`${f}.when`, `'${show(e.when)}' (erwartet einen einzeiligen, nicht leeren Hinweis bis ${WHEN_MAX_CHARS} Zeichen)`);
+				ok = false;
+				continue;
+			}
+			when = w;
+		}
+		out.push({ folder, when });
+	}
+	return ok ? out : null;
+}
+
+/** `output: { family: note.file }`: feste Zielordner und/oder ein Ordner, dessen Unterordner zur Laufzeit dazukommen. */
+function parseNoteFile(
+	raw: Record<string, unknown>,
+	feld: string,
+	err: (feld: string, problem: string) => void,
+	denylist: string[],
+	writeScope: string[],
+): OutputSpec | null {
+	let ok = true;
+	const destinations = parseDestinations(raw.destinations, `${feld}.destinations`, err, writeScope, denylist);
+	if (destinations === null) ok = false;
+	let destinationsFrom: string | null = null;
+	if (raw.destinations_from !== undefined) {
+		const d = raw.destinations_from;
+		let norm: string | null = null;
+		if (typeof d === 'string') { try { norm = normalizeVaultPath(d); } catch { /* bleibt null */ } }
+		if (norm === null || norm === '' || norm.includes('*') || norm.includes('{{')) {
+			err(`${feld}.destinations_from`, `'${show(d)}' (erwartet einen Ordner im Vault, dessen Unterordner Ziele sind; kein .., kein Muster)`);
+			ok = false;
+		} else if (isDenied(`${norm}/x.md`, denylist)) {
+			err(`${feld}.destinations_from`, `'${norm}' liegt in einem geschützten Bereich`);
+			ok = false;
+		} else {
+			destinationsFrom = norm;
+		}
+	}
+	if (ok && (destinations?.length ?? 0) === 0 && destinationsFrom === null) {
+		err(`${feld}.destinations`, 'fehlt: erwartet destinations (Liste fester Zielordner) oder destinations_from (Ordner, dessen Unterordner Ziele sind)');
+		ok = false;
+	}
+	if (raw.allowed_keys !== undefined) { err(`${feld}.allowed_keys`, 'gilt nur für frontmatter.set'); ok = false; }
+	return ok && destinations !== null ? { family: 'note.file', destinations, destinationsFrom } : null;
+}
+
 /** Parst den neuen `output:`-Block einer llm-Task auf ein OutputSpec. */
 function parseOutputBlock(
 	raw: unknown,
@@ -223,7 +310,7 @@ function parseOutputBlock(
 		const addTo = parseAddTo(raw.add_to, `${feld}.add_to`, keys, err);
 		return values === null || addTo === null ? null : { family: 'frontmatter.set', allowedKeys: keys, values, addTo };
 	}
-	if ((family === 'section.write' || family === 'text.append' || family === 'notes.create') && (raw.values !== undefined || raw.add_to !== undefined)) {
+	if ((family === 'section.write' || family === 'text.append' || family === 'notes.create' || family === 'note.file') && (raw.values !== undefined || raw.add_to !== undefined)) {
 		err(`${feld}.${raw.values !== undefined ? 'values' : 'add_to'}`, 'gilt nur für frontmatter.set');
 		return null;
 	}
@@ -261,7 +348,8 @@ function parseOutputBlock(
 		return ok ? { family: 'text.append', maxChars, heading } : null;
 	}
 	if (family === 'notes.create') return parseNotesCreate(raw, feld, err, denylist, writeScope);
-	err(`${feld}.family`, `'${show(family)}' (erwartet frontmatter.set|section.write|text.append|notes.create)`);
+	if (family === 'note.file') return parseNoteFile(raw, feld, err, denylist, writeScope);
+	err(`${feld}.family`, `'${show(family)}' (erwartet frontmatter.set|section.write|text.append|notes.create|note.file)`);
 	return null;
 }
 
@@ -382,6 +470,9 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 			const id = typeof raw.id === 'string' && raw.id.trim() !== '' ? raw.id.trim() : null;
 			if (id === null) { err(`${label}.id`, 'fehlt oder leer'); continue; }
 			if (seenIds.has(id)) err(`${label}.id`, `'${id}' doppelt (Task-IDs müssen eindeutig sein)`);
+			// Eine Verschiebung ändert den Pfad der Notiz: jeder spätere Schritt fände sie nicht mehr. Der Schritt mit note.move steht deshalb ganz am Ende.
+			const mover = tasks.find((t) => t.kind === 'actions' && t.allowedActions.includes('note.move'));
+			if (mover !== undefined) err(label, `note.move muss der letzte Schritt sein ('${mover.id}' verschiebt Notizen, danach darf kein Schritt folgen)`);
 			const inputs = parseInputs(raw, `${label}.inputs`, seenIds, err);
 			switch (raw.kind) {
 				case 'collector': {
@@ -438,6 +529,9 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 					for (const m of inputs.map((i) => tasks.find((t) => t.id === i))) {
 						if (m?.kind === 'llm' && m.output.family === 'notes.create' && !allowedActions.includes('note.create')) {
 							err(`${label}.allowed_actions`, `'${m.id}' legt Notizen an (notes.create), der Schritt braucht note.create`);
+						}
+						if (m?.kind === 'llm' && m.output.family === 'note.file' && !allowedActions.includes('note.move')) {
+							err(`${label}.allowed_actions`, `'${m.id}' legt Notizen ab (note.file), der Schritt braucht note.move`);
 						}
 					}
 					if (target !== null && target.includes('{{input}}')) {

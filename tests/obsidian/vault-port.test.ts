@@ -3,7 +3,7 @@
 // Mock-Datei selbst importiert — der vitest-Alias `obsidian` zeigt auf DIESELBE
 // Datei, daher sind Klassen wie TFile modul-identisch (instanceof funktioniert).
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeFakeApp, TFile } from "../__mocks__/obsidian";
+import { makeFakeApp, TFile, TFolder } from "../__mocks__/obsidian";
 import { ObsidianMetadataPort, ObsidianVaultPort } from "../../src/obsidian/vault-port";
 
 let app: ReturnType<typeof makeFakeApp>;
@@ -265,3 +265,56 @@ describe("ObsidianMetadataPort", () => {
     });
   });
 });
+
+describe("ObsidianVaultPort — rename", () => {
+  it("verschiebt über app.fileManager.renameFile mit normalisiertem Zielpfad", async () => {
+    const file = new TFile("00_Inbox/a.md");
+    app.vault.getAbstractFileByPath = vi.fn().mockReturnValue(file);
+    app.vault.adapter.exists = vi.fn().mockResolvedValue(false);
+    app.fileManager.renameFile = vi.fn().mockResolvedValue(undefined);
+    await new ObsidianVaultPort(app).rename("00_Inbox//a.md", "40_Projekte//Meyer/a.md");
+    expect(app.vault.getAbstractFileByPath).toHaveBeenCalledWith("00_Inbox/a.md");
+    expect(app.fileManager.renameFile).toHaveBeenCalledTimes(1);
+    expect(app.fileManager.renameFile).toHaveBeenCalledWith(file, "40_Projekte/Meyer/a.md");
+  });
+
+  it("wirft, wenn die Quelle fehlt, und rührt renameFile nicht an", async () => {
+    app.vault.getAbstractFileByPath = vi.fn().mockReturnValue(null);
+    app.fileManager.renameFile = vi.fn();
+    await expect(new ObsidianVaultPort(app).rename("fehlt.md", "x/fehlt.md")).rejects.toThrow(/nicht gefunden/);
+    expect(app.fileManager.renameFile).not.toHaveBeenCalled();
+  });
+
+  it("wirft, wenn der Zielpfad belegt ist, statt Obsidian eine Nummer anhängen zu lassen", async () => {
+    app.vault.getAbstractFileByPath = vi.fn().mockReturnValue(new TFile("a.md"));
+    app.vault.adapter.exists = vi.fn().mockResolvedValue(true);
+    app.fileManager.renameFile = vi.fn();
+    await expect(new ObsidianVaultPort(app).rename("a.md", "b/a.md")).rejects.toThrow(/existiert bereits/);
+    expect(app.fileManager.renameFile).not.toHaveBeenCalled();
+  });
+});
+
+describe("ObsidianMetadataPort — listFolders", () => {
+  function folder(path: string, children: unknown[]): TFolder {
+    const f = new TFolder(path);
+    f.children = children;
+    return f;
+  }
+
+  it("liefert die direkten Unterordner als Pfade, sortiert, ohne Dateien", async () => {
+    const parent = folder("40_Projekte", [
+      folder("40_Projekte/Zeta", [folder("40_Projekte/Zeta/Tief", [])]),
+      new TFile("40_Projekte/lose.md"),
+      folder("40_Projekte/Alpha", []),
+    ]);
+    app.vault.getFolderByPath = vi.fn().mockReturnValue(parent);
+    expect(await new ObsidianMetadataPort(app).listFolders("40_Projekte/")).toEqual(["40_Projekte/Alpha", "40_Projekte/Zeta"]);
+    expect(app.vault.getFolderByPath).toHaveBeenCalledWith("40_Projekte");
+  });
+
+  it("ein fehlender Ordner hat keine Unterordner", async () => {
+    app.vault.getFolderByPath = vi.fn().mockReturnValue(null);
+    expect(await new ObsidianMetadataPort(app).listFolders("Fehlt")).toEqual([]);
+  });
+});
+

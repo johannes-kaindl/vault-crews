@@ -1,4 +1,4 @@
-import { normalizePath, TFile, type App } from "obsidian";
+import { normalizePath, TFile, TFolder, type App } from "obsidian";
 import { pathsInFolder } from "../vendor/kit/folder-scope";
 import type { MetadataPort, VaultPort } from "../core/ports";
 import type { FmValue } from "../core/types";
@@ -80,6 +80,15 @@ export class ObsidianVaultPort implements VaultPort {
     });
   }
 
+  /** Verschiebt über `fileManager.renameFile`, damit Obsidian die Links auf die Notiz nachzieht (`vault.rename` täte es nicht). Der Zielpfad muss frei
+   *  sein: Obsidian hängt sonst keine Nummer an, sondern wirft; der Adapter prüft vorher und nennt den Grund. Den Zielordner legt er nicht an. */
+  async rename(from: string, to: string): Promise<void> {
+    const f = this.file(from); // wirft, wenn die Quelle fehlt
+    const np = normalizePath(to);
+    if (await this.exists(np)) throw new Error(`vault-crews: Datei existiert bereits: ${np}`);
+    await this.app.fileManager.renameFile(f, np);
+  }
+
   async trash(path: string): Promise<void> {
     const f = this.file(path); // wirft, wenn nicht vorhanden — Aufrufer prüft vorher via exists()
     // trashFile respektiert die Papierkorb-Einstellung des Users (System/.trash/lokal).
@@ -135,6 +144,12 @@ export class ObsidianMetadataPort implements MetadataPort {
       .sort((a, b) => b.stat.mtime - a.stat.mtime || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
       .slice(0, Math.max(0, limit))
       .map((f) => f.basename);
+  }
+
+  async listFolders(parent: string): Promise<string[]> {
+    const folder = this.app.vault.getFolderByPath(normalizePath(parent.trim()));
+    if (folder === null) return [];
+    return folder.children.filter((c): c is TFolder => c instanceof TFolder).map((c) => c.path).sort();
   }
 
   async getBody(path: string): Promise<string> {
