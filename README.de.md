@@ -38,7 +38,7 @@ wird eingeschränkt und dann geprüft, bevor sie deinen Vault berührt.
   die Vault-/Adapter-API von Obsidian). „Letzten Lauf rückgängig machen" stellt geänderte
   Notizen aus dem Snapshot wieder her und verschiebt im Lauf angelegte Notizen in den
   Papierkorb — kein Git-Repository nötig, funktioniert in jedem Vault.
-- **Vier mitgelieferte Beispiel-Crews**, per Befehl installierbar, in der Sprache der Obsidian-Oberfläche (Deutsch oder Englisch): **Task-Triage** (sichtet Backlog-TaskNotes und schlägt Metadaten-Korrekturen nur auf weichen Feldern vor), **Daily-Briefing** (fasst offene Aufgaben in der heutigen Tagesnotiz zusammen), **Notiz-Tagger** (schlägt Tags für Notizen ohne Tags vor) und **Reifegrad-Tagger** (schätzt den Reifegrad einer Notiz aus ihrem Inhalt und schreibt ihn ins Frontmatter). Sie zeigen auf die neutralen Ordner `Aufgaben`, `Tagesnotizen` und `Notizen` (englisch: `Tasks`, `Daily`, `Notes`); der Text jedes Teams sagt, dass du sie vor dem ersten Lauf anpasst.
+- **Fünf mitgelieferte Beispiel-Crews**, per Befehl installierbar, in der Sprache der Obsidian-Oberfläche (Deutsch oder Englisch): **Task-Triage** (sichtet Backlog-TaskNotes und schlägt Metadaten-Korrekturen nur auf weichen Feldern vor), **Daily-Briefing** (fasst offene Aufgaben in der heutigen Tagesnotiz zusammen), **Notiz-Tagger** (schlägt Tags für Notizen ohne Tags vor) **Reifegrad-Tagger** (schätzt den Reifegrad einer Notiz aus ihrem Inhalt und schreibt ihn ins Frontmatter) und **Eingangsordner einsortieren** (ergänzt vorhandene Tags an den Notizen eines Eingangsordners und verschiebt jede in einen passenden Ordner). Sie zeigen auf die neutralen Ordner `Aufgaben`, `Tagesnotizen`, `Notizen` und `Inbox` mit den Zielen `Projekte` und `Archiv` (englisch: `Tasks`, `Daily`, `Notes`, `Inbox`, `Projects`, `Archive`); der Text jedes Teams sagt, dass du sie vor dem ersten Lauf anpasst.
 - **Volle Nachvollziehbarkeit, im Vault.** Jeder Lauf schreibt eine menschenlesbare
   `run.md` (Frontmatter + Detail je Aufgabe, Bases-kompatibel) und eine
   maschinenlesbare `state.json`, dazu ein mitgeliefertes `runs.base`-Dashboard.
@@ -112,8 +112,8 @@ npm run build   # erzeugt main.js
 `main.js`, `manifest.json` und `styles.css` nach `<vault>/.obsidian/plugins/vault-crews/` kopieren.
 
 **Nach dem Aktivieren** (egal auf welchem Weg) den Befehl **„Install example crews"** ausführen, um `_crews/`
-(Standard-Wurzel, in den Einstellungen änderbar) mit den vier Beispiel-Teams (Task-Triage,
-Daily-Briefing, Notiz-Tagger, Reifegrad-Tagger; bei englischer Oberfläche Task triage, Daily briefing, Note tagger, Maturity tagger), ihren Agenten und dem `runs.base`-Dashboard zu befüllen. Installierte
+(Standard-Wurzel, in den Einstellungen änderbar) mit den fünf Beispiel-Teams (Task-Triage,
+Daily-Briefing, Notiz-Tagger, Reifegrad-Tagger, Eingangsordner einsortieren; bei englischer Oberfläche Task triage, Daily briefing, Note tagger, Maturity tagger, Sort inbox), ihren Agenten und dem `runs.base`-Dashboard zu befüllen. Installierte
 Dateien werden von einem zweiten Lauf nie überschrieben — bearbeite sie danach frei.
 
 ## Verwendung
@@ -122,7 +122,7 @@ Dateien werden von einem zweiten Lauf nie überschrieben — bearbeite sie danac
    und ein Modell laden. Das Plugin löst bei jedem Preflight den ersten erreichbaren
    Endpunkt auf.
 2. **Einmal „Install example crews" ausführen** — das befüllt die Crew-Wurzel
-   (standardmäßig `_crews`) mit den vier Beispiel-Teams, ihren Agenten
+   (standardmäßig `_crews`) mit den fünf Beispiel-Teams, ihren Agenten
    und dem `runs.base`-Dashboard.
 3. **Das Crews-Panel öffnen** (Ribbon-Icon oder **Open crews panel**). Es listet die
    gefundenen Teams und zeigt während eines Laufs die aktuelle Aufgabe samt laufender
@@ -328,6 +328,17 @@ Ein `llm`-Task legt sein Ausgabeformat über einen `output:`-Block fest:
     family: frontmatter.set
     allowed_keys: [tags, kategorie]
   ```
+  Mit `values` gibst du einem Feld eine Wertemenge, mit `add_to` nennst du die Felder, deren Wert zur vorhandenen Liste der Notiz hinzukommt, statt sie zu ersetzen (die Vereinigung ohne Doppelte, gebildet beim Schreiben der Notiz; ohne `add_to` ersetzt der Wert wie bisher). Eine Menge kommt aus `list` (feste Werte), `from: tags` (die Tags des Vaults, ohne `#` geschrieben) oder `from: notes` mit einem `folder` (die Notizen dieses Ordners samt Unterordnern, geschrieben als `[[Name]]`). Das Modell sieht je Wert eine Kurzform, geschrieben wird das Original. Ein Wert ohne brauchbare Kurzform oder mit gleicher Kurzform wie ein anderer steht in `run.md`. Höchstens 300 Werte je Feld: bei Tags die häufigsten, bei Notizen die zuletzt geänderten, und `run.md` nennt die Kürzung. Ein Schlüssel unter `values`, der nicht in `allowed_keys` steht, macht die Crew ungültig. Ein Tag, den es im Vault nicht gibt, wird abgelehnt. `add_to` vergleicht exakt, ohne Normalisierung: `tags: "a, b"` als ein Text wird EIN Element, nicht zwei Tags.
+  ```yaml
+  output:
+    family: frontmatter.set
+    allowed_keys: [type, tags, projekt]
+    values:
+      type: { list: [Protokoll, Rechnung, Notiz] }
+      tags: { from: tags }
+      projekt: { from: notes, folder: Projekte }
+    add_to: [tags]
+  ```
 - **`section.write`** — das Modell schreibt Markdown-Text, der per `section.replace`
   in das `target` des nachgelagerten `actions`-Tasks geschrieben wird. Optional
   `max_chars` (Default 16000).
@@ -335,6 +346,48 @@ Ein `llm`-Task legt sein Ausgabeformat über einen `output:`-Block fest:
   output:
     family: section.write
   ```
+- **`text.append`** — das Modell schreibt Markdown-Text, den `note.append` ans Ende des `target` des nachgelagerten `actions`-Tasks hängt, auf Wunsch unter der Überschrift `heading` (die Überschrift muss in der Notiz schon stehen). Optional `max_chars` (Default 4000, höchstens 16000). Anhängen ist nicht wiederholbar: ein zweiter Lauf hängt erneut an. `heading` steht ohne `#` (`Log`, nicht `## Log`).
+  ```yaml
+  output:
+    family: text.append
+    heading: Log
+  ```
+- **`notes.create`** — das Modell schlägt neue Notizen als `{"items": [{"title": "…", "body": "…"}]}` vor; nur Titel und Text kommen vom Modell. Der Ordner, die Frontmatter-Felder jeder neuen Notiz und das Feld für den Link auf die bearbeitete Notiz stehen fest in der Crew-Datei. Der Pfad ist `folder`, dann der Titel durch die Namensrichtlinie, dann `.md`; der Titel hat höchstens 120 Zeichen und braucht mindestens einen Buchstaben oder eine Ziffer. `folder` darf `{{today}}` enthalten. Den Inhalt baut das Frontmatter-Modul der Bibliothek, nicht eine Textverkettung. `max_items` ist standardmäßig 5, höchstens 50, mehr Einträge sind ein Schemafehler. `link_source` nennt das Frontmatter-Feld, das einen Link auf die bearbeitete Notiz bekommt, und verlangt `per_note: true`; der Link steht als Pfadlink (`[[Inbox/Notiz]]`). Der `actions`-Task braucht `note.create` in `allowed_actions`. Vorhandene Notizen werden nie überschrieben: die Aktion wird mit „existiert bereits“ abgelehnt, ebenso derselbe Titel zweimal in einem Lauf. Diese Ablehnungen zählen nicht für die Konsistenz-Schwelle, ein wiederholter Lauf mit gleichen Titeln endet also als `partial`, nicht als `failed`. `notes.create` sagt keine Wiederholbarkeit zu: liefert das Modell im zweiten Lauf andere Titel, entstehen weitere Notizen.
+  ```yaml
+  output:
+    family: notes.create
+    folder: Aufgaben
+    max_items: 10
+    frontmatter: { type: Aufgabe, status: backlog, tags: [aus-crew] }
+    link_source: quelle
+  ```
+  Eine Liste in `frontmatter` darf keine leeren Elemente und keine Elemente mit `[ ] { } ,` haben (der Serializer der Bibliothek schriebe kaputtes YAML), und ein `folder` mit `{{today}}` wird mit dem Datum 2000-01-01 gegen `write_scope` geprüft: der Bereich braucht ein Muster wie `Journal/**` oder `Journal/20*/**`, nicht einen einzelnen Tag.
+- **`note.file`** — das Modell legt Notizen ab: `{"items": [{"path": "…", "to": "…"}]}`. `path` ist an das Quellmaterial gebunden, `to` muss ein Ordner aus der Liste oder `none` sein. `none` und der Ordner, in dem die Notiz schon liegt, erzeugen keine Aktion. Die Liste besteht aus `destinations` (feste Ordner mit optionaler Beschreibung `when`) und/oder `destinations_from` (die direkten Unterordner eines Ordners, höchstens 100, ohne Beschreibung); mindestens eines von beiden ist Pflicht. Ein Unterordner außerhalb von `write_scope`, auf der Sperrliste oder mit dem Namen `none` fällt weg, und `run.md` sagt es. Der `actions`-Task braucht `note.move` in `allowed_actions`, es gibt höchstens einen solchen Task je Crew, und er muss der letzte Task sein. Quelle und Zielordner müssen in `write_scope` liegen; der Zielordner muss schon existieren, die Crew legt nie einen Ordner an, und ein belegter Zielpfad wird abgelehnt. Das Verschieben läuft über den Dateimanager von Obsidian, der Links in anderen Notizen so nachzieht, wie du es in den Obsidian-Einstellungen gewählt hast. **Das ändert Notizen außerhalb von `write_scope`:** die Grenze gilt für die verschobene Notiz, nicht für die Verweise auf sie. **Rückgängig** schiebt die Notiz zurück (und die Links erneut); liegt die Notiz nicht mehr am neuen Pfad oder ist der alte Pfad wieder belegt, bleibt sie unberührt und wird als Konflikt gemeldet.
+  ```yaml
+  output:
+    family: note.file
+    destinations:
+      - { folder: Projekte/Meyer, when: "Alles zum Kunden Meyer" }
+      - { folder: Archiv/Rechnungen, when: "Rechnungen und Belege" }
+    destinations_from: Projekte
+  ```
+
+Mit `per_note: true` am `llm`-Task läuft der Modellaufruf einmal je Notiz, und das `target` des nachgelagerten `actions`-Tasks darf `{{input}}` sein: es steht für den Pfad der Notiz, um die es im jeweiligen Aufruf geht, jede Notiz bekommt also ihren eigenen Abschnitt oder Text. `{{input}}` ohne `per_note: true` ist ein Definitionsfehler.
+
+**Ein Modellaufruf je Notiz (`per_note`).** Mit `per_note: true` läuft der `llm`-Task einmal je Notiz seiner Eingaben, nacheinander, und jeder Aufruf sieht nur diese Notiz. Die Aktionen aller Aufrufe bilden zusammen das Ergebnis des Tasks. Höchstens 20 Notizen je Task: der Rest wird übersprungen, `run.md` nennt ihn, und der Lauf endet als `partial`. `on_error: skip` überspringt die eine Notiz und macht weiter, `on_error: abort` bricht den Lauf ab. Eine Notiz, die nur gekürzt gelesen wurde (der Collector kappt eine Notiz bei 32 768 Zeichen und alle Notizen zusammen bei 262 144), steht in `run.md` als „gekürzt gelesen“; eine Notiz, die allein nicht in den Kontext des Modells passt, zählt als Fehler dieses Aufrufs. Die Wanduhr gilt wie bisher: läuft sie mitten in einem solchen Task ab, endet der Lauf als `failed`, und die Meldung nennt die Einstellung. **`max_writes` zählt Notizen**, nicht Aktionen: jede geänderte, angelegte oder verschobene Notiz zählt einmal je Lauf, eine Notiz, die Tags bekommt und dann verschoben wird, also einmal. Für Stapel über dem Standard von 10 hebst du zuerst die Plugin-Einstellung „Max. Schreibvorgänge pro Lauf“ und danach `max_writes` in der Crew-Datei, sonst scheitert der Aktions-Task mit `write_limit`.
+
+**Mehrere Schritte auf derselben Notiz.** Der Lauf merkt sich für jeden Pfad den Stand, den er zuletzt selbst geschrieben hat. Der Veraltet-Schutz lässt eine Notiz gelten, deren aktueller Stand entweder der Stand beim Einsammeln oder dieser letzte eigene Stand ist; eine Crew kann also erst Frontmatter setzen und danach einen Abschnitt an derselben Notiz schreiben. Jede andere Änderung (du tippst während des Laufs in der Notiz) bleibt „stale“.
+
+### Was die Familien nicht zusagen
+
+- Ein Schritt darf nicht auf die Wirkung eines früheren Schritts desselben Laufs bauen: Anhängen an eine Notiz, die derselbe Lauf erst anlegt, wird nicht unterstützt. Die Schreibschritte prüfen gegen den Vault, wie er vor dem Lauf war; mehrere Schritte auf eine vorhandene Notiz sind in Ordnung.
+- Freier Text aus dem Modell (der Inhalt neuer Notizen, Abschnitte, angehängter Text) kann Unerwünschtes enthalten, etwa einen Link, wenn eine gelesene Notiz das Modell dorthin geführt hat. Alles andere, was das Modell wählt, ist strukturell gebunden: Pfade kommen aus dem Quellmaterial, Ordner aus der Crew-Datei, Ziele aus einer Liste, Werte aus einer Wertemenge. Prüfe das Ergebnis in `run.md` und nutze Rückgängig.
+- Zwei `actions`-Tasks dürfen nicht dasselbe `target` haben, wenn beide `section.replace` erlauben (auch nicht zweimal `{{input}}`).
+- Crews, die `note.create`, `note.append` oder `note.move` erlauben, müssen in diesem Release `review: false` angeben (siehe unten).
+
+### Vorschau (`review`)
+
+`review: false` ist in der Team-Datei Pflicht, sobald eine Crew Notizen anlegen, anhängen oder verschieben kann. `review: true` wird mit „Vorschau kommt mit dem nächsten Release“ abgelehnt: die Vorschau vor dem Schreiben (der wartende Lauf) ist noch nicht gebaut, eine Crew schreibt sofort, und du prüfst das Ergebnis in `run.md` und nutzt Rückgängig. Das Feld ist schon jetzt Pflicht, damit der spätere Standard (`true` für schreibende Crews) keine Crew still ändert, die in der Zwischenzeit geschrieben wird.
 
 Die älteren Namen `output_schema: triage-v1` / `briefing-v1` bleiben als Kurzform gültig.
 

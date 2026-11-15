@@ -33,7 +33,7 @@ ever touches your vault.
   is snapshotted (copy-on-write) into a hidden store via the Obsidian vault/adapter API.
   "Undo last run" restores changed notes from the snapshot and moves run-created notes to
   the trash — no git repository required, works in any vault.
-- **Four shipped example crews**, installable via a command, in the language of the Obsidian interface (English or German): **Task triage** (reviews backlog TaskNotes, proposes metadata corrections on soft fields only), **Daily briefing** (summarizes open tasks into today's daily note), **Note tagger** (proposes tags for notes that have none) and **Maturity tagger** (estimates a note's maturity from its content and writes it to the frontmatter). They point at the neutral folders `Tasks`, `Daily` and `Notes` (German: `Aufgaben`, `Tagesnotizen`, `Notizen`); each team's text says to adjust them before the first run.
+- **Five shipped example crews**, installable via a command, in the language of the Obsidian interface (English or German): **Task triage** (reviews backlog TaskNotes, proposes metadata corrections on soft fields only), **Daily briefing** (summarizes open tasks into today's daily note), **Note tagger** (proposes tags for notes that have none) and **Maturity tagger** (estimates a note's maturity from its content and writes it to the frontmatter) and **Sort inbox** (adds existing tags to the notes of an inbox folder and moves each into a matching folder). They point at the neutral folders `Tasks`, `Daily`, `Notes` and `Inbox` with the targets `Projects` and `Archive` (German: `Aufgaben`, `Tagesnotizen`, `Notizen`, `Inbox`, `Projekte`, `Archiv`); each team's text says to adjust them before the first run.
 - **Full observability, in the vault.** Every run writes a human-readable `run.md`
   (frontmatter + per-task detail, Bases-compatible) and a machine-readable
   `state.json`, plus a shipped `runs.base` dashboard.
@@ -104,9 +104,9 @@ npm run build   # produces main.js
 Copy `main.js`, `manifest.json` and `styles.css` into `<vault>/.obsidian/plugins/vault-crews/`.
 
 **After enabling** (whichever route), run the command **"Install example crews"** to seed `_crews/`
-(default root, configurable in settings) with the four example teams (Task triage,
-Daily briefing, Note tagger, Maturity tagger; German interface: Task-Triage, Daily-Briefing,
-Notiz-Tagger, Reifegrad-Tagger), their agents, and the `runs.base` dashboard. Installed files are never
+(default root, configurable in settings) with the five example teams (Task triage,
+Daily briefing, Note tagger, Maturity tagger, Sort inbox; German interface: Task-Triage, Daily-Briefing,
+Notiz-Tagger, Reifegrad-Tagger, Eingangsordner einsortieren), their agents, and the `runs.base` dashboard. Installed files are never
 overwritten by a second run — edit them freely afterwards.
 
 ## Usage
@@ -114,7 +114,7 @@ overwritten by a second run — edit them freely afterwards.
 1. **Start your local LLM server** (LM Studio or Ollama) with CORS enabled, and load a
    model. The plugin resolves the first reachable endpoint at each preflight.
 2. **Run "Install example crews"** once — it seeds the crew root (`_crews` by default)
-   with the four example teams, their agents, and the `runs.base` dashboard.
+   with the five example teams, their agents, and the `runs.base` dashboard.
 3. **Open the crews panel** (ribbon icon or **Open crews panel**). It lists the teams it
    found and, during a run, the current task with live token counts.
    - The panel has two tabs, **Crews** and **History**. Click one, or focus the tab bar and use the Left/Right arrow keys (Home/End jump to the first/last tab). During a run, the status line with the one **Cancel** button stays at the bottom, whichever tab is open.
@@ -320,6 +320,17 @@ An `llm` task declares its output format through an `output:` block:
     family: frontmatter.set
     allowed_keys: [tags, kategorie]
   ```
+  With `values` you give a field a set of allowed values, with `add_to` you name the fields whose value is added to the note's list instead of replacing it (the union without duplicates, built when the note is written; without `add_to` the value replaces, as before). A set comes from `list` (fixed values), `from: tags` (the tags of the vault, written without `#`) or `from: notes` with a `folder` (the notes of that folder and its subfolders, written as `[[Name]]`). The model sees a short form of each value and the original is written. A value without a usable short form, or with the same short form as another, is named in `run.md`. At most 300 values per field: for tags the most frequent ones, for notes the most recently changed ones, and `run.md` names the cut. A key under `values` that is not in `allowed_keys` makes the crew invalid. A tag that does not exist in the vault is rejected. `add_to` compares exactly, without normalising: `tags: "a, b"` as one text becomes ONE element, not two tags.
+  ```yaml
+  output:
+    family: frontmatter.set
+    allowed_keys: [type, tags, projekt]
+    values:
+      type: { list: [Protokoll, Rechnung, Notiz] }
+      tags: { from: tags }
+      projekt: { from: notes, folder: Projekte }
+    add_to: [tags]
+  ```
 - **`section.write`** — the model writes Markdown text, which `section.replace` puts
   into the `target` of the following `actions` task. Optional `max_chars`
   (default 16000).
@@ -336,12 +347,47 @@ An `llm` task declares its output format through an `output:` block:
     family: text.append
     heading: Log
   ```
+  Appending is not repeatable: a second run appends again. `heading` is written without `#` (`Log`, not `## Log`).
+- **`notes.create`** — the model proposes new notes as `{"items": [{"title": "…", "body": "…"}]}`; only title and text come from the model. The folder, the frontmatter fields of every new note and the field for a link to the processed note are fixed in the crew file. The path is `folder`, then the title run through the file-name policy, then `.md`; the title is at most 120 characters and needs at least one letter or digit. `folder` may contain `{{today}}`. The content is built by the library's frontmatter module, not by joining text. `max_items` defaults to 5 and may be at most 50, more items are a schema error. `link_source` names the frontmatter field that gets a link to the processed note and needs `per_note: true`; the link is written as a path link (`[[Inbox/Note]]`). The `actions` task needs `note.create` in `allowed_actions`. Notes that already exist are never overwritten: the action is rejected with "exists", and so is the same title twice in one run. These rejections do not count towards the consistency threshold, so a repeated run with the same titles ends `partial`, not `failed`. `notes.create` does not promise repeatability: if the model gives other titles in a second run, more notes appear.
+  ```yaml
+  output:
+    family: notes.create
+    folder: Aufgaben
+    max_items: 10
+    frontmatter: { type: Aufgabe, status: backlog, tags: [aus-crew] }
+    link_source: quelle
+  ```
+  A list in `frontmatter` must not have empty elements or elements with `[ ] { } ,` (the library's serializer would write broken YAML), and `folder` with `{{today}}` is checked against `write_scope` with the date 2000-01-01: the scope needs a pattern such as `Journal/**` or `Journal/20*/**`, not a single day.
+- **`note.file`** — the model files notes: `{"items": [{"path": "…", "to": "…"}]}`. `path` is bound to the collected material, `to` must be a folder from the list or `none`. `none`, and the folder the note is already in, produce no action. The list is `destinations` (fixed folders with an optional description `when`) and/or `destinations_from` (the direct subfolders of one folder, at most 100, without description); at least one of the two is required. A subfolder outside `write_scope`, on the denylist, or named `none` is left out and `run.md` says so. The `actions` task needs `note.move` in `allowed_actions`, there is at most one such task per crew and it must be the last task. Source and target folder must lie in `write_scope`; the target folder must already exist, the crew never creates a folder, and a target path that is taken is rejected. Moving goes through Obsidian's file manager, which updates links in other notes as set in the Obsidian settings. **That changes notes outside `write_scope`:** the limit applies to the moved note, not to the links pointing to it. **Undo** moves the note back (and the links again); if the note is no longer at the new path or the old path is taken again, it is left alone and reported as a conflict.
+  ```yaml
+  output:
+    family: note.file
+    destinations:
+      - { folder: Projekte/Meyer, when: "Everything about the customer Meyer" }
+      - { folder: Archiv/Rechnungen, when: "Invoices and receipts" }
+    destinations_from: Projekte
+  ```
 
 With `per_note: true` on the `llm` task the model is called once per note, and the
 `target` of the following `actions` task may be `{{input}}`: it stands for the path of
 the note that call is about, so each note gets its own section or text. `{{input}}`
 without `per_note: true` is a definition error. Two `actions` tasks that both allow
 `section.replace` must not share a `target`.
+
+**One model call per note (`per_note`).** With `per_note: true` the `llm` task runs once per note of its inputs, one after the other, and each call sees only that note. The actions of all calls together are the result of the task. At most 20 notes per task: the rest is skipped, `run.md` names them and the run ends `partial`. `on_error: skip` skips the one note and goes on, `on_error: abort` stops the run. A note that was read in part (the collector caps one note at 32 768 characters and all notes together at 262 144) is marked in `run.md` as "read in part"; a note that does not fit the model's context alone counts as an error of that call. The wall clock applies as before: when it runs out in the middle of such a task, the run ends `failed` and the message names the setting. **`max_writes` counts notes**, not actions: each note that is changed, created or moved counts once per run, so a note that is tagged and then moved counts once. For batches above the default of 10, raise the plugin setting "Max writes per run" first and then `max_writes` in the crew file, otherwise the actions task fails with `write_limit`.
+
+**Several steps on the same note.** The run remembers the state it wrote last for each path. The staleness guard accepts a note whose current state is either the state at collection or that last own state, so a crew can first set frontmatter and then write a section on the same note. Any other change (you type in the note while the run is going) stays "stale".
+
+### What the families do not promise
+
+- A step must not build on the effect of an earlier step of the same run: appending to a note that the same run creates is not supported. The write steps check against the vault as it was before the run; several steps on an existing note are fine.
+- Free text from the model (the content of new notes, sections, appended text) can contain things you did not want, for example a link, if a note it read led it there. Everything else the model chooses is structurally bound: paths come from the collected material, folders from the crew file, targets from a list, values from a value set. Check the result in `run.md` and use Undo.
+- Two `actions` tasks must not have the same `target` if both allow `section.replace` (also two times `{{input}}`).
+- Crews that allow `note.create`, `note.append` or `note.move` must say `review: false` in this release (see below).
+
+### Preview (`review`)
+
+`review: false` is required in the team file as soon as a crew can create, append or move notes. `review: true` is rejected with "Vorschau kommt mit dem nächsten Release": the preview before writing (the waiting run) is not built yet, a crew writes right away and you check the result in `run.md` and use Undo. The field is required now so that the later default (`true` for writing crews) does not silently change a crew written in the meantime.
 
 The older names `output_schema: triage-v1` / `briefing-v1` remain valid as shorthands.
 

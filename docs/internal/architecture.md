@@ -10,6 +10,13 @@ Aufbau und Grenzen des Plugins, zum Nachschlagen. Was beim Arbeiten beißt, steh
 - `src/i18n/` hält die Wörterbücher (EN und DE).
 - Gate `check:pure` bewacht die Reinheit von `src/core`, `src/vendor` und `src/obsidian/panel-view-model.ts`.
 
+## Ausgabe-Familien und Schreibwege (Schritt 1 der Crew-Fähigkeiten)
+
+- Jede Familie (`frontmatter.set` mit `values`/`add_to`, `section.write`, `text.append`, `notes.create`, `note.file`) ist eine Variante von `OutputSpec` (`types.ts`) und eine Fabrik in `schemas.ts`; sie prüft die Modellantwort und erzeugt die Aktionsliste. `SchemaRuntime` trägt, was erst zur Laufzeit feststeht (Zeit, Pfad der Notiz bei `per_note`, Zielliste). Der Parser (`crew-parser.ts`) prüft feste Ordner früh gegen Sperrliste und `write_scope` (`checkFixedFolder` in `paths.ts`), Wertemengen löst `value-sources.ts` zur Laufzeit auf (`MetadataPort.listTags`, `recentNoteNames`, `listFolders`).
+- `per_note` ruft `callModel` je Notiz (`orchestrator.ts`, `runPerNote`); das Artefakt des Schritts vereinigt Dateien und Tabellen und trägt `{ output, actions }`.
+- Der Executor kennt `note.move` (Phase 1 prüft Quelle, Ziel, Zielordner; Phase 2 ruft `preMove`, dann `VaultPort.rename` über `fileManager.renameFile`). Der Snapshot hält den Zug als `movedFrom` am neuen Pfad (`SnapshotStore.captureMove`); `buildUndoPlan` liefert `moves` (neu nach alt) vor dem Zurückschreiben und führt Einträge, deren Notiz nicht mehr am neuen Pfad liegt oder deren alter Pfad belegt ist, als Konflikt in `skipped`.
+- `TeamDef.review` ist in Schritt 1 immer `false`; der Parser verlangt es für Crews mit `note.create`, `note.append` oder `note.move` und lehnt `true` ab. Schritt 2 (die Vorschau, der wartende Lauf) hebt beides auf.
+
 ## Historische Spezifikation (eingefroren, weiter gültig als Referenz)
 
 Die V1-Design-Grundlagen liegen nicht mehr im Repo: Specs und Pläne liegen im Vault-Cockpit unter `_SDD/` (CORE-META-14), eingefroren, aber als Referenz für Architektur-Entscheidungen weiter gültig; neue SDD-Artefakte gehen ebenfalls dorthin. In dieser Reihenfolge lesen:

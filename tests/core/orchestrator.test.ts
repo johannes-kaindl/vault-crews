@@ -56,6 +56,7 @@ function triageTeamFm(overrides: TeamFm = {}): TeamFm {
   return {
     'crew-kind': 'team', name: 'Task-Triage', version: 1, trigger: 'manual', description: '',
     limits: { max_writes: 10 },
+    review: false,
     write_scope: ['10_Aufgaben/**/*.md'],
     tasks: [
       { id: 'collect', kind: 'collector', collector: 'vault.list', params: { folder: '10_Aufgaben' } },

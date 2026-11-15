@@ -41,6 +41,8 @@ const PATHS: Record<Lang, string[]> = {
 		'agents/reifegrad-tagger.md',
 		'teams/notiz-tagger.md',
 		'teams/reifegrad-tagger.md',
+		'agents/eingang-sortierer.md',
+		'teams/eingang-einsortieren.md',
 	],
 	en: [
 		'agents/triage-analyst.md',
@@ -52,6 +54,8 @@ const PATHS: Record<Lang, string[]> = {
 		'agents/maturity-tagger.md',
 		'teams/note-tagger.md',
 		'teams/maturity-tagger.md',
+		'agents/inbox-sorter.md',
+		'teams/sort-inbox.md',
 	],
 };
 
@@ -59,9 +63,10 @@ const PATHS: Record<Lang, string[]> = {
 const SPEC: Record<Lang, {
 	tasks: string; daily: string; notes: string; triageKeys: string[]; tagKeys: string[]; matKeys: string[];
 	agentIds: string[]; matAgent: string; tagAgent: string; matTeam: string; tagTeam: string; briefAgent: string;
+	inbox: string; sortTeam: string; sortAgent: string; sortFolders: string[];
 }> = {
-	de: { tasks: 'Aufgaben', daily: 'Tagesnotizen', notes: 'Notizen', triageKeys: ['priority', 'kontext', 'projekt', 'period'], tagKeys: ['tags'], matKeys: ['reifegrad'], agentIds: ['triage-analyst', 'briefing-autor', 'notiz-tagger', 'reifegrad-tagger'], matAgent: 'reifegrad-tagger', tagAgent: 'notiz-tagger', matTeam: 'reifegrad-tagger', tagTeam: 'notiz-tagger', briefAgent: 'briefing-autor' },
-	en: { tasks: 'Tasks', daily: 'Daily', notes: 'Notes', triageKeys: ['priority', 'context', 'project', 'period'], tagKeys: ['tags'], matKeys: ['maturity'], agentIds: ['triage-analyst', 'briefing-author', 'note-tagger', 'maturity-tagger'], matAgent: 'maturity-tagger', tagAgent: 'note-tagger', matTeam: 'maturity-tagger', tagTeam: 'note-tagger', briefAgent: 'briefing-author' },
+	de: { tasks: 'Aufgaben', daily: 'Tagesnotizen', notes: 'Notizen', triageKeys: ['priority', 'kontext', 'projekt', 'period'], tagKeys: ['tags'], matKeys: ['reifegrad'], agentIds: ['triage-analyst', 'briefing-autor', 'notiz-tagger', 'reifegrad-tagger', 'eingang-sortierer'], matAgent: 'reifegrad-tagger', tagAgent: 'notiz-tagger', matTeam: 'reifegrad-tagger', tagTeam: 'notiz-tagger', briefAgent: 'briefing-autor', inbox: 'Inbox', sortTeam: 'eingang-einsortieren', sortAgent: 'eingang-sortierer', sortFolders: ['Projekte', 'Archiv'] },
+	en: { tasks: 'Tasks', daily: 'Daily', notes: 'Notes', triageKeys: ['priority', 'context', 'project', 'period'], tagKeys: ['tags'], matKeys: ['maturity'], agentIds: ['triage-analyst', 'briefing-author', 'note-tagger', 'maturity-tagger', 'inbox-sorter'], matAgent: 'maturity-tagger', tagAgent: 'note-tagger', matTeam: 'maturity-tagger', tagTeam: 'note-tagger', briefAgent: 'briefing-author', inbox: 'Inbox', sortTeam: 'sort-inbox', sortAgent: 'inbox-sorter', sortFolders: ['Projects', 'Archive'] },
 };
 
 // Plugin-Default-Maxima (DEFAULT_SETTINGS aus src/obsidian/settings.ts, in RunLimits-
@@ -216,6 +221,33 @@ describe.each(LANGS)('Beispiel-Crews (%s)', (lang) => {
 			// vorgeschlagene Key wird abgelehnt → die Crew schreibt zur Laufzeit NICHTS.
 			const applyTask = r.value.tasks.find((t) => t.kind === 'actions');
 			expect(applyTask).toMatchObject({ kind: 'actions', allowedActions: ['frontmatter.patch'], allowedKeys: keys });
+		});
+
+		it('die Crew „Eingangsordner einsortieren“ parst: Tags aus dem Bestand, Ablegen, review: false, ein Verschieben als letzter Schritt', () => {
+			const { fm } = splitFrontmatter(asset(lang, `teams/${spec.sortTeam}.md`));
+			const r = parseTeamDef(`_crews/teams/${spec.sortTeam}.md`, fm, { knownAgents, maxima: DEFAULT_MAXIMA, denylist: DENYLIST });
+			expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
+			if (!r.ok) return;
+			expect(r.value.id).toBe(spec.sortTeam);
+			expect(r.value.review).toBe(false);
+			expect(r.value.maxWrites).toBe(8);
+			expect(r.value.maxWrites).toBeLessThanOrEqual(DEFAULT_MAXIMA.maxWrites);
+			expect(r.value.tasks.map((t) => t.id)).toEqual(['collect', 'tag', 'file', 'apply-tags', 'apply-move']);
+			expect(r.value.tasks[0]).toMatchObject({ kind: 'collector', collector: 'tasknotes.query', params: { folder: spec.inbox, limit: 8, include_content: true } });
+			expect(r.value.tasks[1]).toMatchObject({
+				kind: 'llm', agent: spec.sortAgent, perNote: false,
+				output: { family: 'frontmatter.set', allowedKeys: ['tags'], values: { tags: { kind: 'tags' } }, addTo: ['tags'] },
+			});
+			const file = r.value.tasks[2];
+			expect(file).toMatchObject({ kind: 'llm', agent: spec.sortAgent, output: { family: 'note.file', destinationsFrom: null } });
+			if (file?.kind === 'llm' && file.output.family === 'note.file') {
+				expect(file.output.destinations.map((d) => d.folder)).toEqual(spec.sortFolders);
+				expect(file.output.destinations.every((d) => d.when !== null && d.when !== '')).toBe(true);
+			}
+			expect(r.value.tasks[3]).toMatchObject({ kind: 'actions', allowedActions: ['frontmatter.patch'], allowedKeys: ['tags'] });
+			expect(r.value.tasks[4]).toMatchObject({ kind: 'actions', allowedActions: ['note.move'] });
+			// write_scope: der Eingangsordner und genau die Zielordner, nie der ganze Vault.
+			expect(r.value.writeScope).toEqual([spec.inbox, ...spec.sortFolders].map((f) => `${f}/**/*.md`));
 		});
 
 		it('jedes Team zeigt Ordner und Schreibfreigabe auf dieselbe neutrale Wurzel', () => {

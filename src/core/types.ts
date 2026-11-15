@@ -83,6 +83,8 @@ export interface TeamDef {
 	maxWrites: number;
 	writeScope: string[];
 	tasks: TaskDef[];
+	/** Vorschau vor dem Schreiben. In Schritt 1 des Ausbaus nur `false` (der Parser lehnt `true` ab). */
+	review: boolean;
 	sourcePath: string;
 }
 

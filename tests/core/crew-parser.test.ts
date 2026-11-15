@@ -16,6 +16,7 @@ function teamFm(overrides: Record<string, unknown> = {}): Record<string, unknown
 		description: 'Prüft Backlog.',
 		trigger: 'manual',
 		limits: { max_writes: 15 },
+		review: false,
 		write_scope: ['10_Aufgaben/**/*.md'],
 		tasks: [
 			{ id: 'collect', kind: 'collector', collector: 'tasknotes.query', params: { folder: '10_Aufgaben' } },
@@ -826,3 +827,57 @@ describe('note.file und note.move', () => {
 	});
 });
 
+
+describe('Feld review (Schritt 1: nur false)', () => {
+	// `teamFm` trägt `review: false`; die Fälle „Feld fehlt“ setzen es ausdrücklich auf undefined zurück.
+	const FEHLT = { review: undefined };
+	const withActions = (actions: string[], extra: Record<string, unknown> = FEHLT): Record<string, unknown> => teamFm({
+		tasks: [
+			{ id: 'collect', kind: 'collector', collector: 'tasknotes.query', params: { folder: '10_Aufgaben' } },
+			{ id: 'analyse', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'Bewerte.', output_schema: 'triage-v1' },
+			{ id: 'apply', kind: 'actions', inputs: ['analyse'], allowed_actions: actions, allowed_keys: ['priority'], target: 'Log.md' },
+		],
+		...extra,
+	});
+
+	it.each(['note.create', 'note.append', 'note.move'])('verlangt review: false, sobald eine Crew %s erlaubt', (action) => {
+		const r = parseTeamDef(TEAM_PATH, withActions([action]), OPTS);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.errors.join('\n')).toMatch(/review: false/);
+	});
+
+	it('verlangt review: false auch, wenn nur einer von mehreren Aktions-Schritten schreibt', () => {
+		const r = parseTeamDef(TEAM_PATH, withActions(['frontmatter.patch', 'note.append']), OPTS);
+		expect(r.ok).toBe(false);
+	});
+
+	it('nimmt review: false an und liefert es im TeamDef', () => {
+		const r = parseTeamDef(TEAM_PATH, withActions(['note.append'], { review: false }), OPTS);
+		expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
+		if (r.ok) expect(r.value.review).toBe(false);
+	});
+
+	it('lehnt review: true ab, bis die Vorschau gebaut ist', () => {
+		const r = parseTeamDef(TEAM_PATH, withActions(['note.append'], { review: true }), OPTS);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.errors.join('\n')).toMatch(/Vorschau kommt mit dem nächsten Release/);
+	});
+
+	it('lehnt review: true auch bei einer Crew ab, die nichts anlegt', () => {
+		const r = parseTeamDef(TEAM_PATH, teamFm({ review: true }), OPTS);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.errors.join('\n')).toMatch(/Vorschau kommt mit dem nächsten Release/);
+	});
+
+	it.each(['ja', 1, null, 'false'])('lehnt review: %j (kein Boolean) ab', (v) => {
+		const r = parseTeamDef(TEAM_PATH, teamFm({ review: v }), OPTS);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.errors.join('\n')).toMatch(/review/);
+	});
+
+	it('lässt vorhandene Crews ohne das Feld gültig (review ist false)', () => {
+		const r = parseTeamDef(TEAM_PATH, withActions(['frontmatter.patch', 'section.replace']), OPTS);
+		expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
+		if (r.ok) expect(r.value.review).toBe(false);
+	});
+});

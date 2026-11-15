@@ -159,7 +159,7 @@ export const EN: Record<string, string> = {
   "undo.logMarker": "> [!warning] This run was undone.",
   "notice.undo.ok": "Undo complete — restored {0} file(s) to the state before the run.",
   "notice.undo.okSkipped": "Undo complete — restored {0} file(s); {1} moved note(s) were left where they are.",
-  "notice.undo.failed": "Undo failed — no changes were made.",
+  "notice.undo.failed": "Undo did not finish — some notes may already be restored; the run stays undoable, try again.",
 
   // --- Run-panel vocabulary (Spec §6.2, Task 17) ---------------------------
   "panel.header.idle": "Crews",
@@ -447,7 +447,7 @@ export const DE: Record<string, string> = {
   "undo.logMarker": "> [!warning] Dieser Lauf wurde rückgängig gemacht.",
   "notice.undo.ok": "Rückgängig gemacht — {0} Datei(en) auf den Stand vor dem Lauf zurückgesetzt.",
   "notice.undo.okSkipped": "Rückgängig gemacht — {0} Datei(en) zurückgesetzt; {1} verschobene Notiz(en) blieben, wo sie sind.",
-  "notice.undo.failed": "Rückgängig fehlgeschlagen — nichts geändert.",
+  "notice.undo.failed": "Rückgängig nicht abgeschlossen — einzelne Notizen können schon zurückgesetzt sein; der Lauf bleibt rückgängig-fähig, bitte erneut versuchen.",
 
   // --- Run-Panel-Vokabular (Spec §6.2, Task 17) ----------------------------
   "panel.header.idle": "Crews",

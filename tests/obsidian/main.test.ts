@@ -735,7 +735,7 @@ describe("Rückgängig für verschobene Notizen", () => {
     const p = await undoPlugin();
     await p.snapshot.captureMove(RUN, "team", 0, "Inbox/a.md", "Ziel/a.md");
     await p.performUndo(RUN, "team", plan({ moves: [{ from: "Ziel/a.md", to: "Inbox/a.md" }] }));
-    expect(String(Notice.instances.at(-1)?.message)).toBe("Undo failed — no changes were made.");
+    expect(String(Notice.instances.at(-1)?.message)).toBe("Undo did not finish — some notes may already be restored; the run stays undoable, try again.");
     expect(await p.snapshot.load(RUN)).not.toBeNull();
   });
 

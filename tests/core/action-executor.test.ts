@@ -19,7 +19,7 @@ const TASK_MD = '---\npriority: 1_niedrig_🟢\n---\nInhalt\n';
 function makeTeam(overrides: Partial<TeamDef> = {}): TeamDef {
   return {
     id: 'task-triage', name: 'Task-Triage', version: 1, description: '', trigger: 'manual',
-    maxWrites: 10, writeScope: ['10_Aufgaben/**/*.md', 'Daily/**/*.md'], tasks: [],
+    maxWrites: 10, writeScope: ['10_Aufgaben/**/*.md', 'Daily/**/*.md'], tasks: [], review: false,
     sourcePath: '_crews/teams/task-triage.md', ...overrides,
   };
 }
@@ -278,7 +278,7 @@ describe('executeActions — Pfad-Guards', () => {
   // Der gespeicherte Glob wirkt, nicht nur der Parser: ein `./a/**` aus der Team-Datei erlaubt `a/x.md` und nichts sonst.
   it('ein normalisiert gespeicherter write_scope schreibt in a/, nicht in b/', async () => {
     const parsed = parseTeamDef('_crews/teams/t.md', {
-      'crew-kind': 'team', name: 'T', version: 1, trigger: 'manual', limits: { max_writes: 5 },
+      'crew-kind': 'team', name: 'T', version: 1, trigger: 'manual', limits: { max_writes: 5 }, review: false,
       write_scope: ['./a/**'],
       tasks: [{ id: 'apply', kind: 'actions', inputs: [], allowed_actions: ['note.create'] }],
     }, { knownAgents: [], maxima: LIMITS, denylist: buildDenylist('.obsidian', '_crews') });

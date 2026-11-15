@@ -22,6 +22,8 @@ const NOTES_CREATE_DEFAULT_ITEMS = 5;
 const NOTES_CREATE_MAX_ITEMS = 50;
 /** Ein Feldname im festen Frontmatter: ein Wort ohne `:`, `#`, Anführungszeichen und Zeilenumbruch, damit die Zeile `<name>: <wert>` stimmt. */
 const FRONTMATTER_KEY = /^[\p{L}\p{N}_][\p{L}\p{N}_ -]*$/u;
+/** Aktionen, die Notizen anlegen, anhängen oder verschieben: sie verlangen `review: false` (siehe `parseTeamDef`). */
+const REVIEW_ACTIONS: ActionType[] = ['note.create', 'note.append', 'note.move'];
 const ACTIONS: ActionType[] = ['frontmatter.patch', 'note.create', 'note.append', 'section.replace', 'note.move'];
 
 /** Schlüssel, unter dem zwei `target`-Angaben als dieselbe Datei gelten: `normalizeVaultPath` (`./`, `//`, `\`, führendes `/`) und `foldCase`
@@ -556,12 +558,23 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 		}
 	}
 
+	// `review`: In diesem Release gibt es keine Vorschau. Damit der spätere Standard (`true` für schreibende Crews) keine Crew still
+	// ändert, die in der Zwischenzeit geschrieben wird, verlangt der Parser das Feld ausdrücklich, sobald eine Crew anlegt, anhängt oder verschiebt.
+	const writes = tasks.some((t) => t.kind === 'actions' && t.allowedActions.some((a) => REVIEW_ACTIONS.includes(a)));
+	if (fm.review === true) {
+		err('review', 'true: Vorschau kommt mit dem nächsten Release (bis dahin review: false)');
+	} else if (fm.review !== undefined && fm.review !== false) {
+		err('review', `'${show(fm.review)}' (erwartet false; die Vorschau kommt mit dem nächsten Release)`);
+	} else if (fm.review === undefined && writes) {
+		err('review', `fehlt: eine Crew, die ${REVIEW_ACTIONS.join(', ')} erlaubt, braucht ausdrücklich review: false (die Vorschau kommt mit dem nächsten Release)`);
+	}
+
 	if (errors.length > 0) return { ok: false, errors };
 	return {
 		ok: true,
 		value: {
 			id: slugFromPath(path), name: name ?? '', version: 1, description,
-			trigger, ...(intervalMinutes !== null ? { intervalMinutes } : {}), maxWrites, writeScope, tasks, sourcePath: path,
+			trigger, ...(intervalMinutes !== null ? { intervalMinutes } : {}), maxWrites, writeScope, tasks, review: false, sourcePath: path,
 		},
 	};
 }

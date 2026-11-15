@@ -18,6 +18,8 @@ function exampleAssets(lang: Lang): { path: string; content: string }[] {
       { path: "agents/reifegrad-tagger.md", content: DE.REIFEGRAD_TAGGER_AGENT },
       { path: "teams/notiz-tagger.md", content: DE.NOTIZ_TAGGER_TEAM },
       { path: "teams/reifegrad-tagger.md", content: DE.REIFEGRAD_TAGGER_TEAM },
+      { path: "agents/eingang-sortierer.md", content: DE.EINGANG_SORTIERER_AGENT },
+      { path: "teams/eingang-einsortieren.md", content: DE.EINGANG_EINSORTIEREN_TEAM },
     ];
   }
   return [
@@ -30,12 +32,14 @@ function exampleAssets(lang: Lang): { path: string; content: string }[] {
     { path: "agents/maturity-tagger.md", content: EN.MATURITY_TAGGER_AGENT },
     { path: "teams/note-tagger.md", content: EN.NOTE_TAGGER_TEAM },
     { path: "teams/maturity-tagger.md", content: EN.MATURITY_TAGGER_TEAM },
+    { path: "agents/inbox-sorter.md", content: EN.INBOX_SORTER_AGENT },
+    { path: "teams/sort-inbox.md", content: EN.SORT_INBOX_TEAM },
   ];
 }
 
 /**
- * Installiert die vier mitgelieferten Beispiel-Crews (Task-Triage,
- * Daily-Briefing, Notiz-Tagger, Reifegrad-Tagger) + ihre Agenten + das
+ * Installiert die fünf mitgelieferten Beispiel-Crews (Task-Triage,
+ * Daily-Briefing, Notiz-Tagger, Reifegrad-Tagger, Eingangsordner einsortieren) + ihre Agenten + das
  * `runs.base`-Dashboard in `<root>/…`, in der Sprache der Oberfläche (`lang`).
  * Schreibt NUR Ziele, die noch nicht existieren (nie ein Overwrite — der Nutzer
  * editiert Beispiel-Crews nach der Installation frei, ein erneuter Aufruf des
