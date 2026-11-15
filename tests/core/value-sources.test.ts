@@ -63,6 +63,15 @@ describe('resolveValueTables', () => {
 		expect(r.notes.join('\n')).toMatch(/Wikilink|Link/);
 	});
 
+	it('notes: der Link kommt aus dem Kit (wikilinkOf), ein Name auf .md behält seine Endung, ein leerer Name oder ein Steuerzeichen fällt mit Grund aus', async () => {
+		const r = await resolveValueTables({ projekt: { kind: 'notes', folder: 'P' } }, meta({ notes: ['Report.md', 'Gut', '', 'A\u0001B'] }).port);
+		expect(Object.values(r.tables.projekt?.fromSlug ?? {}).sort()).toEqual(['[[Gut]]', '[[Report.md]]']);
+		const text = r.notes.join('\n');
+		expect(text).toContain('A\u0001B');
+		expect(text).toMatch(/„“ fehlt/);
+		for (const name of ['', 'A\u0001B']) expect(text).toContain(`„${name}“ fehlt in der Wertemenge, der Name lässt sich nicht als Wikilink schreiben`);
+	});
+
 	it('list: nimmt die feste Liste', async () => {
 		const r = await resolveValueTables({ type: { kind: 'list', list: ['Notiz', 'Aufgabe'] } }, meta().port);
 		expect(Object.keys(r.tables.type?.fromSlug ?? {}).sort()).toEqual(['aufgabe', 'notiz']);

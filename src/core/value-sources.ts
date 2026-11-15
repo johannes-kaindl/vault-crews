@@ -1,6 +1,7 @@
 /** Wertemengen aus dem Bestand (`values` an `frontmatter.set`): was ein Feld annehmen darf, wird vor dem Modellaufruf aus dem Vault
  *  gelesen (Tags, Namen von Notizen) oder aus der Crew-Datei genommen (feste Liste) und wie jede andere Wertemenge in Kurzformen
  *  (Slugs) übersetzt. Das Modell sieht nur die Kurzformen; der Executor mappt sie byte-genau zurück (Stufe 2). */
+import { wikilinkOf } from '../vendor/kit/frontmatter';
 import type { MetadataPort } from './ports';
 import { buildSlugTable } from './slug-mapper';
 import type { SlugTableData, ValueSource } from './types';
@@ -8,11 +9,12 @@ import type { SlugTableData, ValueSource } from './types';
 /** Obergrenze je Feld; was darüber liegt, wird gekürzt und in `notes` genannt (bei `list` lehnt schon der Parser ab). */
 export const VALUES_MAX = 300;
 
-/** Zeichen, die in einem Wikilink nicht vorkommen dürfen (`[[Name]]` brächte einen falschen oder gar keinen Link). */
-const LINK_BREAKERS = /[[\]#^|]/;
-
-function breaksLink(name: string): boolean {
-	return LINK_BREAKERS.test(name) || [...name].some((c) => c.charCodeAt(0) < 32);
+/** Der Wikilink auf eine Notiz anhand ihres Namens (`Notiz.basename`, ohne Endung) oder `null`, wenn sich der Name nicht als Link schreiben lässt. Den Link baut das Kit (`wikilinkOf`: `[ ] # ^ |`,
+ *  leerer Name; ein falscher Link ist schlimmer als ein fehlender Wert); die Endung `.md` kommt wieder an, damit ein Name, der selbst auf `.md` endet, ihn nicht verliert. Steuerzeichen
+ *  im Namen lässt das Kit durch, hier nicht (die Prüfung gab es vorher, sie bleibt). */
+function noteLink(name: string): string | null {
+	if ([...name].some((c) => c.charCodeAt(0) < 32)) return null;
+	return wikilinkOf(`${name}.md`);
 }
 
 interface Entry { name: string; value: string; }
@@ -39,11 +41,12 @@ async function gather(key: string, src: ValueSource, meta: MetadataPort): Promis
 	}
 	const entries: Entry[] = [];
 	for (const name of names.slice(0, VALUES_MAX)) {
-		if (breaksLink(name)) {
-			notes.push(`${label}: „${name}“ fehlt in der Wertemenge, der Name enthält ein Zeichen, das in einem Wikilink nicht vorkommen darf ([ ] # ^ |)`);
+		const link = noteLink(name);
+		if (link === null) {
+			notes.push(`${label}: „${name}“ fehlt in der Wertemenge, der Name lässt sich nicht als Wikilink schreiben (nicht erlaubt: [ ] # ^ | und Steuerzeichen, kein leerer Name)`);
 			continue;
 		}
-		entries.push({ name, value: `[[${name}]]` });
+		entries.push({ name, value: link });
 	}
 	return { entries, notes };
 }
