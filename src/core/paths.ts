@@ -108,10 +108,11 @@ export function checkFixedFolder(folder: string, team: Pick<TeamDef, 'writeScope
 	if (norm === '') return `'${raw}': der Ordner fehlt oder ist die Vault-Wurzel (erwartet einen Ordner im Vault)`;
 	if (norm.includes('*')) return `'${norm}': ein Ordner ist ein fester Name, kein Muster (kein *)`;
 	const probe = `${expandTarget(norm, SAMPLE_DAY_MS)}/x.md`;
+	const probed = norm.includes('{{today}}') ? ` (geprüft mit ${localDate(new Date(SAMPLE_DAY_MS))})` : '';
 	if (isDenied(probe, denylist)) {
 		const rule = denylist.find((d) => globMatch(d, probe));
-		return `'${norm}' liegt in einem geschützten Bereich${rule === undefined ? '' : ` (Sperrliste: ${rule})`}`;
+		return `'${norm}' liegt in einem geschützten Bereich${rule === undefined ? '' : ` (Sperrliste: ${rule})`}${probed}`;
 	}
-	if (!team.writeScope.some((g) => globMatch(g, probe))) return `'${norm}' liegt außerhalb von write_scope (${team.writeScope.join(', ')})`;
+	if (!team.writeScope.some((g) => globMatch(g, probe))) return `'${norm}' liegt außerhalb von write_scope (${team.writeScope.join(', ')})${probed}`;
 	return null;
 }

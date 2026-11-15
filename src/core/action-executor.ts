@@ -70,7 +70,7 @@ function findHeadingLine(lines: string[], heading: string): number {
 
 /** Prüft einen Wert für ein Frontmatter-Feld (Größe, Wertemenge) und mappt Kurzformen auf die Originalwerte zurück. */
 function mapFmValue(key: string, value: FmValue, ctx: ExecutorContext): { ok: true; value: FmValue } | { ok: false; reason: string } {
-	const table = ctx.slugTables[key];
+	const table = Object.hasOwn(ctx.slugTables, key) ? ctx.slugTables[key] : undefined;
 	const tooBig = (el: string | number | null): boolean => typeof el === 'string' && byteLength(el) > ctx.limits.maxNoteBytes;
 	const tooBigReason = `Wert für '${key}' überschreitet maxNoteBytes (${ctx.limits.maxNoteBytes})`;
 	const unknownReason = (el: string): string => `Wert '${el}' für '${key}' nicht in enumerierter Wertemenge`;
@@ -79,7 +79,7 @@ function mapFmValue(key: string, value: FmValue, ctx: ExecutorContext): { ok: tr
 		for (const el of value) {
 			if (tooBig(el)) return { ok: false, reason: tooBigReason };
 			if (typeof el === 'string' && table !== undefined) {
-				const original = table.fromSlug[el];
+				const original = Object.hasOwn(table.fromSlug, el) ? table.fromSlug[el] : undefined;
 				if (original === undefined) return { ok: false, reason: unknownReason(el) };
 				list.push(original);
 			} else {
@@ -90,7 +90,7 @@ function mapFmValue(key: string, value: FmValue, ctx: ExecutorContext): { ok: tr
 	}
 	if (tooBig(value)) return { ok: false, reason: tooBigReason };
 	if (typeof value === 'string' && table !== undefined) {
-		const original = table.fromSlug[value];
+		const original = Object.hasOwn(table.fromSlug, value) ? table.fromSlug[value] : undefined;
 		if (original === undefined) return { ok: false, reason: unknownReason(value) };
 		return { ok: true, value: original };
 	}

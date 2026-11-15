@@ -303,3 +303,20 @@ describe('makeNotesCreate', () => {
 		expect(buildSchema({ family: 'text.append', maxChars: 10, heading: null }).id).toBe('text.append');
 	});
 });
+
+describe('Prototyp-Schlüssel in Wertemengen', () => {
+	const path = '10_Aufgaben/a.md';
+	const tags = { tags: { toSlug: { projekt: 'projekt' }, fromSlug: { projekt: 'projekt' } } };
+
+	it.each(['constructor', '__proto__', 'toString', 'hasOwnProperty'])('ein Modellwert %j ohne gleichnamigen Vault-Tag wird abgelehnt', (value) => {
+		const one = makeFrontmatterSet(['tags']).validate({ items: [{ path, set: { tags: value } }] }, sources, tags, null);
+		expect(one.ok).toBe(false);
+		const many = makeFrontmatterSet(['tags']).validate({ items: [{ path, set: { tags: [value] } }] }, sources, tags, null);
+		expect(many.ok).toBe(false);
+	});
+
+	it('ein Feld namens constructor ohne Wertemenge hat keine (die Tabelle ist nicht die Konstruktorfunktion)', () => {
+		const r = makeFrontmatterSet(['constructor']).validate({ items: [{ path, set: { constructor: 'x' } }] }, sources, {}, null);
+		expect(r).toEqual({ ok: true, actions: [{ type: 'frontmatter.patch', path, set: { constructor: 'x' }, remove: [] }] });
+	});
+});

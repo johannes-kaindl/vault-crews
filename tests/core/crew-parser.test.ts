@@ -446,6 +446,17 @@ describe('output: block (schema families)', () => {
 			expect((r.value.tasks[1] as { output: unknown }).output).toEqual({ family: 'notes.create', folder: '10_Aufgaben', maxItems: 50, frontmatter: {}, linkSource: null });
 		});
 
+		it.each([['x]'], [''], ['a, b'], ['[a'], ['{a'], ['a}']])('lehnt das Listenelement %j im festen Frontmatter ab (der Kit-Serializer schriebe kaputtes YAML)', (el) => {
+			const r = parse({ ...NC, frontmatter: { tags: ['ok', el] } });
+			expect(r.ok).toBe(false);
+			expect(errs(r)).toMatch(/output\.frontmatter\.tags/);
+		});
+
+		it('ein Text mit Komma als EINZELWERT bleibt erlaubt (nur Listenelemente sind betroffen)', () => {
+			const r = parse({ ...NC, frontmatter: { tags: 'a, b', titel: 'x]' } });
+			expect(r.ok, errs(r)).toBe(true);
+		});
+
 		it('der Platzhalter {{today}} im Ordner bleibt stehen', () => {
 			const r = parse({ ...NC, folder: '10_Aufgaben/{{today}}' });
 			expect(r.ok, errs(r)).toBe(true);

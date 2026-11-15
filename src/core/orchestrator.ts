@@ -903,7 +903,7 @@ function artifactForNote(a: Artifact, path: string): Artifact {
 
 function mergeSlugTables(inputs: Artifact[]): Record<string, SlugTableData> {
 	const out: Record<string, SlugTableData> = {};
-	for (const a of inputs) for (const [key, table] of Object.entries(a.slugTables)) if (!(key in out)) out[key] = table;
+	for (const a of inputs) for (const [key, table] of Object.entries(a.slugTables)) if (!Object.hasOwn(out, key)) out[key] = table;
 	return out;
 }
 

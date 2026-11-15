@@ -178,6 +178,12 @@ describe('checkFixedFolder', () => {
 		expect(checkFixedFolder(folder, all, deny)).not.toBeNull();
 	});
 
+	it('nennt bei {{today}} das Datum, mit dem geprüft wurde', () => {
+		const msg = checkFixedFolder('Anderswo/{{today}}', scope, deny);
+		expect(msg).toContain('(geprüft mit 2000-01-01)');
+		expect(checkFixedFolder('Anderswo', scope, deny)).not.toContain('geprüft mit');
+	});
+
 	it('lehnt andere Platzhalter und Glob-Zeichen ab', () => {
 		expect(checkFixedFolder('a/{{input}}', all, deny)).toContain('{{input}}');
 		expect(checkFixedFolder('a/*', all, deny)).not.toBeNull();

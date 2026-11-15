@@ -65,13 +65,13 @@ export function makeFrontmatterSet(allowedKeys: string[] | '*', addTo: string[] 
 						continue;
 					}
 					const adding = addTo.includes(key);
-					const table = slugTables[key];
+					const table = Object.hasOwn(slugTables, key) ? slugTables[key] : undefined;
 					if (Array.isArray(rawValue)) {
 						const list: (string | number)[] = [];
 						let bad = false;
 						for (const el of rawValue) {
 							if (table) {
-								if (typeof el !== 'string' || !(el in table.fromSlug)) {
+								if (typeof el !== 'string' || !Object.hasOwn(table.fromSlug, el)) {
 									errors.push(`items[${i}].set.${key}: '${String(el)}' ist kein erlaubter Wert (${Object.keys(table.fromSlug).sort().join(', ')})`);
 									bad = true;
 									break;
@@ -89,7 +89,7 @@ export function makeFrontmatterSet(allowedKeys: string[] | '*', addTo: string[] 
 						continue;
 					}
 					if (table) {
-						if (typeof rawValue !== 'string' || !(rawValue in table.fromSlug)) {
+						if (typeof rawValue !== 'string' || !Object.hasOwn(table.fromSlug, rawValue)) {
 							errors.push(`items[${i}].set.${key}: '${String(rawValue)}' ist kein erlaubter Wert (${Object.keys(table.fromSlug).sort().join(', ')})`);
 							continue;
 						}

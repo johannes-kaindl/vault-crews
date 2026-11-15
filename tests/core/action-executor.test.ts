@@ -153,6 +153,23 @@ describe('executeActions — frontmatter.patch', () => {
       expect(res.outcomes[0]?.reason).toContain('maxNoteBytes');
     });
 
+    it.each(['constructor', '__proto__', 'toString'])('ein Modellwert %j ohne gleichnamigen Tag wird abgelehnt (kein Treffer auf Object.prototype)', async (value) => {
+      const { vault, patches } = spyVault(await seed({ '10_Aufgaben/a.md': TASK_MD }));
+      const action: Action = { type: 'frontmatter.patch', path: '10_Aufgaben/a.md', set: {}, remove: [], add: { tags: [value] } };
+      const res = await executeActions([action], tagCtx(), vault);
+      expect(res.outcomes[0]?.result).toBe('rejected');
+      expect(res.outcomes[0]?.reason).toContain('nicht in enumerierter Wertemenge');
+      expect(patches).toEqual([]);
+    });
+
+    it('ein Feld namens constructor hat ohne Wertemenge keine (die Funktion ist keine Tabelle)', async () => {
+      const { vault, patches } = spyVault(await seed({ '10_Aufgaben/a.md': TASK_MD }));
+      const action: Action = { type: 'frontmatter.patch', path: '10_Aufgaben/a.md', set: { constructor: 'x' }, remove: [] };
+      const res = await executeActions([action], tagCtx({ task: makeTask({ allowedKeys: ['constructor'] }) }), vault);
+      expect(res.outcomes[0]?.result).toBe('applied');
+      expect(patches).toHaveLength(1);
+    });
+
     it('ohne add bleibt der Aufruf dreistellig (wie bisher)', async () => {
       const { vault, patches } = spyVault(await seed({ '10_Aufgaben/a.md': TASK_MD }));
       const action: Action = { type: 'frontmatter.patch', path: '10_Aufgaben/a.md', set: { priority: 'mittel' }, remove: [] };

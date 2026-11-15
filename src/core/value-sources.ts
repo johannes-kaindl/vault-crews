@@ -65,16 +65,16 @@ export async function resolveValueTables(
 		notes.push(...gathered.notes);
 
 		const byName = buildSlugTable(gathered.entries.map((e) => e.name));
-		const toSlug: Record<string, string> = {};
-		const fromSlug: Record<string, string> = {};
+		const toSlug: Record<string, string> = Object.create(null) as Record<string, string>;
+		const fromSlug: Record<string, string> = Object.create(null) as Record<string, string>;
 		const owner = new Map<string, string>();   // Kurzform → erster Name, der sie trägt
 		for (const e of gathered.entries) {
-			const slug = byName.toSlug[e.name];
+			const slug = Object.hasOwn(byName.toSlug, e.name) ? byName.toSlug[e.name] : undefined;
 			if (slug === undefined) {
 				notes.push(`${label}: „${e.name}“ hat keine brauchbare Kurzform und fehlt in der Wertemenge`);
 				continue;
 			}
-			if (e.value in toSlug) continue;   // derselbe Wert zweimal
+			if (Object.hasOwn(toSlug, e.value)) continue;   // derselbe Wert zweimal
 			toSlug[e.value] = slug;
 			fromSlug[slug] = e.value;
 			if (!owner.has(slug)) owner.set(slug, e.name);

@@ -13,14 +13,15 @@ export function isEnumField(values: string[]): boolean {
 }
 
 export function buildSlugTable(values: string[]): SlugTableData {
-	const toSlug: Record<string, string> = {};
-	const fromSlug: Record<string, string> = {};
+	// Ohne Prototyp: `constructor`, `toString` oder `__proto__` als Wert träfen sonst Object.prototype (`in`, `x[…]`) und gingen verloren.
+	const toSlug: Record<string, string> = Object.create(null) as Record<string, string>;
+	const fromSlug: Record<string, string> = Object.create(null) as Record<string, string>;
 	for (const value of values) {
-		if (value === '' || value in toSlug) continue;
+		if (value === '' || Object.hasOwn(toSlug, value)) continue;
 		const base = derive(value);
 		if (base === '') continue;
 		let slug = base;
-		for (let n = 2; slug in fromSlug; n++) slug = `${base}-${n}`;
+		for (let n = 2; Object.hasOwn(fromSlug, slug); n++) slug = `${base}-${n}`;
 		toSlug[value] = slug;
 		fromSlug[slug] = value;
 	}

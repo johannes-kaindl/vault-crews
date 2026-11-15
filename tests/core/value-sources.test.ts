@@ -108,4 +108,15 @@ describe('resolveValueTables', () => {
 		expect(m.probe.tagCalls).toBe(0);
 		expect(m.probe.noteCalls).toEqual([]);
 	});
+
+	it('ein Tag namens constructor oder __proto__ bleibt in der Wertemenge (kein Treffer auf Object.prototype)', async () => {
+		const r = await resolveValueTables({ tags: { kind: 'tags' } }, meta({ tags: [{ tag: 'constructor', count: 2 }, { tag: '__proto__', count: 1 }, { tag: 'toString', count: 1 }] }).port);
+		const t = r.tables.tags;
+		expect(Object.hasOwn(t?.toSlug ?? {}, 'constructor')).toBe(true);
+		expect(Object.hasOwn(t?.fromSlug ?? {}, 'constructor')).toBe(true);
+		expect(Object.hasOwn(t?.toSlug ?? {}, '__proto__')).toBe(true);
+		expect(Object.hasOwn(t?.toSlug ?? {}, 'toString')).toBe(true);
+		expect(Object.values(t?.fromSlug ?? {}).sort()).toEqual(['__proto__', 'constructor', 'toString']);
+		expect(r.notes).toEqual([]);
+	});
 });
