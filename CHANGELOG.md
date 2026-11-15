@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`text.append` output family**: the model writes text that is appended to the target note (`note.append`), under an optional `heading`. `max_chars` defaults to 4000 and may be at most 16000 (the same upper bound as `section.write`).
+- **`{{input}}` as `target`** of an `actions` task: with `per_note: true` on the `llm` task it is the path of the note each call is about, so every note gets its own section or text. Without `per_note: true` the crew is rejected at parse time.
+
+### Changed
+
+- **`section.write` through an `output:` block prompts neutrally** ("the finished section", example `## Zusammenfassung`) instead of with the briefing wording. `output_schema: briefing-v1` keeps its wording and example byte for byte.
+- **Two `actions` tasks that both allow `section.replace` with the same `target` are rejected** at parse time (they would overwrite the same section).
+
 ## [0.26.0] — 2026-11-14
 
 ### Added

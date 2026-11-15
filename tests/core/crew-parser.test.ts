@@ -300,7 +300,128 @@ describe('output: block (schema families)', () => {
 		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
 		expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
 		if (!r.ok) return;
-		expect((r.value.tasks[0] as { output: unknown }).output).toEqual({ family: 'section.write', maxChars: 16_000 });
+		expect((r.value.tasks[0] as { output: unknown }).output).toEqual({ family: 'section.write', maxChars: 16_000, wording: 'neutral' });
+	});
+
+	it('briefing-v1 als Alias bleibt beim Briefing-Wortlaut', () => {
+		const tasks = [
+			{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: [], instruction: 'x', output_schema: 'briefing-v1' },
+			{ id: 'ap', kind: 'actions', inputs: ['l'], allowed_actions: ['section.replace'], target: 'a.md' },
+		];
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+		expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
+		if (!r.ok) return;
+		expect((r.value.tasks[0] as { output: unknown }).output).toEqual({ family: 'section.write', maxChars: 16_000, wording: 'briefing' });
+	});
+
+	describe('text.append', () => {
+		const llm = (output: unknown) => ({ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: [], instruction: 'x', output });
+		const parse = (output: unknown) => parseTeamDef(TEAM_PATH, teamFm({ tasks: [llm(output)] }), OPTS);
+
+		it('Standard max_chars 4000, keine Überschrift', () => {
+			const r = parse({ family: 'text.append' });
+			expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
+			if (!r.ok) return;
+			expect((r.value.tasks[0] as { output: unknown }).output).toEqual({ family: 'text.append', maxChars: 4000, heading: null });
+		});
+
+		it('übernimmt max_chars bis 16000 und heading', () => {
+			const r = parse({ family: 'text.append', max_chars: 16_000, heading: ' Verlauf ' });
+			expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
+			if (!r.ok) return;
+			expect((r.value.tasks[0] as { output: unknown }).output).toEqual({ family: 'text.append', maxChars: 16_000, heading: 'Verlauf' });
+		});
+
+		it.each([[16_001], [0], [-5], [1.5], ['4000']])('lehnt max_chars %s ab', (v) => {
+			const r = parse({ family: 'text.append', max_chars: v });
+			expect(r.ok).toBe(false);
+			if (!r.ok) expect(r.errors.join('\n')).toMatch(/max_chars/);
+		});
+
+		it.each([[''], ['  '], ['a\nb'], [5]])('lehnt heading %j ab', (v) => {
+			const r = parse({ family: 'text.append', heading: v });
+			expect(r.ok).toBe(false);
+			if (!r.ok) expect(r.errors.join('\n')).toMatch(/heading/);
+		});
+
+		it('lehnt allowed_keys ab', () => {
+			const r = parse({ family: 'text.append', allowed_keys: ['a'] });
+			expect(r.ok).toBe(false);
+		});
+	});
+
+	describe('{{input}} als Ziel', () => {
+		const sw = { family: 'section.write' };
+		const tasksOf = (llmExtra: Record<string, unknown>, target = '{{input}}') => [
+			{ id: 'collect', kind: 'collector', collector: 'vault.read', params: { paths: ['a.md'] } },
+			{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'x', output: sw, ...llmExtra },
+			{ id: 'ap', kind: 'actions', inputs: ['l'], allowed_actions: ['section.replace'], target },
+		];
+
+		it('mit per_note: true am Modellschritt gültig', () => {
+			const r = parseTeamDef(TEAM_PATH, teamFm({ tasks: tasksOf({ per_note: true }) }), OPTS);
+			expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
+			if (!r.ok) return;
+			expect(r.value.tasks[2]).toMatchObject({ kind: 'actions', target: '{{input}}' });
+		});
+
+		it('auch als Teil eines Pfads gültig', () => {
+			const r = parseTeamDef(TEAM_PATH, teamFm({ tasks: tasksOf({ per_note: true }, 'Log/{{input}}') }), OPTS);
+			expect(r.ok).toBe(true);
+		});
+
+		it.each([[{}], [{ per_note: false }]])('ohne per_note am Modellschritt (%j) ein Fehler', (extra) => {
+			const r = parseTeamDef(TEAM_PATH, teamFm({ tasks: tasksOf(extra) }), OPTS);
+			expect(r.ok).toBe(false);
+			if (!r.ok) expect(r.errors.join('\n')).toContain('{{input}} verlangt per_note: true am Modellschritt');
+		});
+
+		it('prüft ALLE Modellschritte der Eingaben, nicht nur den ersten', () => {
+			const tasks = [
+				{ id: 'collect', kind: 'collector', collector: 'vault.read', params: { paths: ['a.md'] } },
+				{ id: 'l1', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'x', output: sw, per_note: true },
+				{ id: 'l2', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'x', output: sw },
+				{ id: 'ap', kind: 'actions', inputs: ['l1', 'l2'], allowed_actions: ['section.replace'], target: '{{input}}' },
+			];
+			const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+			expect(r.ok).toBe(false);
+			if (!r.ok) expect(r.errors.join('\n')).toContain('{{input}} verlangt per_note: true am Modellschritt');
+		});
+
+		it('ohne jeden Modellschritt in den Eingaben ein Fehler', () => {
+			const tasks = [
+				{ id: 'collect', kind: 'collector', collector: 'vault.read', params: { paths: ['a.md'] } },
+				{ id: 'ap', kind: 'actions', inputs: ['collect'], allowed_actions: ['section.replace'], target: '{{input}}' },
+			];
+			const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+			expect(r.ok).toBe(false);
+			if (!r.ok) expect(r.errors.join('\n')).toContain('{{input}} verlangt per_note: true am Modellschritt');
+		});
+	});
+
+	describe('zwei Aktions-Schritte mit section.replace', () => {
+		const two = (t1: string, t2: string, a2 = ['section.replace']) => [
+			{ id: 'l1', kind: 'llm', agent: 'triage-analyst', inputs: [], instruction: 'x', output: { family: 'section.write' } },
+			{ id: 'l2', kind: 'llm', agent: 'triage-analyst', inputs: [], instruction: 'y', output: { family: 'section.write' } },
+			{ id: 'a1', kind: 'actions', inputs: ['l1'], allowed_actions: ['section.replace'], target: t1 },
+			{ id: 'a2', kind: 'actions', inputs: ['l2'], allowed_actions: a2, target: t2 },
+		];
+
+		it('gleiches target ist ein Fehler', () => {
+			const r = parseTeamDef(TEAM_PATH, teamFm({ tasks: two('Daily/{{today}}.md', 'Daily/{{today}}.md') }), OPTS);
+			expect(r.ok).toBe(false);
+			if (!r.ok) expect(r.errors.join('\n')).toMatch(/schon Ziel von section\.replace im Schritt 'a1'/);
+		});
+
+		it('verschiedene targets sind gültig', () => {
+			const r = parseTeamDef(TEAM_PATH, teamFm({ tasks: two('A.md', 'B.md') }), OPTS);
+			expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
+		});
+
+		it('gleiches target, aber der zweite Schritt ersetzt keinen Abschnitt, ist gültig', () => {
+			const r = parseTeamDef(TEAM_PATH, teamFm({ tasks: two('A.md', 'A.md', ['note.append']) }), OPTS);
+			expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
+		});
 	});
 
 	it('lehnt unbekannte family ab', () => {
@@ -310,7 +431,7 @@ describe('output: block (schema families)', () => {
 		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
 		expect(r.ok).toBe(false);
 		if (r.ok) return;
-		expect(r.errors.join('\n')).toMatch(/family.*frontmatter\.set\|section\.write/);
+		expect(r.errors.join('\n')).toMatch(/family.*frontmatter\.set\|section\.write\|text\.append/);
 	});
 
 	it('lehnt frontmatter.set ohne allowed_keys ab', () => {

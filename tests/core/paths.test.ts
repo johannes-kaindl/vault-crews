@@ -129,4 +129,14 @@ describe('expandTarget', () => {
 		expect(expandTarget('70_Journal/{{today}}.md', now)).toBe('70_Journal/2026-07-02.md');
 		expect(expandTarget('a/b.md', now)).toBe('a/b.md');
 	});
+
+	it('{{input}} wird der Pfad der bearbeiteten Notiz', () => {
+		expect(expandTarget('{{input}}', 0, '00_Inbox/a.md')).toBe('00_Inbox/a.md');
+		expect(expandTarget('{{input}}', 0, 'a $& b.md')).toBe('a $& b.md');
+	});
+
+	it('{{input}} ohne Notiz bleibt stehen (der Parser verlangt per_note, der Orchestrator löst nie auf)', () => {
+		expect(expandTarget('{{input}}', 0)).toBe('{{input}}');
+		expect(expandTarget('{{input}}', 0, null)).toBe('{{input}}');
+	});
 });

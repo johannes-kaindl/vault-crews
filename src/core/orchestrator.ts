@@ -501,7 +501,7 @@ class RunFsm {
 		const schema = buildSchema(task.output);
 		const sources = call.inputs.flatMap((a) => a.files);
 		const slugTables = mergeSlugTables(call.inputs);
-		const target = this.resolveTarget(task);
+		const target = this.resolveTarget(task, call.notePath);
 		const params: LlmParams = {
 			model: ctx.model, sentModel: ctx.sentModel, params: ctx.wire, thinkingLevel: ctx.thinkingLevel,
 			thinkChannel: ctx.family === 'gemma4', restoreContent: schema.outputFormat === 'json' ? 'json' : 'text',
@@ -730,12 +730,15 @@ class RunFsm {
 
 	/** Ziel des llm-Tasks = target des (eindeutigen) späteren actions-Tasks, der ihn konsumiert,
 	 *  expandiert via ClockPort; sonst null (Integrationsentscheidung des Controllers). */
-	private resolveTarget(llmTask: LlmTaskDef): string | null {
+	private resolveTarget(llmTask: LlmTaskDef, notePath: string | null): string | null {
 		const consumer = (this.team?.tasks ?? []).find(
 			(t): t is ActionsTaskDef => t.kind === 'actions' && t.inputs.includes(llmTask.id),
 		);
 		if (consumer === undefined || consumer.target === null) return null;
-		return expandTarget(consumer.target, this.deps.clock.now());
+		// `{{input}}` ist der Pfad der Notiz dieses Aufrufs. Ohne Notiz (kein per_note) gibt es keinen Pfad: kein Ziel statt eines Pfads
+		// namens `{{input}}`, der Schritt scheitert dann an der Prüfung „ohne target“. Der Parser verhindert das schon.
+		if (notePath === null && consumer.target.includes('{{input}}')) return null;
+		return expandTarget(consumer.target, this.deps.clock.now(), notePath);
 	}
 
 	private inputArtifacts(task: LlmTaskDef | ActionsTaskDef): Artifact[] | null {

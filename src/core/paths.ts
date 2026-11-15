@@ -78,8 +78,11 @@ export function isDenied(path: string, denylist: string[]): boolean {
 	});
 }
 
-/** Einziger Target-Platzhalter: {{today}} → lokales YYYY-MM-DD (deterministisch aus nowMs). */
-export function expandTarget(template: string, nowMs: number): string {
+/** Target-Platzhalter: `{{today}}` → lokales YYYY-MM-DD (deterministisch aus nowMs); `{{input}}` → Pfad der Notiz, die ein
+ *  `per_note`-Aufruf gerade bearbeitet. Ohne `inputPath` bleibt `{{input}}` stehen: der Parser verlangt `per_note: true`, und der
+ *  Orchestrator löst ein solches Ziel nie auf. Der Pfad wird als Funktion eingesetzt, damit `$&` im Namen nichts ersetzt. */
+export function expandTarget(template: string, nowMs: number, inputPath: string | null = null): string {
 	const d = new Date(nowMs);
-	return template.replaceAll('{{today}}', localDate(d));
+	const today = template.replaceAll('{{today}}', localDate(d));
+	return inputPath === null ? today : today.replaceAll('{{input}}', () => inputPath);
 }

@@ -1296,3 +1296,47 @@ describe('executeRun — per_note', () => {
     expect((await stateOf(h, r.runId)).tasks.every((t) => t.notes === undefined)).toBe(true);
   });
 });
+
+describe('executeRun — per_note mit Ziel {{input}}', () => {
+  function inputTeam(paths: string[], output: Record<string, unknown>, action: 'section.replace' | 'note.append'): TeamFm {
+    return triageTeamFm({
+      limits: { max_writes: 10 },
+      write_scope: ['n/**/*.md'],
+      tasks: [
+        { id: 'collect', kind: 'collector', collector: 'vault.read', params: { paths } },
+        { id: 'tag', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'Fasse die Notiz zusammen.', output, per_note: true, on_error: 'abort' },
+        { id: 'apply', kind: 'actions', inputs: ['tag'], allowed_actions: [action], target: '{{input}}' },
+      ],
+    });
+  }
+
+  it('section.write schreibt in jede der zwei Notizen ihren eigenen Abschnitt', async () => {
+    const paths = ['n/a.md', 'n/b.md'];
+    const llm = new ScriptLlmClient([{ content: '## Zusammenfassung\n- nur A' }, { content: '## Zusammenfassung\n- nur B' }]);
+    const h = await harness({ teamFm: inputTeam(paths, { family: 'section.write' }, 'section.replace'), files: pnFiles(paths), llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    expect(r.writes).toBe(2);
+    const a = await h.vault.read('n/a.md');
+    const b = await h.vault.read('n/b.md');
+    expect(a).toContain('- nur A');
+    expect(a).not.toContain('- nur B');
+    expect(b).toContain('- nur B');
+    expect(b).not.toContain('- nur A');
+    // Der Prompt trägt den neutralen Wortlaut, nicht das Briefing.
+    expect(llm.calls[0]?.messages[0]?.content).toContain('dem fertigen Abschnitt');
+    expect(llm.calls[0]?.messages[0]?.content).not.toContain('Briefing');
+  });
+
+  it('text.append hängt an jede Notiz ihren eigenen Text an', async () => {
+    const paths = ['n/a.md', 'n/b.md'];
+    const llm = new ScriptLlmClient([{ content: 'Zeile für A' }, { content: 'Zeile für B' }]);
+    const h = await harness({ teamFm: inputTeam(paths, { family: 'text.append' }, 'note.append'), files: pnFiles(paths), llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    expect(r.writes).toBe(2);
+    expect((await h.vault.read('n/a.md')).trimEnd().endsWith('Zeile für A')).toBe(true);
+    expect((await h.vault.read('n/b.md')).trimEnd().endsWith('Zeile für B')).toBe(true);
+    expect(await h.vault.read('n/a.md')).not.toContain('Zeile für B');
+  });
+});

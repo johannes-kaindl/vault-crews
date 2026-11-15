@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSchema, makeFrontmatterSet, makeSectionWrite } from '../../src/core/schemas';
+import { BUILTIN_SCHEMAS, buildSchema, makeFrontmatterSet, makeSectionWrite, makeTextAppend } from '../../src/core/schemas';
 import type { CollectedFile, SlugTableData } from '../../src/core/types';
 
 const sources: CollectedFile[] = [
@@ -62,14 +62,14 @@ describe('makeFrontmatterSet', () => {
 
 describe('makeSectionWrite', () => {
 	it('produces one section.replace into target', () => {
-		const schema = makeSectionWrite(16000);
+		const schema = makeSectionWrite(16000, 'briefing');
 		const r = schema.validate('# Hallo', sources, noSlugs, '30_Chronos/heute.md');
 		expect(r.ok).toBe(true);
 		if (r.ok) expect(r.actions).toEqual([{ type: 'section.replace', path: '30_Chronos/heute.md', content: '# Hallo' }]);
 	});
 
 	it('rejects text over maxChars', () => {
-		const schema = makeSectionWrite(5);
+		const schema = makeSectionWrite(5, 'briefing');
 		const r = schema.validate('123456', sources, noSlugs, '30_Chronos/heute.md');
 		expect(r.ok).toBe(false);
 	});
@@ -80,6 +80,61 @@ describe('buildSchema', () => {
 		expect(buildSchema({ family: 'frontmatter.set', allowedKeys: ['tags'] }).outputFormat).toBe('json');
 	});
 	it('dispatches section.write', () => {
-		expect(buildSchema({ family: 'section.write', maxChars: 16000 }).outputFormat).toBe('text');
+		expect(buildSchema({ family: 'section.write', maxChars: 16000, wording: 'briefing' }).outputFormat).toBe('text');
+	});
+	it('dispatches text.append', () => {
+		expect(buildSchema({ family: 'text.append', maxChars: 4000, heading: null }).outputFormat).toBe('text');
+	});
+});
+
+describe('Wortlaut von section.write', () => {
+	it('briefing-v1 behält Wortlaut und Beispiel byte-genau', () => {
+		expect(BUILTIN_SCHEMAS['briefing-v1'].promptContract).toBe(
+			'Antworte ausschließlich mit dem fertigen Briefing als Markdown-Text — kein JSON, keine Code-Fence, keine Erklärungen davor oder danach.',
+		);
+		expect(BUILTIN_SCHEMAS['briefing-v1'].outputExample).toBe('## Heute fällig\n- Beispiel-Aufgabe\n\n## Überfällig\n- …\n\n## Eine nächste Handlung\n- …');
+	});
+
+	it('neutral: kein Briefing im Vertrag und im Beispiel', () => {
+		const s = buildSchema({ family: 'section.write', maxChars: 16000, wording: 'neutral' });
+		expect(s.promptContract).toBe(
+			'Antworte ausschließlich mit dem fertigen Abschnitt als Markdown-Text — kein JSON, keine Code-Fence, keine Erklärungen davor oder danach.',
+		);
+		expect(s.outputExample).toBe('## Zusammenfassung\n- Kernaussage eins\n- Kernaussage zwei');
+		expect(s.promptContract).not.toContain('Briefing');
+		expect(s.outputExample).not.toMatch(/Heute|Überfällig|Briefing/);
+	});
+
+	it('neutral validiert wie briefing (eine section.replace am Ziel)', () => {
+		const r = makeSectionWrite(100, 'neutral').validate('## A\n- b', sources, noSlugs, 'n/a.md');
+		expect(r).toEqual({ ok: true, actions: [{ type: 'section.replace', path: 'n/a.md', content: '## A\n- b' }] });
+	});
+});
+
+describe('makeTextAppend', () => {
+	it('erzeugt note.append am Ziel mit Überschrift', () => {
+		const r = makeTextAppend(4000, 'Verlauf').validate('Zeile', sources, noSlugs, 'Log/2026.md');
+		expect(r).toEqual({ ok: true, actions: [{ type: 'note.append', path: 'Log/2026.md', heading: 'Verlauf', content: 'Zeile' }] });
+	});
+
+	it('ohne Überschrift: heading null', () => {
+		const r = makeTextAppend(4000, null).validate(' Zeile \n', sources, noSlugs, 'Log/2026.md');
+		expect(r).toEqual({ ok: true, actions: [{ type: 'note.append', path: 'Log/2026.md', heading: null, content: 'Zeile' }] });
+	});
+
+	it('lehnt leeren Text, Text über maxChars und fehlendes Ziel ab', () => {
+		expect(makeTextAppend(4000, null).validate('  ', sources, noSlugs, 'a.md').ok).toBe(false);
+		expect(makeTextAppend(5, null).validate('123456', sources, noSlugs, 'a.md').ok).toBe(false);
+		const noTarget = makeTextAppend(4000, null).validate('x', sources, noSlugs, null);
+		expect(noTarget.ok).toBe(false);
+		if (!noTarget.ok) expect(noTarget.errors.join('\n')).toMatch(/target/);
+	});
+
+	it('Vertrag nennt den angehängten Text, nicht den fertigen Abschnitt', () => {
+		const s = makeTextAppend(4000, null);
+		expect(s.promptContract).toBe(
+			'Antworte ausschließlich mit dem Text, der angehängt wird, als Markdown-Text — kein JSON, keine Code-Fence, keine Erklärungen davor oder danach.',
+		);
+		expect(s.outputExample).toBe('## Zusammenfassung\n- Kernaussage eins\n- Kernaussage zwei');
 	});
 });

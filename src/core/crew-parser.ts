@@ -11,6 +11,9 @@ import type {
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
 
 const COLLECTORS: CollectorId[] = ['vault.list', 'vault.read', 'tasknotes.query'];
+/** Obergrenze von `max_chars` bei `text.append` (wie der Standard von `section.write`); Standard 4000. */
+const MAX_OUTPUT_CHARS = 16_000;
+const TEXT_APPEND_DEFAULT_CHARS = 4000;
 const ACTIONS: ActionType[] = ['frontmatter.patch', 'note.create', 'note.append', 'section.replace'];
 
 function slugFromPath(path: string): string {
@@ -23,7 +26,7 @@ function slugFromPath(path: string): string {
 function resolveSchemaAlias(id: string): OutputSpec | null {
 	switch (id) {
 		case 'triage-v1': return { family: 'frontmatter.set', allowedKeys: '*' };
-		case 'briefing-v1': return { family: 'section.write', maxChars: 16_000 };
+		case 'briefing-v1': return { family: 'section.write', maxChars: 16_000, wording: 'briefing' };
 		default: return null;
 	}
 }
@@ -48,9 +51,34 @@ function parseOutputBlock(
 	if (family === 'section.write') {
 		if (raw.allowed_keys !== undefined) { err(`${feld}.allowed_keys`, 'gilt nur für frontmatter.set'); return null; }
 		const maxChars = typeof raw.max_chars === 'number' && raw.max_chars > 0 ? raw.max_chars : 16_000;
-		return { family: 'section.write', maxChars };
+		return { family: 'section.write', maxChars, wording: 'neutral' };
 	}
-	err(`${feld}.family`, `'${show(family)}' (erwartet frontmatter.set|section.write)`);
+	if (family === 'text.append') {
+		if (raw.allowed_keys !== undefined) { err(`${feld}.allowed_keys`, 'gilt nur für frontmatter.set'); return null; }
+		let ok = true;
+		let maxChars = TEXT_APPEND_DEFAULT_CHARS;
+		if (raw.max_chars !== undefined) {
+			const m = raw.max_chars;
+			if (typeof m !== 'number' || !Number.isInteger(m) || m < 1 || m > MAX_OUTPUT_CHARS) {
+				err(`${feld}.max_chars`, `'${show(m)}' (erwartet ganze Zahl von 1 bis ${MAX_OUTPUT_CHARS})`);
+				ok = false;
+			} else {
+				maxChars = m;
+			}
+		}
+		let heading: string | null = null;
+		if (raw.heading !== undefined) {
+			const h = typeof raw.heading === 'string' ? raw.heading.trim() : '';
+			if (h === '' || /[\r\n]/.test(h)) {
+				err(`${feld}.heading`, `'${show(raw.heading)}' (erwartet eine einzeilige, nicht leere Überschrift)`);
+				ok = false;
+			} else {
+				heading = h;
+			}
+		}
+		return ok ? { family: 'text.append', maxChars, heading } : null;
+	}
+	err(`${feld}.family`, `'${show(family)}' (erwartet frontmatter.set|section.write|text.append)`);
 	return null;
 }
 
@@ -221,6 +249,18 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 						err(`${label}.create_if_missing`, `'${show(raw.create_if_missing)}' (erwartet true|false)`);
 					}
 					const createIfMissing = raw.create_if_missing === true;
+					if (target !== null && target.includes('{{input}}')) {
+						const models = inputs.map((i) => tasks.find((t) => t.id === i)).filter((t): t is LlmTaskDef => t?.kind === 'llm');
+						if (models.length === 0 || models.some((m) => !m.perNote)) {
+							err(`${label}.target`, '{{input}} verlangt per_note: true am Modellschritt');
+						}
+					}
+					if (target !== null && allowedActions.includes('section.replace')) {
+						const other = tasks.find((t) => t.kind === 'actions' && t.target === target && t.allowedActions.includes('section.replace'));
+						if (other !== undefined) {
+							err(`${label}.target`, `'${target}' ist schon Ziel von section.replace im Schritt '${other.id}' (zwei Schritte würden denselben Abschnitt überschreiben)`);
+						}
+					}
 					tasks.push({ id, kind: 'actions', inputs, allowedActions, allowedKeys, target, createIfMissing });
 					break;
 				}

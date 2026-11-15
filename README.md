@@ -327,6 +327,21 @@ An `llm` task declares its output format through an `output:` block:
   output:
     family: section.write
   ```
+- **`text.append`** — the model writes Markdown text, which `note.append` adds to the end
+  of the `target` of the following `actions` task, under the heading `heading` if you set
+  one (the heading must already exist in the note). Optional `max_chars` (default 4000,
+  at most 16000).
+  ```yaml
+  output:
+    family: text.append
+    heading: Log
+  ```
+
+With `per_note: true` on the `llm` task the model is called once per note, and the
+`target` of the following `actions` task may be `{{input}}`: it stands for the path of
+the note that call is about, so each note gets its own section or text. `{{input}}`
+without `per_note: true` is a definition error. Two `actions` tasks that both allow
+`section.replace` must not share a `target`.
 
 The older names `output_schema: triage-v1` / `briefing-v1` remain valid as shorthands.
 

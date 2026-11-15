@@ -105,30 +105,55 @@ export function makeFrontmatterSet(allowedKeys: string[] | '*'): SchemaDef {
 	};
 }
 
-export function makeSectionWrite(maxChars: number): SchemaDef {
+const SECTION_CONTRACT_TAIL = 'als Markdown-Text — kein JSON, keine Code-Fence, keine Erklärungen davor oder danach.';
+const NEUTRAL_EXAMPLE = '## Zusammenfassung\n- Kernaussage eins\n- Kernaussage zwei';
+
+/** Der Text, den ein Modell als reinen Markdown-Text liefert (Denkblöcke und Zaun entfernt der Output-Validator vorher): nicht leer,
+ *  höchstens `maxChars`. Gibt die Fehler zurück; `text` ist dann nicht zu verwenden. */
+function checkMarkdown(text: unknown, maxChars: number, target: string | null, action: string): string[] {
+	const errors: string[] = [];
+	if (typeof text !== 'string' || text.trim().length === 0) {
+		errors.push('markdown: leer oder kein Text');
+	} else if (text.length > maxChars) {
+		errors.push(`markdown: ${text.length} Zeichen überschreiten Maximum ${maxChars}`);
+	}
+	if (target === null) errors.push(`target: actions-Task ohne target kann ${action} nicht anwenden`);
+	return errors;
+}
+
+/** `wording: 'briefing'` ist der Wortlaut von `briefing-v1`; der daily-briefing-Golden-Test prüft ihn byte-genau über den promptHash
+ *  (promptContract + outputExample). `neutral` gilt für jede Crew, die `section.write` über `output:` wählt. */
+export function makeSectionWrite(maxChars: number, wording: 'briefing' | 'neutral'): SchemaDef {
 	return {
 		id: 'section.write',
 		outputFormat: 'text',
-		// KOPPLUNG (Teilprojekt 1): Der Wortlaut „Briefing" ist bewusst beibehalten aus
-		// dem alten briefing-v1, weil der daily-briefing-Golden-Test auf den byte-genauen
-		// promptHash (promptContract + outputExample) prüft. Bei Teilprojekt 2 (Nicht-
-		// Briefing-section.write-Crews) promptContract zu einem makeSectionWrite-Parameter
-		// machen (Alias liefert den Briefing-Wortlaut, neue Crews neutralen) — dann bleibt
-		// der Golden grün UND neue Crews bekommen keinen irreführenden Prompt.
-		promptContract:
-			'Antworte ausschließlich mit dem fertigen Briefing als Markdown-Text — kein JSON, keine Code-Fence, keine Erklärungen davor oder danach.',
-		outputExample: '## Heute fällig\n- Beispiel-Aufgabe\n\n## Überfällig\n- …\n\n## Eine nächste Handlung\n- …',
+		promptContract: wording === 'briefing'
+			? `Antworte ausschließlich mit dem fertigen Briefing ${SECTION_CONTRACT_TAIL}`
+			: `Antworte ausschließlich mit dem fertigen Abschnitt ${SECTION_CONTRACT_TAIL}`,
+		outputExample: wording === 'briefing'
+			? '## Heute fällig\n- Beispiel-Aufgabe\n\n## Überfällig\n- …\n\n## Eine nächste Handlung\n- …'
+			: NEUTRAL_EXAMPLE,
 		validate(json, _sources, _slugTables, target) {
-			const errors: string[] = [];
 			const text = json;
-			if (typeof text !== 'string' || text.trim().length === 0) {
-				errors.push('markdown: leer oder kein Text');
-			} else if (text.length > maxChars) {
-				errors.push(`markdown: ${text.length} Zeichen überschreiten Maximum ${maxChars}`);
-			}
-			if (target === null) errors.push('target: actions-Task ohne target kann section.write nicht anwenden');
+			const errors = checkMarkdown(text, maxChars, target, 'section.write');
 			if (errors.length > 0 || typeof text !== 'string' || target === null) return { ok: false, errors };
 			return { ok: true, actions: [{ type: 'section.replace', path: target, content: text.trim() }] };
+		},
+	};
+}
+
+/** Hängt den Text des Modells an die Zielnotiz an (`note.append`), unter `heading`, wenn gesetzt. */
+export function makeTextAppend(maxChars: number, heading: string | null): SchemaDef {
+	return {
+		id: 'text.append',
+		outputFormat: 'text',
+		promptContract: `Antworte ausschließlich mit dem Text, der angehängt wird, ${SECTION_CONTRACT_TAIL}`,
+		outputExample: NEUTRAL_EXAMPLE,
+		validate(json, _sources, _slugTables, target) {
+			const text = json;
+			const errors = checkMarkdown(text, maxChars, target, 'text.append');
+			if (errors.length > 0 || typeof text !== 'string' || target === null) return { ok: false, errors };
+			return { ok: true, actions: [{ type: 'note.append', path: target, heading, content: text.trim() }] };
 		},
 	};
 }
@@ -138,13 +163,15 @@ export function buildSchema(spec: OutputSpec): SchemaDef {
 		case 'frontmatter.set':
 			return makeFrontmatterSet(spec.allowedKeys);
 		case 'section.write':
-			return makeSectionWrite(spec.maxChars);
+			return makeSectionWrite(spec.maxChars, spec.wording);
+		case 'text.append':
+			return makeTextAppend(spec.maxChars, spec.heading);
 	}
 }
 
 export const BUILTIN_SCHEMAS: Record<SchemaId, SchemaDef> = {
 	'triage-v1': makeFrontmatterSet('*'),
-	'briefing-v1': makeSectionWrite(16_000),
+	'briefing-v1': makeSectionWrite(16_000, 'briefing'),
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {

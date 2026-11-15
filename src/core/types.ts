@@ -21,7 +21,10 @@ export type ActionType = 'frontmatter.patch' | 'note.create' | 'note.append' | '
 
 export type OutputSpec =
 	| { family: 'frontmatter.set'; allowedKeys: string[] | '*' }
-	| { family: 'section.write'; maxChars: number };
+	/** `wording`: `briefing` ist der Wortlaut von `briefing-v1` (Golden-Test, byte-genau), `neutral` der von `output: { family: section.write }`. */
+	| { family: 'section.write'; maxChars: number; wording: 'briefing' | 'neutral' }
+	/** Hängt den Text ans Ende der Zielnotiz (`note.append`), unter `heading`, wenn gesetzt. */
+	| { family: 'text.append'; maxChars: number; heading: string | null };
 
 export interface CollectorTaskDef {
 	id: string;
