@@ -71,6 +71,7 @@ function spyVault(vault: VaultPort): {
       },
       rename: (f, t) => vault.rename(f, t),
       trash: (p) => vault.trash(p),
+      linksFollowMoves: () => vault.linksFollowMoves(),
     },
   };
 }

@@ -318,3 +318,28 @@ describe("ObsidianMetadataPort — listFolders", () => {
   });
 });
 
+
+describe("ObsidianVaultPort — linksFollowMoves", () => {
+  const withConfig = (getConfig: unknown): ObsidianVaultPort => {
+    (app.vault as unknown as Record<string, unknown>).getConfig = getConfig;
+    return new ObsidianVaultPort(app);
+  };
+
+  it("liest alwaysUpdateLinks: false heißt false", () => {
+    const getConfig = vi.fn().mockReturnValue(false);
+    expect(withConfig(getConfig).linksFollowMoves()).toBe(false);
+    expect(getConfig).toHaveBeenCalledWith("alwaysUpdateLinks");
+  });
+
+  it("true, undefined und jeder andere Wert heißen true (Obsidians Standard ist an)", () => {
+    expect(withConfig(vi.fn().mockReturnValue(true)).linksFollowMoves()).toBe(true);
+    expect(withConfig(vi.fn().mockReturnValue(undefined)).linksFollowMoves()).toBe(true);
+    expect(withConfig(vi.fn().mockReturnValue(null)).linksFollowMoves()).toBe(true);
+    expect(withConfig(vi.fn().mockReturnValue("false")).linksFollowMoves()).toBe(true);
+  });
+
+  it("fehlt getConfig oder wirft es, gilt true: eine fehlerhafte Lesung verhindert keinen Lauf", () => {
+    expect(withConfig(undefined).linksFollowMoves()).toBe(true);
+    expect(withConfig(() => { throw new Error("kaputt"); }).linksFollowMoves()).toBe(true);
+  });
+});

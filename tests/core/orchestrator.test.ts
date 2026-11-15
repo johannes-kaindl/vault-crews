@@ -78,6 +78,8 @@ interface HarnessOpts {
   settings?: Partial<Settings>;
   request?: FakeRequestPort;
   seedLock?: string;
+  /** Obsidians Einstellung „Interne Links automatisch aktualisieren“ (Standard an). */
+  linksFollowMoves?: boolean;
 }
 
 interface Harness {
@@ -106,6 +108,8 @@ async function harness(opts: HarnessOpts = {}): Promise<Harness> {
     await vault.create(p, a.body);
     meta.setFrontmatter(p, a.fm);
   }
+
+  if (opts.linksFollowMoves !== undefined) vault.linksFollow = opts.linksFollowMoves;
 
   const files = opts.files ?? { '10_Aufgaben/a.md': TASK_NOTE };
   for (const [p, c] of Object.entries(files)) await vault.create(p, c);
@@ -1626,6 +1630,34 @@ describe('executeRun — note.file und note.move', () => {
     [SRC]: IN_NOTE, '40_Projekte/Meyer/x.md': 'x', '40_Projekte/Zeta/x.md': 'z', '40_Projekte/Privat/x.md': 'p',
   };
   const SCOPE = ['00_Inbox/**', '40_Projekte/Meyer/**', '40_Projekte/Zeta/**'];
+
+  it('Preflight: note.move in allowed_actions und Obsidian zieht Links nicht nach → refused, keine Sperre, kein Snapshot, kein Modellaufruf', async () => {
+    const llm = new ScriptLlmClient([answer('40_Projekte/Meyer')]);
+    const h = await harness({ teamFm: fileTeam({ destinations_from: '40_Projekte' }, SCOPE), files: FILES, llm, linksFollowMoves: false });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('refused');
+    expect(r.errorKind).toBe('links_not_followed');
+    expect(r.writes).toBe(0);
+    expect(llm.calls).toHaveLength(0);
+    expect(await h.vault.exists('_crews/runs/run-lock.json')).toBe(false);
+    // Wie jede Verweigerung hinterlässt sie nur den Protokollsatz `refused` (kein Zustand `running`, keine Sperre, kein Snapshot).
+    const runMd = await h.vault.read(`_crews/runs/${r.runId}/run.md`);
+    expect(runMd).toContain('status: refused');
+    expect(runMd).toContain('error_kind: links_not_followed');
+    expect(runMd).not.toContain('status: running');
+    expect(await h.vault.exists(SRC)).toBe(true);
+    expect(h.snapshot.log).toEqual([]);
+    expect(backbone(h.reporter)).toEqual(['runFinished']);
+  });
+
+  it('Preflight: dieselbe Crew läuft, wenn Obsidian die Links nachzieht; eine Crew ohne note.move läuft auch bei ausgeschalteter Einstellung', async () => {
+    const on = await harness({ teamFm: fileTeam({ destinations_from: '40_Projekte' }, SCOPE), files: FILES, llm: new ScriptLlmClient([answer('40_Projekte/Meyer')]), linksFollowMoves: true });
+    expect((await runToCompletion(executeRun(on.teamPath, on.deps), on.clock)).status).toBe('ok');
+    const off = await harness({ linksFollowMoves: false });
+    const r = await executeRun(off.teamPath, off.deps);
+    expect(r.status).toBe('ok');
+    expect(r.writes).toBe(1);
+  });
 
   it('destinations_from: nimmt die Unterordner aus listFolders auf; Ordner außerhalb write_scope und auf der Sperrliste fehlen im Prompt und stehen in valueNotes', async () => {
     const llm = new ScriptLlmClient([answer('40_Projekte/Meyer')]);

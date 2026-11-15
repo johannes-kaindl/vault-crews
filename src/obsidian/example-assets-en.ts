@@ -383,7 +383,7 @@ Looks at the notes in the \`Inbox/\` folder (at most 8 per run), adds fitting ta
 
 **Adjust before the first run:** Three folders have to match your vault. The inbox folder (\`Inbox\`) at \`params.folder\` AND at \`write_scope\`; the target folders (\`Projects\`, \`Archive\`) at \`destinations\` AND at \`write_scope\`. Target folders must already exist, the crew never creates a folder. Replace the descriptions at \`when\` with a short sentence for each of your folders; the model chooses by these sentences. \`destinations_from: Projects\` additionally offers every subfolder of \`Projects\` (up to 100). \`write_scope\` is deliberately NOT the whole vault.
 
-**Moving changes links elsewhere:** When Obsidian moves a note it also updates the links to it in other notes, as set in your Obsidian settings. That can change notes outside \`write_scope\`; the limit applies to the moved note, not to the links pointing to it. Undo moves the note back and updates the links again.
+**Moving changes links elsewhere:** When Obsidian moves a note it also updates the links to it in other notes, as set in your Obsidian settings. **The crew only starts if “Automatically update internal links” is switched on there** (Settings → Files & Links); otherwise Obsidian asks in a dialog in the middle of the run. That can change notes outside \`write_scope\`; the limit applies to the moved note, not to the links pointing to it. Undo moves the note back and updates the links again.
 
 **Write limit:** \`max_writes: 8\` counts notes, not actions: a note that is tagged and moved counts once. 8 notes per run stay below the plugin default of 10; for larger batches raise the plugin limit (Settings → Safety → "Max writes per run") first, then \`limit\` and \`max_writes\` here.
 

@@ -19,6 +19,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **A crew with `note.move` is refused up front when Obsidian does not update links on moves.** With Settings → Files & Links → “Automatically update internal links” off, Obsidian shows an “Update links” dialog in the middle of the move and the run waits for a click (a `trigger: interval` run would hang and hold the single-run lock for good). The preflight now refuses such a crew with the new error kind `links_not_followed` and names the setting, before the lock, the snapshot or any model call. A setting that cannot be read counts as on. The example crew “Sort inbox” says so in its description.
+
 - **`section.write` through an `output:` block prompts neutrally** ("the finished section", example `## Zusammenfassung`) instead of with the briefing wording. `output_schema: briefing-v1` keeps its wording and example byte for byte.
 - **Two `actions` tasks that both allow `section.replace` with the same `target` are rejected** at parse time (they would overwrite the same section); the comparison ignores case and path spelling (`Notes/X.md` against `notes/x.md`), also two times `{{input}}`.
 - **`heading` of `text.append` is written without `#`**; a heading with a leading `#` is rejected at parse time.

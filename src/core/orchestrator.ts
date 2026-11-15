@@ -180,6 +180,7 @@ class RunFsm {
 	private async preflight(): Promise<Refusal | null> {
 		return (
 			(await this.parseTeamAndAgents())
+			?? this.checkLinksFollowMoves()
 			?? (await this.checkEndpointAndModel())
 			?? (await this.acquireLock())
 			?? (await this.openRun())
@@ -216,6 +217,22 @@ class RunFsm {
 		}
 		if (errors.length > 0) return { kind: 'crew_invalid', message: errors.join('\n') };
 		return null;
+	}
+
+	/** Eine Crew mit `note.move` startet nicht, wenn Obsidian die Links beim Verschieben nicht selbst nachzieht: sonst fragt Obsidian im Lauf
+	 *  per Dialog „Update links“, und der Lauf (auch ein unbeaufsichtigter) wartet auf einen Klick und hält die Ein-Lauf-Sperre. Das ist
+	 *  die Prüfung VOR Sperre, Lauf-Ordner und Snapshot. Wirft der Port, gilt „an“. */
+	private checkLinksFollowMoves(): Refusal | null {
+		const moves = this.team?.tasks.some((t) => t.kind === 'actions' && t.allowedActions.includes('note.move')) ?? false;
+		if (!moves) return null;
+		let follows = true;
+		try { follows = this.deps.vault.linksFollowMoves(); } catch { follows = true; }
+		if (follows) return null;
+		return {
+			kind: 'links_not_followed',
+			message: 'Die Crew verschiebt Notizen (note.move), aber in Obsidian ist „Interne Links automatisch aktualisieren“ aus '
+				+ '(Einstellungen → Dateien und Links). Obsidian würde im Lauf nach den Links fragen und der Lauf wartete auf einen Klick; die Crew startet deshalb nicht.',
+		};
 	}
 
 	private async checkEndpointAndModel(): Promise<Refusal | null> {

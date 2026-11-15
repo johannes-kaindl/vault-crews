@@ -144,6 +144,7 @@ export const EN: Record<string, string> = {
   "notice.errorKind.consistency": "Too many proposed changes did not match the source material.",
   "notice.errorKind.aborted": "The run was aborted.",
   "notice.errorKind.io": "A file operation failed unexpectedly.",
+  "notice.errorKind.links_not_followed": "This crew moves notes, but Obsidian is not set to update links when notes move. Turn on Settings → Files & Links → “Automatically update internal links”; until then the crew does not start.",
 
   // --- Undo confirmation modal (Snapshot-Undo: Team, Zeitpunkt, Dateien) ------
   "common.cancel": "Cancel",
@@ -432,6 +433,7 @@ export const DE: Record<string, string> = {
   "notice.errorKind.consistency": "Zu viele vorgeschlagene Änderungen passten nicht zum Quellmaterial.",
   "notice.errorKind.aborted": "Der Lauf wurde abgebrochen.",
   "notice.errorKind.io": "Eine Dateioperation ist unerwartet fehlgeschlagen.",
+  "notice.errorKind.links_not_followed": "Diese Crew verschiebt Notizen, aber Obsidian zieht Links beim Verschieben nicht nach. Einstellungen → Dateien und Links → „Interne Links automatisch aktualisieren“ einschalten; solange sie aus ist, startet die Crew nicht.",
 
   // --- Undo-Bestätigungs-Modal (Snapshot-Undo: Team, Zeitpunkt, Dateien) ------
   "common.cancel": "Abbrechen",

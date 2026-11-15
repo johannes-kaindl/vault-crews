@@ -109,7 +109,7 @@ const P_V_H = "Modelle V-h — vor dem ersten Lauf fehlt die Zeile „zuletzt be
 // Schritt 1 „Crew schreibt“ (Task 11): die Punkte stehen in `SCHREIB_PUNKTE`, damit `--nur-schreiben` sie als eigene Soll-Liste führen kann.
 const P_SW_LINKS_STUB = "Schreiben — Verschieben zieht Links nach (deterministische Antwort): beide Links lösen auf Ziel/a.md auf, Rückgängig stellt sie her";
 const P_SW_LINKS = "Schreiben — Verschieben zieht Links nach (lokales Modell): beide Links lösen auf Ziel/a.md auf, Rückgängig stellt sie her";
-const P_SW_LINKS_AUS = "Schreiben — Gegenprobe: bei ausgeschaltetem „Automatically update internal links“ fragt Obsidian im Lauf (Dialog „Update links“); „Do not update“ lässt den Verweis, „Just once“ zieht ihn nach";
+const P_SW_LINKS_AUS = "Schreiben — Gegenprobe: bei ausgeschaltetem „Automatically update internal links“ wird die Crew mit note.move vorab verweigert (refused, kein Dialog „Update links“, kein hängender Lauf); mit der Einstellung an läuft sie durch";
 const P_SW_UNDO_ORDNER = "Schreiben — Rückgängig bei gelöschtem alten Ordner: keine Notiz geht verloren, der Lauf bleibt rückgängig-fähig oder die Rücknahme gelingt";
 const P_SW_TITEL_PUNKT = "Schreiben — notes.create: Titel mit führendem Punkt und Sonderzeichen gehen durch die Namensrichtlinie, nichts bleibt unsichtbar liegen";
 const P_SW_TITEL_EMOJI = "Schreiben — notes.create: ein Titel nur aus Emoji wird abgelehnt (invalid_output), es entsteht keine Notiz";
@@ -2603,33 +2603,37 @@ async function swLinks(cdp: Cdp, punkt: Punktname, stub: LlmStub | null): Promis
 }
 function precondOk(aufgeloest: string[]): boolean { return aufgeloest.includes("Inbox/a.md"); }
 
-/** Gegenprobe: bei ausgeschaltetem „Automatically update internal links“ fragt Obsidian im Lauf per Dialog („Update links“), und der Lauf wartet auf die Antwort.
- *  Zwei Arme: „Do not update“ lässt den Verweis, „Just once“ zieht ihn nach. „Always update“ wird nie geklickt (es änderte die Einstellung des Vaults). */
+/** Gegenprobe: bei ausgeschaltetem „Automatically update internal links“ fragt Obsidian beim Verschieben per Dialog („Update links“), und ein Lauf würde auf den Klick
+ *  warten (gemessen in Task 11). Seit der Preflight-Prüfung verweigert das Plugin eine Crew mit `note.move` vorab: erwartet ist ein Lauf `refused`/`links_not_followed`,
+ *  kein Dialog, keine Sperre, keine verschobene Notiz, kein hängender Lauf (`runActive` aus). Zum Schluss, mit der Einstellung wieder an, läuft dieselbe Crew durch
+ *  (die Verweigerung hinterlässt nichts, das den nächsten Lauf aufhält). „Always update“ wird nie geklickt (es änderte die Einstellung des Vaults). */
 async function swLinksAus(cdp: Cdp): Promise<void> {
   const alt = await cdp.evaluate<unknown>(`return app.vault.getConfig("alwaysUpdateLinks");`);
-  const arm = async (knopf: string): Promise<{ dialog: string; status: string; text: string; aufgeloest: string[]; bewegt: boolean }> => {
-    await swLinksVorbereiten(cdp);
-    let dialog = "";
-    const lauf = await swLauf(cdp, "zz-sw-links-stub", 60_000, async () => {
-      dialog = await pollUntil<string>(cdp, `const m = [...document.querySelectorAll(".modal-container .modal")].find((x) => /Update links/i.test(x.innerText)); return m ? m.innerText.replace(/\\s+/g, " ") : null;`, 15_000, 250) ?? "";
-      if (dialog) {
-        await cdp.evaluate(`const b = [...document.querySelectorAll(".modal-container .modal button")].find((x) => x.textContent.trim() === ${JSON.stringify(knopf)}); b?.click(); return Boolean(b);`);
-      }
-    });
-    const bewegt = await cdp.evaluate<boolean>(`return Boolean(app.vault.getAbstractFileByPath("Ziel/a.md")) && !app.vault.getAbstractFileByPath("Inbox/a.md");`);
-    await new Promise((r) => setTimeout(r, 1500));
-    const nach = await cdp.evaluate<{ aufgeloest: string[]; text: string }>(`return { aufgeloest: Object.keys(app.metadataCache.resolvedLinks["Dritte.md"] ?? {}), text: await app.vault.read(app.vault.getAbstractFileByPath("Dritte.md")) };`);
-    if (lauf.info) await swRueckgaengig(cdp, "zz-sw-links-stub");
-    return { dialog, status: lauf.info?.status ?? "kein Ergebnis", text: nach.text, aufgeloest: nach.aufgeloest, bewegt };
-  };
+  const id = "zz-sw-links-stub";
   try {
+    await swLinksVorbereiten(cdp);
+    const problem = await swCrew(cdp, id, SW_LINKS_TEAM("Lege die Notiz ab."));
+    if (problem) { unmeasured(P_SW_LINKS_AUS, `Crew ungültig: ${problem}`); return; }
     await cdp.evaluate(`app.vault.setConfig("alwaysUpdateLinks", false); return true;`);
-    const nein = await arm("Do not update");
-    const einmal = await arm("Just once");
-    const ok = nein.dialog !== "" && nein.bewegt && nein.status !== "kein Ergebnis" && nein.text.includes("[[Inbox/a]]")
-      && einmal.dialog !== "" && einmal.bewegt && einmal.status !== "kein Ergebnis" && !einmal.text.includes("[[Inbox/a]]");
+    const lauf = await swLauf(cdp, id, 30_000);
+    if (!lauf.info) { unmeasured(P_SW_LINKS_AUS, `kein Lauf-Ergebnis nach 30 s (der Lauf hängt?): ${swKurz(lauf.notice, 200)}`); return; }
+    const dialog = await cdp.evaluate<string>(`const m = [...document.querySelectorAll(".modal-container .modal")].find((x) => /Update links/i.test(x.innerText)); return m ? m.innerText.replace(/\\s+/g, " ") : "";`);
+    const stand = await cdp.evaluate<{ aktiv: boolean; unberuehrt: boolean; sperre: boolean }>(`
+      const root = ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");
+      return { aktiv: ${PLUGIN}.runActive === true,
+        unberuehrt: Boolean(app.vault.getAbstractFileByPath("Inbox/a.md")) && !app.vault.getAbstractFileByPath("Ziel/a.md"),
+        sperre: (await app.vault.adapter.exists(root + "/runs/run-lock.json")) ? JSON.parse(await app.vault.adapter.read(root + "/runs/run-lock.json")).active === true : false };`);
+    const verweigert = lauf.info.status === "refused" && lauf.info.errorKind === "links_not_followed" && lauf.info.writes === 0;
+    const meldung = /Automatically update internal links/.test(lauf.notice);
+    // Einstellung wieder an: dieselbe Crew läuft jetzt durch und verschiebt.
+    await cdp.evaluate(`app.vault.setConfig("alwaysUpdateLinks", true); return true;`);
+    const danach = await swLauf(cdp, id, 60_000);
+    const bewegt = await cdp.evaluate<boolean>(`return Boolean(app.vault.getAbstractFileByPath("Ziel/a.md")) && !app.vault.getAbstractFileByPath("Inbox/a.md");`);
+    if (danach.info?.undoable) await swRueckgaengig(cdp, id);
+    const ok = verweigert && meldung && dialog === "" && !stand.aktiv && stand.unberuehrt && !stand.sperre && danach.info?.status === "ok" && bewegt;
     record(P_SW_LINKS_AUS, ok,
-      `alwaysUpdateLinks=false (vorher ${String(alt)}) · Dialog im Lauf: „${swKurz(nein.dialog, 170)}" · „Do not update“: Lauf ${nein.status}, Text „${swKurz(nein.text, 80)}" · „Just once“: Lauf ${einmal.status}, Text „${swKurz(einmal.text, 80)}"`);
+      `alwaysUpdateLinks=false (vorher ${String(alt)}) · Lauf ${lauf.info.status}/${String(lauf.info.errorKind)}, ${lauf.info.writes} Schreibvorgänge · Dialog „${swKurz(dialog, 80)}" · runActive ${String(stand.aktiv)} · Notiz unberührt ${String(stand.unberuehrt)} · Sperre aktiv ${String(stand.sperre)} · `
+      + `Notice „${swKurz(lauf.notice, 220)}" · danach mit Einstellung an: Lauf ${danach.info?.status ?? "kein Ergebnis"}, verschoben ${String(bewegt)}`);
   } finally {
     await cdp.evaluate(`app.vault.setConfig("alwaysUpdateLinks", ${JSON.stringify(alt === undefined ? true : alt)}); return true;`).catch(() => undefined);
     await swSchliesseDialoge(cdp);

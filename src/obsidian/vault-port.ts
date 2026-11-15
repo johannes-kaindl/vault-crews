@@ -89,6 +89,20 @@ export class ObsidianVaultPort implements VaultPort {
     await this.app.fileManager.renameFile(f, np);
   }
 
+  /** Liest Obsidians Einstellung „Interne Links automatisch aktualisieren“ (`alwaysUpdateLinks`). Aus: `renameFile` fragt per Dialog, der Lauf wartet.
+   *  `Vault#getConfig` steht NICHT in der dokumentierten Obsidian-API (in den Typen fehlt es); dieser Zugriff gehört deshalb nur hierher, in den Adapter.
+   *  Defensiv: fehlt die Funktion, wirft sie oder liefert sie etwas anderes als `false`, gilt „an“ (Obsidians Standard), damit eine Lesung, die nicht
+   *  gelingt, nie einen Lauf verhindert, der sonst liefe. */
+  linksFollowMoves(): boolean {
+    try {
+      const vault = this.app.vault as unknown as { getConfig?: (key: string) => unknown };
+      if (typeof vault.getConfig !== "function") return true;
+      return vault.getConfig("alwaysUpdateLinks") !== false;
+    } catch {
+      return true;
+    }
+  }
+
   async trash(path: string): Promise<void> {
     const f = this.file(path); // wirft, wenn nicht vorhanden — Aufrufer prüft vorher via exists()
     // trashFile respektiert die Papierkorb-Einstellung des Users (System/.trash/lokal).

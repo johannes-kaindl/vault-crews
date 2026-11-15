@@ -157,10 +157,10 @@ describe('buildStateJson', () => {
 });
 
 describe('ERROR_KINDS', () => {
-  it('enthält alle 13 typisierten Fehlerklassen', () => {
-    expect(ERROR_KINDS).toHaveLength(13);
+  it('enthält alle 14 typisierten Fehlerklassen', () => {
+    expect(ERROR_KINDS).toHaveLength(14);
     for (const k of ['endpoint_unreachable', 'endpoint_error', 'model_missing', 'timeout', 'stalled', 'invalid_output',
-      'output_truncated', 'context_overflow', 'crew_invalid', 'write_limit', 'consistency', 'aborted', 'io']) {
+      'output_truncated', 'context_overflow', 'crew_invalid', 'write_limit', 'consistency', 'aborted', 'io', 'links_not_followed']) {
       expect(ERROR_KINDS).toContain(k);
     }
   });

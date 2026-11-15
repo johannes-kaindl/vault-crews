@@ -3,7 +3,7 @@ import type { ActionOutcome, ErrorKind, NoteRecord, RunState, TaskRecord } from 
 export const ERROR_KINDS: readonly ErrorKind[] = [
   'endpoint_unreachable', 'endpoint_error', 'model_missing', 'timeout', 'stalled',
   'invalid_output', 'output_truncated', 'context_overflow', 'crew_invalid',
-  'write_limit', 'consistency', 'aborted', 'io',
+  'write_limit', 'consistency', 'aborted', 'io', 'links_not_followed',
 ];
 
 const OUTCOME_PREFIX: Record<ActionOutcome['result'], string> = {

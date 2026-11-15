@@ -132,7 +132,9 @@ export type RunStatus = 'ok' | 'partial' | 'failed' | 'aborted' | 'refused';
 export type ErrorKind =
 	| 'endpoint_unreachable' | 'endpoint_error' | 'model_missing' | 'timeout' | 'stalled'
 	| 'invalid_output' | 'output_truncated' | 'context_overflow' | 'crew_invalid'
-	| 'write_limit' | 'consistency' | 'aborted' | 'io';
+	| 'write_limit' | 'consistency' | 'aborted' | 'io'
+	/** Preflight: die Crew darf `note.move`, aber Obsidian zieht Links beim Verschieben nicht nach (Einstellung aus, sonst fragt Obsidian im Lauf per Dialog). */
+	| 'links_not_followed';
 
 /** Ergebnis einer Notiz in einem `per_note`-Schritt (`TaskRecord.notes`). */
 export interface NoteRecord {

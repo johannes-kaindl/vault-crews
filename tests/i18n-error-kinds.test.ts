@@ -30,6 +30,7 @@ const ALL_KINDS: Record<ErrorKind, true> = {
   "consistency": true,
   "aborted": true,
   "io": true,
+  "links_not_followed": true,
 };
 
 describe("i18n-Abdeckung der Fehlerklassen", () => {
@@ -46,5 +47,14 @@ describe("i18n-Abdeckung der Fehlerklassen", () => {
   // auseinander, faellt ein Kind aus dem Log-Vokabular, ohne dass irgendwo etwas bricht.
   it("ERROR_KINDS (run-log) deckt sich exakt mit dem Typ", () => {
     expect([...ERROR_KINDS].sort()).toEqual(Object.keys(ALL_KINDS).sort());
+  });
+});
+
+describe("Verschieben ohne Link-Nachzug", () => {
+  it("der Satz nennt die Obsidian-Einstellung (EN und DE) und dass die Crew dann nicht startet", () => {
+    expect(EN["notice.errorKind.links_not_followed"]).toContain("Settings → Files & Links → “Automatically update internal links”");
+    expect(EN["notice.errorKind.links_not_followed"]).toMatch(/does not start/);
+    expect(DE["notice.errorKind.links_not_followed"]).toContain("Einstellungen → Dateien und Links → „Interne Links automatisch aktualisieren“");
+    expect(DE["notice.errorKind.links_not_followed"]).toMatch(/startet die Crew nicht/);
   });
 });
