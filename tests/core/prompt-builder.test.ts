@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildPrompt, estimateTokens } from '../../src/core/prompt-builder';
+import { buildPrompt } from '../../src/core/prompt-builder';
+import { estimateTokens } from '../../src/vendor/kit/model-context';
 import { LlmCallError } from '../../src/core/ports';
 import type { SchemaDef } from '../../src/core/schemas';
 import type { AgentDef, Artifact, LlmTaskDef } from '../../src/core/types';
@@ -37,13 +38,6 @@ function artifact(n: number): Artifact {
 		slugTables: { status: { toSlug: { '1_backlog_📥': 'backlog' }, fromSlug: { backlog: '1_backlog_📥' } } },
 	};
 }
-
-describe('estimateTokens', () => {
-	it('rechnet ceil(chars/3.5)', () => {
-		expect(estimateTokens('1234567')).toBe(2);
-		expect(estimateTokens('')).toBe(0);
-	});
-});
 
 describe('buildPrompt', () => {
 	it('schichtet System (Prompt+Vertrag+Wertemengen+One-Shot) und User (Instruktion+Kontext)', () => {
@@ -109,7 +103,7 @@ describe('buildPrompt', () => {
 
 	it('kürzt blockweise von hinten mit Marker, wenn das Budget nicht reicht', () => {
 		const full = buildPrompt(AGENT, TASK, [artifact(30)], SCHEMA as SchemaDef, 100_000);
-		const tight = buildPrompt(AGENT, TASK, [artifact(30)], SCHEMA as SchemaDef, estimateTokens(full.messages.map((m) => m.content).join('')) - 200);
+		const tight = buildPrompt(AGENT, TASK, [artifact(30)], SCHEMA as SchemaDef, estimateTokens(full.messages.map((m) => m.content).join('').length, 'cautious') - 200);
 		expect(tight.truncated).toBe(true);
 		expect(tight.messages[1]?.content).toMatch(/\[gekürzt: \d+ von 30 Einträgen enthalten\]/);
 		expect(tight.messages[1]?.content).not.toContain('t29.md');
@@ -117,5 +111,9 @@ describe('buildPrompt', () => {
 
 	it('wirft LlmCallError(overflow), wenn Instruktion+Vertrag allein das Budget sprengen', () => {
 		expect(() => buildPrompt(AGENT, TASK, [artifact(1)], SCHEMA as SchemaDef, 10)).toThrow(LlmCallError);
+	});
+
+	it('ein Budget von 0 oder darunter lässt nichts durch (im Kit hieße ein Limit <= 0 „unbekannt“)', () => {
+		expect(() => buildPrompt(AGENT, TASK, [artifact(1)], SCHEMA as SchemaDef, 0)).toThrow(LlmCallError);
 	});
 });

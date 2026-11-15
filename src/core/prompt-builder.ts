@@ -2,6 +2,7 @@
  *  vollständig und byte-reproduzierbar (Prompt-Hash als Beweis). Kein Gesprächsverlauf.
  *  Budget-Grundsatz: lieber vor dem Call scheitern oder markiert kürzen als still überlaufen. */
 import { fnv1a } from './collectors';
+import { contextOverflow, estimateTokens } from '../vendor/kit/model-context';
 import { LlmCallError } from './ports';
 import type { LlmMessage } from './ports';
 import type { SchemaDef } from './schemas';
@@ -9,8 +10,11 @@ import type { AgentDef, Artifact, LlmTaskDef, SlugTableData } from './types';
 
 export interface BuiltPrompt { messages: LlmMessage[]; promptHash: string; truncated: boolean; }
 
-export function estimateTokens(s: string): number {
-	return Math.ceil(s.length / 3.5);
+/** Passt eine Anfrage aus `chars` Zeichen ins Budget? Das Kit schätzt die Zeichen ALLER gesendeten Nachrichten einmal (`cautious`, 3,5 Zeichen je Token:
+ *  ein Budget, das kürzt, darf nicht zu klein schätzen) und rundet am Ende; vor Kit 0.69.0 rundeten `system` und `user` getrennt (bis zu ein Token mehr). */
+function fits(chars: number, budgetTokens: number): boolean {
+	// Ein Limit <= 0 ist im Kit „unbekannt“ und passt immer; ein Budget von 0 ist hier aber „nichts passt“ (der Orchestrator reicht mindestens 1).
+	return budgetTokens > 0 && contextOverflow(estimateTokens(chars, 'cautious'), budgetTokens) === null;
 }
 
 export function buildPrompt(
@@ -24,10 +28,10 @@ export function buildPrompt(
 ): BuiltPrompt {
 	const system = buildSystem(agent, inputs, schema, extraTables);
 	const fixedUser = task.instruction;
-	const fixedTokens = estimateTokens(system) + estimateTokens(fixedUser);
-	if (fixedTokens > budgetTokens) {
+	const fixedChars = system.length + fixedUser.length;
+	if (!fits(fixedChars, budgetTokens)) {
 		throw new LlmCallError(
-			`Instruktion + Output-Vertrag (${fixedTokens} tokens) überschreiten das Budget (${budgetTokens})`,
+			`Instruktion + Output-Vertrag (${estimateTokens(fixedChars, 'cautious')} tokens) überschreiten das Budget (${budgetTokens})`,
 			'overflow',
 		);
 	}
@@ -37,7 +41,8 @@ export function buildPrompt(
 	let truncated = false;
 	for (;;) {
 		const user = buildUser(task, inputs, counts);
-		if (fixedTokens - estimateTokens(fixedUser) + estimateTokens(user) <= budgetTokens) {
+		// `user` trägt die Instruktion schon: gezählt wird `system` + `user`, die Instruktion nicht doppelt.
+		if (fits(system.length + user.length, budgetTokens)) {
 			const messages: LlmMessage[] = [
 				{ role: 'system', content: system },
 				{ role: 'user', content: user },

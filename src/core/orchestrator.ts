@@ -69,6 +69,10 @@ export const PER_NOTE_MAX = 20;
 const TOTAL_CAP_CHARS = 262_144;
 /** Name der Einstellung, die `limits.wallClockMs` setzt (EN-Name in Klammern), für die Meldung bei Ablauf der Wanduhr. */
 const WALL_CLOCK_SETTING = 'Zeitlimit (Minuten)';
+/** Anteil des Kontexts, den das Budget des Prompts freihält (`Kontext - max_tokens - 15 %`). Der Kit-Vergleich vom 2026-11-14 (code-kit MIGRATION 0.69.0) fand im Code keinen Grund;
+ *  der benannte Grund, der bleibt: (1) die Schätzung ist Zeichen / 3,5 über den Text der Nachrichten und kennt weder den Tokenizer des Modells noch die Rollenmarken der Chat-Vorlage,
+ *  und der Eingang ist JSON mit Pfaden, Umlauten und Emoji, dichter als Prosa; (2) die Reparatur-Runde schickt denselben Prompt plus die ungültige Antwort und die Aufforderung noch
+ *  einmal, der reaktive Overflow-Retry fängt nur den ersten Aufruf. Der Prozentsatz selbst ist nicht an einem echten Tokenizer kalibriert (offen: Messung gegen die Token-Zählung des Servers). */
 const BUDGET_RESERVE = 0.15;
 const CONTEXT_FALLBACK = 8192;
 /** Die Aufforderung am Ende der Reparatur-Nachricht (Kit `askUntilValid`, `instruction`): der Ausgangs-Prompt mit dem Format steht davor in der History. */
