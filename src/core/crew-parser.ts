@@ -1,7 +1,8 @@
 /** Parser + Preflight-Validierung für Agent-/Team-Definitionen aus dem Vault.
  *  Grundsatz (Spec §2.1/§3.1): ALLE Fehler sammeln, zeilenverständlich melden
  *  (`<datei>: <feld>: <problem>`), und zwar BEVOR irgendein LLM-Call passiert. */
-import { isDenied } from './paths';
+import { isDenied, normalizeVaultPath } from './paths';
+import { foldCase } from '../vendor/kit/fold-case';
 import { normalizeRelPath } from '../vendor/kit/rel-path';
 import { MIN_INTERVAL_MINUTES, parseIntervalMinutes } from './heartbeat';
 import type {
@@ -15,6 +16,15 @@ const COLLECTORS: CollectorId[] = ['vault.list', 'vault.read', 'tasknotes.query'
 const MAX_OUTPUT_CHARS = 16_000;
 const TEXT_APPEND_DEFAULT_CHARS = 4000;
 const ACTIONS: ActionType[] = ['frontmatter.patch', 'note.create', 'note.append', 'section.replace'];
+
+/** Schlüssel, unter dem zwei `target`-Angaben als dieselbe Datei gelten: `normalizeVaultPath` (`./`, `//`, `\`, führendes `/`) und `foldCase`
+ *  (Groß-/Kleinschreibung, NFC), wie das Dateisystem sie vergleicht. Die Platzhalter `{{…}}` bleiben unverändert, nur der Text
+ *  dazwischen wird gefaltet. Ein Pfad, den die Normalisierung ablehnt (`..`), bleibt im Rohtext. */
+function targetKey(target: string): string {
+	let norm = target;
+	try { norm = normalizeVaultPath(target); } catch { /* bleibt Rohtext */ }
+	return norm.split(/(\{\{[a-z]+\}\})/).map((part, i) => (i % 2 === 1 ? part : foldCase(part))).join('');
+}
 
 function slugFromPath(path: string): string {
 	const base = path.split('/').pop() ?? path;
@@ -71,6 +81,9 @@ function parseOutputBlock(
 			const h = typeof raw.heading === 'string' ? raw.heading.trim() : '';
 			if (h === '' || /[\r\n]/.test(h)) {
 				err(`${feld}.heading`, `'${show(raw.heading)}' (erwartet eine einzeilige, nicht leere Überschrift)`);
+				ok = false;
+			} else if (h.startsWith('#')) {
+				err(`${feld}.heading`, `'${show(raw.heading)}' (die Überschrift ohne #, etwa „Verlauf“ statt „## Verlauf“)`);
 				ok = false;
 			} else {
 				heading = h;
@@ -256,7 +269,7 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 						}
 					}
 					if (target !== null && allowedActions.includes('section.replace')) {
-						const other = tasks.find((t) => t.kind === 'actions' && t.target === target && t.allowedActions.includes('section.replace'));
+						const other = tasks.find((t) => t.kind === 'actions' && t.target !== null && targetKey(t.target) === targetKey(target) && t.allowedActions.includes('section.replace'));
 						if (other !== undefined) {
 							err(`${label}.target`, `'${target}' ist schon Ziel von section.replace im Schritt '${other.id}' (zwei Schritte würden denselben Abschnitt überschreiben)`);
 						}

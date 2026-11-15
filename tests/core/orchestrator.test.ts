@@ -1287,6 +1287,46 @@ describe('executeRun — per_note', () => {
     expect(rec.notes?.map((n) => n.status)).toEqual(['ok', 'skipped']);
   });
 
+  it('Nutzerabbruch mitten im Schritt: Lauf aborted, die übrigen Notizen stehen als skipped, kein weiterer Aufruf', async () => {
+    const ctrl = new AbortController();
+    class AbortAfterFirst extends ScriptLlmClient {
+      async stream(...args: Parameters<ScriptLlmClient['stream']>): ReturnType<ScriptLlmClient['stream']> {
+        const r = await super.stream(...args);
+        ctrl.abort();
+        return r;
+      }
+    }
+    const llm = new AbortAfterFirst(NOTES.map(okFor));
+    const h = await harness({ teamFm: perNoteTeam(NOTES), files: pnFiles(NOTES), llm, abort: ctrl.signal });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('aborted');
+    expect(r.errorKind).toBe('aborted');
+    expect(llm.calls).toHaveLength(1);
+    const rec = await tagRecord(h, r.runId);
+    expect(rec.notes?.map((n) => n.status)).toEqual(['ok', 'skipped', 'skipped']);
+    expect(rec.status).toBe('failed');
+  });
+
+  it('schwärzt einen API-Schlüssel aus der Fehlermeldung auch im Grund der Notiz (state.json und run.md)', async () => {
+    const KEY = 'sk-geheim-1234567890';
+    class LeakyLlm extends ScriptLlmClient {
+      async stream(): Promise<never> {
+        throw new LlmCallError(`HTTP 401: invalid key ${KEY}`, 'http');
+      }
+    }
+    const h = await harness({
+      teamFm: perNoteTeam(['n/a.md'], { onError: 'skip' }), files: pnFiles(['n/a.md']), llm: new LeakyLlm([]),
+      settings: { endpoints: [{ url: 'http://gw:1', apiKey: KEY, model: 'test-model' }] },
+    });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    const rec = await tagRecord(h, r.runId);
+    expect(rec.notes?.[0]?.status).toBe('failed');
+    expect(rec.notes?.[0]?.reason).toContain('••••');
+    expect(rec.notes?.[0]?.reason).not.toContain(KEY);
+    expect(await h.vault.read(`_crews/runs/${r.runId}/state.json`)).not.toContain(KEY);
+    expect(await h.vault.read(`_crews/runs/${r.runId}/run.md`)).not.toContain(KEY);
+  });
+
   it('ohne per_note bleibt es bei einem Aufruf und ohne notes im Protokoll', async () => {
     const llm = new ScriptLlmClient([{ content: TRIAGE_OK }]);
     const h = await harness({ llm });
@@ -1326,6 +1366,48 @@ describe('executeRun — per_note mit Ziel {{input}}', () => {
     // Der Prompt trägt den neutralen Wortlaut, nicht das Briefing.
     expect(llm.calls[0]?.messages[0]?.content).toContain('dem fertigen Abschnitt');
     expect(llm.calls[0]?.messages[0]?.content).not.toContain('Briefing');
+  });
+
+  it('ein {{input}}-Pfad außerhalb von write_scope wird abgelehnt und nicht geschrieben', async () => {
+    const paths = ['n/a.md', 'n/b.md', 'x/c.md'];
+    const llm = new ScriptLlmClient([{ content: '## Z\n- A' }, { content: '## Z\n- B' }, { content: '## Z\n- C' }]);
+    const h = await harness({ teamFm: inputTeam(paths, { family: 'section.write' }, 'section.replace'), files: pnFiles(paths), llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(await h.vault.read('x/c.md')).toBe(PN_NOTE);
+    expect(await h.vault.read('n/a.md')).toContain('- A');
+    expect(r.writes).toBe(2);
+    const apply = (await stateOf(h, r.runId)).tasks.find((t) => t.taskId === 'apply');
+    expect(JSON.stringify(apply)).toMatch(/rejected/);
+    expect(JSON.stringify(apply)).toContain('x/c.md');
+  });
+
+  it('ein Pfad auf der Sperrliste kommt nie als Eingabe an und wird nicht geschrieben, auch wenn write_scope ihn einschließt', async () => {
+    // Der Collector filtert gesperrte Pfade vor dem Modellaufruf (zweite Sperre neben dem Executor): die Notiz hat weder einen
+    // Aufruf noch eine Aktion, und die Datei bleibt unberührt.
+    const paths = ['n/a.md', 'n/b.md', '_crews/geheim.md'];
+    const llm = new ScriptLlmClient([{ content: '## Z\n- A' }, { content: '## Z\n- B' }, { content: '## Z\n- C' }]);
+    const team = inputTeam(paths, { family: 'section.write' }, 'section.replace');
+    team.write_scope = ['**/*.md'];
+    const h = await harness({ teamFm: team, files: pnFiles(paths), llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(llm.calls).toHaveLength(2);
+    expect(await h.vault.read('_crews/geheim.md')).toBe(PN_NOTE);
+    expect(r.writes).toBe(2);
+    expect(JSON.stringify((await stateOf(h, r.runId)).tasks.filter((t) => t.taskId !== 'collect'))).not.toContain('geheim.md');
+  });
+
+  it('text.append mit heading hängt unter der Überschrift der Notiz an', async () => {
+    const paths = ['n/a.md'];
+    const body = '---\npriority: niedrig\n---\n# Notiz\n\n## Log\nalt\n\n## Ende\nschluss\n';
+    const llm = new ScriptLlmClient([{ content: 'neu' }]);
+    const h = await harness({
+      teamFm: inputTeam(paths, { family: 'text.append', heading: 'Log' }, 'note.append'),
+      files: { 'n/a.md': body }, llm,
+    });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    const after = await h.vault.read('n/a.md');
+    expect(after).toMatch(/## Log\nalt\n+neu\n+## Ende/);
   });
 
   it('text.append hängt an jede Notiz ihren eigenen Text an', async () => {

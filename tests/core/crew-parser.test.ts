@@ -344,6 +344,12 @@ describe('output: block (schema families)', () => {
 			if (!r.ok) expect(r.errors.join('\n')).toMatch(/heading/);
 		});
 
+		it.each([['# Log'], ['## Log'], ['#Log']])('lehnt heading %j mit führendem # ab und nennt „ohne #“', (v) => {
+			const r = parse({ family: 'text.append', heading: v });
+			expect(r.ok).toBe(false);
+			if (!r.ok) expect(r.errors.join('\n')).toMatch(/heading.*ohne #/);
+		});
+
 		it('lehnt allowed_keys ab', () => {
 			const r = parse({ family: 'text.append', allowed_keys: ['a'] });
 			expect(r.ok).toBe(false);
@@ -411,6 +417,28 @@ describe('output: block (schema families)', () => {
 			const r = parseTeamDef(TEAM_PATH, teamFm({ tasks: two('Daily/{{today}}.md', 'Daily/{{today}}.md') }), OPTS);
 			expect(r.ok).toBe(false);
 			if (!r.ok) expect(r.errors.join('\n')).toMatch(/schon Ziel von section\.replace im Schritt 'a1'/);
+		});
+
+		it('dasselbe Ziel in anderer Schreibweise (Ordner, Groß-/Kleinschreibung, ./) ist ein Fehler', () => {
+			for (const other of ['notes/x.md', './Notes/X.md', 'Notes//x.md', 'NOTES\\X.md']) {
+				const r = parseTeamDef(TEAM_PATH, teamFm({ tasks: two('Notes/X.md', other) }), OPTS);
+				expect(r.ok, other).toBe(false);
+				if (!r.ok) expect(r.errors.join('\n'), other).toMatch(/schon Ziel von section\.replace im Schritt 'a1'/);
+			}
+		});
+
+		it('{{input}}-Anteile bleiben unverändert: zwei Schritte mit {{input}} sind ein Fehler, {{input}} gegen einen festen Namen nicht', () => {
+			const withInput = (t1: string, t2: string) => [
+				{ id: 'collect', kind: 'collector', collector: 'vault.read', params: { paths: ['a.md'] } },
+				{ id: 'l1', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'x', output: { family: 'section.write' }, per_note: true },
+				{ id: 'l2', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'y', output: { family: 'section.write' }, per_note: true },
+				{ id: 'a1', kind: 'actions', inputs: ['l1'], allowed_actions: ['section.replace'], target: t1 },
+				{ id: 'a2', kind: 'actions', inputs: ['l2'], allowed_actions: ['section.replace'], target: t2 },
+			];
+			const same = parseTeamDef(TEAM_PATH, teamFm({ tasks: withInput('{{input}}', '{{input}}') }), OPTS);
+			expect(same.ok).toBe(false);
+			const differ = parseTeamDef(TEAM_PATH, teamFm({ tasks: withInput('{{input}}', 'Log/{{input}}') }), OPTS);
+			expect(differ.ok, JSON.stringify(!differ.ok && differ.errors)).toBe(true);
 		});
 
 		it('verschiedene targets sind gültig', () => {
