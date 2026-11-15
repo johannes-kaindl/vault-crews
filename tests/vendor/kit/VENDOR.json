@@ -1,7 +1,7 @@
 {
   "source": "obsidian-kit",
-  "version": "0.72.0",
-  "sha": "b72c31c",
-  "vendored": "kit-css.ts, linear-probe.ts, obsidian-mock.ts (obsidian-kit@0.88.0, 442316f), window-timers.ts",
+  "version": "0.92.0",
+  "sha": "be4994f",
+  "vendored": "kit-css.ts, linear-probe.ts, obsidian-mock.ts, window-timers.ts",
   "license": "AGPL-3.0-or-later"
 }

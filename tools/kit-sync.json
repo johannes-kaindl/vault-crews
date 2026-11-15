@@ -1,10 +1,10 @@
 {
   "sources": {
     "obsidian-kit": {
-      "ref": "0.72.0"
+      "ref": "0.92.0"
     },
     "code-kit": {
-      "ref": "0.38.0"
+      "ref": "0.73.0"
     }
   },
   "targets": [
@@ -27,6 +27,7 @@
         "endpoint",
         "endpoint_config",
         "endpoint_diagnostics",
+        "error-message",
         "error_body",
         "i18n",
         "list-summary",
@@ -36,18 +37,9 @@
         "model-context",
         "model-list-cache",
         "reasoning",
-        {
-          "name": "redact",
-          "ref": "0.60.0"
-        },
-        {
-          "name": "rotation",
-          "ref": "0.60.0"
-        },
-        {
-          "name": "sampling-profiles",
-          "ref": "0.66.0"
-        },
+        "redact",
+        "rotation",
+        "sampling-profiles",
         "secrets",
         "settings",
         "sse",
@@ -55,22 +47,10 @@
         "timeout",
         "local-stamp",
         "rel-path",
-        {
-          "name": "folder-scope",
-          "ref": "0.44.0"
-        },
-        {
-          "name": "fold-case",
-          "ref": "0.44.0"
-        },
-        {
-          "name": "answer-retry",
-          "ref": "0.63.0"
-        },
-        {
-          "name": "filename-policy",
-          "ref": "0.63.0"
-        }
+        "folder-scope",
+        "fold-case",
+        "answer-retry",
+        "filename-policy"
       ]
     },
     {
@@ -81,10 +61,8 @@
         "endpoint-source",
         "endpoint-secret-hook",
         "folder-hide",
-        {
-          "name": "filename-sanitizer-source",
-          "ref": "0.82.2"
-        }
+        "frontmatter",
+        "filename-sanitizer-source"
       ],
       "rewrite": [
         [
@@ -134,33 +112,20 @@
         "hub",
         "clipboard",
         "collapsible",
-        {
-          "name": "request-section",
-          "ref": "0.84.0"
-        },
+        "request-section",
         "request-session",
         "backend-probe",
         "endpoint-secrets",
         "endpoint-status-text",
-        {
-          "name": "llm-connection-strings",
-          "ref": "0.84.0"
-        },
+        "llm-connection-strings",
         "secrets",
         "shortcuts-bridge",
         "plugin-api",
-        {
-          "name": "status-indicator",
-          "ref": "0.76.0"
-        },
-        {
-          "name": "safe-file-name",
-          "ref": "0.82.2"
-        },
-        {
-          "name": "status-bar-item",
-          "ref": "0.88.0"
-        }
+        "status-indicator",
+        "safe-file-name",
+        "status-bar-item",
+        "setting-body-host",
+        "copy-button"
       ],
       "rewrite": [
         [
@@ -192,10 +157,7 @@
       "modules": [
         "kit-css",
         "linear-probe",
-        {
-          "name": "obsidian-mock",
-          "ref": "0.88.0"
-        },
+        "obsidian-mock",
         "window-timers"
       ]
     }

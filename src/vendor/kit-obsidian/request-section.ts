@@ -1,10 +1,10 @@
-// vendored from obsidian-kit@0.84.0, src/obsidian/request-section.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.92.0, src/obsidian/request-section.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 import { Notice, Setting } from "obsidian";
 import { buildStatus, paintStatus, type StatusParts } from "./status-indicator";
 import { collapsibleSection, type CollapsibleStorage } from "./collapsible";
 import { copyToClipboard } from "./clipboard";
 import type { RequestSession } from "./request-session";
-import type { EndpointTransport } from "../kit/endpoint-source";
+import type { ApiErrorCode, EndpointTransport } from "../kit/endpoint-source";
 import { isModelLoaded, type LoadedModel } from "../kit/capabilities";
 import {
   FAMILY_IDS, resolveRequestParams, resolveThinkingLevel, thinkingFor, thinkingLevels, validateOverride, withThinkingLevel,
@@ -29,6 +29,9 @@ export interface RequestSectionState {
   defaultModel?: string;
   /** Seit 0.73.0: der Transport der Quelle (`EndpointSourceResult.transport`, nur der Manager-Pfad kennt ihn); fehlt er, ist es `"http"`. Der Abschnitt zeichnet ihn nicht, ein Wirt liest ihn hier statt aus `resolve()`. */
   transport?: EndpointTransport;
+  /** Seit 0.87.0: der Grund der Auflösung (`EndpointSourceResult.reason`), wenn sie einen trägt: eine verwaiste Wahl (`disabled`, `not-found`, `secret-missing`)
+   *  fiel auf „Automatisch“ zurück, oder es gibt keinen Endpunkt. Die Modellzeile zeigt daraus das Warnzeichen mit Grund. */
+  reason?: ApiErrorCode;
 }
 export interface RequestSectionStrings {
   title: string;
@@ -91,6 +94,9 @@ export interface RequestSectionOptions {
    *  `settings.levelPickerInChat` an ein frei eingebautes `buildThinkingControl` (`levelPicker`) reicht, also **nicht** mit der Modellzeile (`buildModelBar`): die zeigt die Stufe seit 0.73.0
    *  immer als Dropdown. Seit 0.76.0 hält ein gespeichertes `levelPickerInChat: true` die Zeile nicht mehr am Leben; der Wert bleibt in den Daten, das Plugin muss nichts ändern. */
   levelPicker?: boolean;
+  /** Seit 0.86.0, optional: die stream-Einstellung des Plugins (`createLlmConnection({ stream })`). `false` bringt die Reserve von `xhigh` und `max` auf die von `high`
+   *  (Claude: 16000 statt 64000, code-kit 0.66.0), damit der Abschnitt zeigt, was `LlmConnection` sendet. Fehlt sie, gilt wie dort der Stream. */
+  stream?: boolean;
 }
 
 const SAVE_FAILED_FALLBACK = "Could not save the request settings.";
@@ -128,7 +134,7 @@ export function buildRequestSection(opts: RequestSectionOptions): void {
   // Das Modell, das auf den Draht geht (ein Alias des Managers ist hier schon aufgelöst): seine Zeile in der Stufentabelle von code-kit gilt, und mit ihm klemmt `resolveRequestParams`
   // die gespeicherte Stufe, damit der Abschnitt zeigt, was `LlmConnection` sendet (0.73.0).
   const model = state.sentModel || state.model;
-  const modelPart = model !== "" ? { model } : {};
+  const modelPart = { ...(model !== "" ? { model } : {}), ...(opts.stream !== undefined ? { stream: opts.stream } : {}) };
 
   // Speichern: ein Fehler wird zur Notice und färbt den Status-Indikator (entsteht erst weiter unten).
   const ui: { status?: StatusParts } = {};

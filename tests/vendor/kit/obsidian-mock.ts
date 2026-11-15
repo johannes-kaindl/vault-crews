@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.88.0, src/testing/obsidian-mock.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.92.0, src/testing/obsidian-mock.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // Self-contained Obsidian test double for obsidian-kit.
 // - Zero external imports (NOT from "obsidian", NOT from "vitest").
 // - Consumed via vitest `resolve.alias` as a drop-in for `import ... from "obsidian"`,
@@ -840,9 +840,26 @@ export function getLanguage(): string { return mockLanguage; }
 // ---------------------------------------------------------------------------
 // Welle 19: Zusätze aus den Hand-Kopien (calendar-notes, health-vitals/vault-rag).
 // ---------------------------------------------------------------------------
-// Gemessen in Obsidian 1.15.1 (`pilot/frontmatter-cursor.ts`, 2026-11-04): die öffnende und die schließende Zeile sind genau `---` (Leerzeichen dahinter, `...`,
-// BOM davor und ein Anfang nicht in Zeile 1 ergeben keinen Block), ein leerer Block (`---` direkt auf `---`) ist ein Block, die schließende Zeile darf das Dateiende sein.
-const FRONTMATTER_RE = /^---\r?\n(?:([\s\S]*?)\r?\n)?---(?:\r?\n|$)/;
+// Der Mock hat keine Importe (er wird einzeln vendort), darum liest er den Block selbst: dieselbe zeilenweise Regel wie `locateFrontmatter` (src/pure/frontmatter.ts), gemessen an Obsidian
+// (`pilot/frontmatter-leser.ts`, Tabelle im Kopf von frontmatter.ts): öffnender Zaun genau `---` in Zeile 1, schließend die ERSTE Zeile, die genau `---` ist (`---x` und `---` mit Leerraum dahinter nicht), zwei Zaunzeilen nacheinander sind ein
+// leerer Block, das Dateiende darf die schließende Zeile beenden. `tests/frontmatter-leser.test.ts` hält beide Leser auf denselben Dokumenten gleich. Nicht gebaut: YAML lesen.
+function mockLocateFrontmatter(content: string): { from: number; raw: string; bodyFrom: number } | null {
+  const first = /^---\r?\n/.exec(content);
+  if (!first) return null;
+  const from = first[0].length;
+  let pos = from;
+  for (;;) {
+    const nl = content.indexOf("\n", pos);
+    const lineEnd = nl === -1 ? content.length : nl;
+    const line = content.slice(pos, content[lineEnd - 1] === "\r" && lineEnd > pos ? lineEnd - 1 : lineEnd);
+    if (/^---$/.test(line)) {
+      const bodyFrom = nl === -1 ? content.length : nl + 1;
+      return { from, raw: pos === from ? "" : content.slice(from, pos - (content[pos - 2] === "\r" ? 2 : 1)), bodyFrom };
+    }
+    if (nl === -1) return null;
+    pos = nl + 1;
+  }
+}
 
 /** `getFrontMatterInfo(content)` (calendar-notes, Welle 19): Nachbildung nach `obsidian.d.ts`. Erkennt nur den einfachen
  *  `---\n…\n---`-Block am Dateianfang, ohne YAML zu lesen — gebraucht werden die Offsets (`contentStart` = Beginn des Rumpfes).
@@ -850,11 +867,9 @@ const FRONTMATTER_RE = /^---\r?\n(?:([\s\S]*?)\r?\n)?---(?:\r?\n|$)/;
  *  `exists` und `contentStart` stimmen mit der echten Funktion überein (leerer Block = Block, schließende Zeile genau `---`, 0.79.2).
  *  `from`/`to` zählen die Zeichen des Blocktextes im Original, auch bei CRLF (die Hand-Kopie rechnete `from` mit 4 fest). */
 export function getFrontMatterInfo(content: string): { exists: boolean; frontmatter: string; from: number; to: number; contentStart: number } {
-  const m = FRONTMATTER_RE.exec(content);
-  if (!m) return { exists: false, frontmatter: "", from: 0, to: 0, contentStart: 0 };
-  const block = m[1] ?? "";
-  const from = content.indexOf("\n") + 1;
-  return { exists: true, frontmatter: block, from, to: from + block.length, contentStart: m[0].length };
+  const span = mockLocateFrontmatter(content);
+  if (!span) return { exists: false, frontmatter: "", from: 0, to: 0, contentStart: 0 };
+  return { exists: true, frontmatter: span.raw, from: span.from, to: span.from + span.raw.length, contentStart: span.bodyFrom };
 }
 
 /** `SecretComponent` (Obsidian 1.11.1; calendar-notes, Welle 19): ein VERWEIS auf einen Schlüsselbund-Eintrag, kein Passwortfeld.

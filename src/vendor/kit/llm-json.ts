@@ -1,9 +1,10 @@
-// vendored from code-kit@0.38.0, src/ts/pure/llm-json.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.73.0, src/ts/pure/llm-json.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // Origin: four plugin copies (Welle 18, analysis K9, measured 2026-10-12): obsidian-transmute `core/llm/response.ts:65-95`
 // (`stripFence`, `firstJsonObject`; 2026-07-25), koda-agent `core/agent/text-fallback.ts:6-35` (a line-for-line copy of
 // transmute), 3d-codeblocks `core/shapes/protocol.ts:52-120` (`balancedEnd`, `extractJson` with several candidates,
 // linear since 64bf62f — the reference) and vault-crews `core/output-validator.ts:14-75` (`findBalanced`, `extractJson`
 // with a repair pass; 2026-07-02, the oldest).
+import { errorMessage } from "./error-message";
 import { stripThinkBlocks, type StripThinkOptions } from "./think-splitter";
 
 /** Options of {@link extractJsonCandidates} and {@link firstJsonObject}. Every default is the behaviour of
@@ -160,7 +161,7 @@ function scanSources(sources: readonly string[], allowArray: boolean, repair: bo
   const scan: Scan = { values: [], truncated: false, broken: false, error: undefined };
   const fail = (e: unknown): void => {
     scan.broken = true;
-    scan.error = e instanceof Error ? e.message : String(e);
+    scan.error = errorMessage(e);
   };
   for (const src of sources) {
     const ends = new Map<number, number | null>();

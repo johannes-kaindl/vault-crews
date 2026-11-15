@@ -22,6 +22,11 @@ import { extractModelIds } from '../../src/vendor/kit/endpoint_diagnostics';
 import { withTimeout } from '../../src/vendor/kit/timeout';
 import { guessFromName, resolveCapabilities } from '../../src/vendor/kit/capabilities';
 import { errorMessageFromBody, errorMessageFromText } from '../../src/vendor/kit/error_body';
+import { parseFrontmatter, serializeFrontmatter, wikilinkDisplayText, wikilinkOf } from '../../src/vendor/kit/frontmatter';
+import { baseName } from '../../src/vendor/kit/rel-path';
+import { errorMessage } from '../../src/vendor/kit/error-message';
+import { resolveEndpointSource } from '../../src/vendor/kit/endpoint-source';
+import type { ApiEndpoint, LlmEndpointManagerApi, ResolvedEndpoint } from '../../src/vendor/kit/endpoint-source';
 
 describe('vendored parseSSE', () => {
 	it('akkumuliert content-Deltas und erkennt [DONE]', () => {
@@ -338,5 +343,80 @@ describe('vendored error_body', () => {
 		expect(errorMessageFromText('   ')).toBeNull();
 		expect(errorMessageFromText('123')).toBeNull();
 		expect(errorMessageFromText('[]')).toBeNull();
+	});
+});
+
+describe('vendored frontmatter (obsidian-kit 0.92.0)', () => {
+	it('serializeFrontmatter schreibt Schluessel in der angegebenen Reihenfolge', () => {
+		const out = serializeFrontmatter({ type: 'x' }, ['type']);
+		expect(out).toContain('type: x');
+		expect(out.startsWith('---\n')).toBe(true);
+	});
+	it('parseFrontmatter liest den Block und trennt den Rumpf ab', () => {
+		const fm = parseFrontmatter('---\ntype: x\ntags:\n  - a\n---\nText\n');
+		expect(fm.data.type).toBe('x');
+		expect(fm.data.tags).toEqual(['a']);
+		expect(fm.body).toBe('Text\n');
+	});
+	it('wikilinkOf: Pfadlink ohne .md, null bei Zeichen, die sich nicht schreiben lassen', () => {
+		expect(wikilinkOf('00_Inbox/t.md')).toBe('[[00_Inbox/t]]');
+		expect(wikilinkOf('bild.png')).toBe('[[bild.png]]');
+		expect(wikilinkOf('00_Inbox/t.md', { alias: true })).toBe('[[00_Inbox/t|t]]');
+		expect(wikilinkOf('Was #1.md')).toBeNull();
+		expect(wikilinkOf('a|b.md')).toBeNull();
+		expect(wikilinkOf('')).toBeNull();
+		expect(wikilinkOf('A/')).toBeNull();
+	});
+	it('wikilinkDisplayText ist das Gegenstueck (letztes Segment ohne Anker)', () => {
+		expect(wikilinkDisplayText('[[00_Inbox/t]]')).toBe('t');
+		expect(wikilinkDisplayText('[[00_Inbox/t|Titel]]')).toBe('Titel');
+		expect(wikilinkDisplayText('Klartext')).toBe('Klartext');
+	});
+});
+
+describe('vendored rel-path baseName und error-message', () => {
+	it('baseName ist das letzte Segment', () => {
+		expect(baseName('A/B/Notiz')).toBe('Notiz');
+		expect(baseName('Notiz')).toBe('Notiz');
+		expect(baseName('A/')).toBe('');
+	});
+	it('errorMessage nimmt message eines Error, sonst den Text', () => {
+		expect(errorMessage(new Error('kaputt'))).toBe('kaputt');
+		expect(errorMessage('roh')).toBe('roh');
+	});
+});
+
+describe('vendored endpoint-source: der tatsaechlich benutzte Endpunkt (Welle 34, Paket 9)', () => {
+	// Zwei Endpunkte beim Manager, der erste unerreichbar: `resolve` ueberspringt ihn und liefert den zweiten.
+	const entry = (id: string): ApiEndpoint => ({ id, label: id, provider: 'openai' } as unknown as ApiEndpoint);
+	function manager(over: Partial<LlmEndpointManagerApi> = {}): LlmEndpointManagerApi {
+		const resolved = (id: string): ResolvedEndpoint => ({
+			id, config: { id, name: id, url: `http://${id}.test/v1`, enabled: true } as unknown as ResolvedEndpoint['config'], defaultModel: `${id}-modell`,
+		} as unknown as ResolvedEndpoint);
+		return {
+			version: 1, list: () => [entry('a'), entry('b')], get: () => null,
+			resolve: async () => resolved('b'),
+			materialize: async (id) => (id === 'a' ? { error: 'unreachable' } : resolved(id)),
+			models: async () => [], importEndpoints: async () => ({ added: [], merged: [], skipped: [] }), on: () => () => {}, ...over,
+		};
+	}
+	it('Automatisch: endpointId ist der zweite, erreichbare, nicht der erste Eintrag der Liste', async () => {
+		const r = await resolveEndpointSource({ manager: manager(), local: [], capability: 'chat', caller: 'vault-crews' }, () => Promise.resolve(true));
+		expect(r.kind).toBe('manager');
+		expect(r.endpointId).toBe('b');
+		expect(r.model).toBe('b-modell');
+	});
+	it('verwaiste Wahl auf den unerreichbaren ersten: automatisch weiter, Grund mitgeteilt, Modell des zweiten', async () => {
+		const r = await resolveEndpointSource(
+			{ manager: manager(), local: [], capability: 'chat', choice: { endpointId: 'a', model: 'fremd' }, caller: 'vault-crews' },
+			() => Promise.resolve(true),
+		);
+		expect(r.endpointId).toBe('b');
+		expect(r.reason).toBe('unreachable');
+		expect(r.model).toBe('b-modell');
+	});
+	it('lokal und ohne Config fehlt endpointId: unbekannt bleibt unbekannt', async () => {
+		const r = await resolveEndpointSource({ manager: null, local: [], capability: 'chat' }, () => Promise.resolve(true));
+		expect(r.endpointId).toBeUndefined();
 	});
 });

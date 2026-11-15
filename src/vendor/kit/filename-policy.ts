@@ -1,4 +1,4 @@
-// vendored from code-kit@0.63.0, src/ts/pure/filename-policy.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.73.0, src/ts/pure/filename-policy.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Rules for one path segment (a file name or a folder name): which characters a name may not carry, what replaces them, and how
  *  long it may be. Obsidian-free and import-free (the module is vendored on its own).
  *
@@ -12,7 +12,8 @@
  *    the end of the name, found AFTER the replacements) stays. A folder is edited as a whole, so `v1.2` keeps its `.2`.
  *  - Always on, no setting: control characters go; spaces and dots at the edge of the stem go; a space that a replacement creates next to
  *    another space is not doubled (existing double spaces stay); an empty result becomes `Untitled`. The caller numbers on a collision
- *    with {@link numberedName}.
+ *    with {@link numberedName}, or lets {@link firstFreeName} ask `exists` until a name is free (three suffix styles, a limit, an async twin;
+ *    unlike the rest of the module these two also take a whole path: only the last segment's extension is looked at).
  *  - `applyPolicy` is idempotent (`apply(apply(x)) === apply(x)`) for every policy, because an invalid policy is repaired before use:
  *    a replacement that carries a forbidden character falls back to its default, and an extra character that a replacement contains
  *    is not treated as extra. {@link validatePolicy} names those fields so a settings tab can refuse the input with a reason.
@@ -330,6 +331,29 @@ export function checkSegment(name: string, policy: FilenamePolicy, kind: Segment
   return run(name, policy, kind).hits;
 }
 
+/** A folder path from a setting (a log folder, an export folder): every segment must be a valid FOLDER name under the policy
+ *  ({@link checkSegment} with kind `"folder"` finds nothing), and the first one must not start with `.` (Obsidian neither shows nor
+ *  syncs hidden folders). `raw` is trimmed and loses the slashes at both ends; the folder comes back like that, its inner segments
+ *  untouched. Refused: an empty path, an empty segment (`a//b`), `.` and `..`, a hidden first folder, a segment the policy would
+ *  change. `bad` names what was refused: the segment, or for an empty segment the whole folder, or for an empty path the trimmed input.
+ *
+ *  The explicit refusals of the empty segment, `.`, `..` and the hidden first folder overlap with what `checkSegment` finds for kind `"folder"`
+ *  today (the `empty` and `edge` rules); they stay so the verdict and the `bad` text do not depend on how the engine words those rules.
+ *
+ *  Origin: `checkLogFolder` of the `filename-sanitizer` plugin (`src/core/settings.ts`), lifted with the policy it checks against. */
+export function checkFolderPath(raw: string, policy: FilenamePolicy): { ok: true; folder: string } | { ok: false; bad: string } {
+  const folder = raw.trim().replace(/^\/+|\/+$/g, "");
+  if (folder === "") return { ok: false, bad: raw.trim() };
+  const segments = folder.split("/");
+  const first = segments[0] ?? "";
+  if (first.startsWith(".") && first !== "." && first !== "..") return { ok: false, bad: first };
+  for (const segment of segments) {
+    const name = segment.trim();
+    if (name === "" || name === "." || name === ".." || checkSegment(name, policy, "folder").length > 0) return { ok: false, bad: name === "" ? folder : name };
+  }
+  return { ok: true, folder };
+}
+
 /** `name` brought into line with the policy. Idempotent, never empty. */
 export function applyPolicy(
   name: string,
@@ -340,10 +364,71 @@ export function applyPolicy(
   return { name: r.name, changed: r.name !== name, hits: r.hits };
 }
 
-/** `name` with ` n` in front of the extension of a file, or at the end of a folder name; `n` below 2 leaves the name as it is. */
-export function numberedName(name: string, kind: SegmentKind, n: number): string {
+/** How the number of a collision is written: `space` is `a 2.md`, `paren` is `a (2).md` (Obsidian's own duplicate convention, what
+ *  letterhead, yijing-oracle, epub-exporter and calendar-notes write), `dash` is `a-2.md` (image-to-markdown, mailstone,
+ *  local-image-generator). The plugins differ only by history; the kit offers all three. */
+export type NumberStyle = "space" | "paren" | "dash";
+
+const numberTag = (n: number, style: NumberStyle): string => (style === "paren" ? ` (${String(n)})` : style === "dash" ? `-${String(n)}` : ` ${String(n)}`);
+
+/** `name` with the number in front of the extension of a file (the last `.` and 1 to 16 letters or digits, so a path works too: only its
+ *  last segment is looked at), or at the end of a folder name; `n` below 2 leaves the name as it is. `style` defaults to `space`. */
+export function numberedName(name: string, kind: SegmentKind, n: number, style: NumberStyle = "space"): string {
   if (n < 2) return name;
   const m = kind === "file" ? EXTENSION.exec(name) : null;
-  if (m === null) return `${name} ${n}`;
-  return `${name.slice(0, name.length - m[0].length)} ${n}${m[0]}`;
+  if (m === null) return `${name}${numberTag(n, style)}`;
+  return `${name.slice(0, name.length - m[0].length)}${numberTag(n, style)}${m[0]}`;
+}
+
+export interface FirstFreeOptions {
+  /** How the number is written. Default `space`. */
+  style?: NumberStyle;
+  /** The highest number tried, a whole number of at least 1 (1 asks for the name only). Default 10 000: a lying `exists` cannot loop forever. */
+  limit?: number;
+  /** What to return when every number up to `limit` is taken (calendar-notes appends a hash of the UID after 99 tries). Without it the
+   *  function throws a `RangeError`. */
+  onExhausted?: (name: string, limit: number) => string;
+}
+
+const DEFAULT_FREE_LIMIT = 10_000;
+
+function freeLimit(opts: FirstFreeOptions): number {
+  const limit = opts.limit ?? DEFAULT_FREE_LIMIT;
+  if (!Number.isInteger(limit) || limit < 1) throw new RangeError(`limit must be a whole number of at least 1, got ${String(limit)}`);
+  return limit;
+}
+
+function exhausted(name: string, limit: number, opts: FirstFreeOptions): string {
+  if (opts.onExhausted !== undefined) return opts.onExhausted(name, limit);
+  throw new RangeError(`no free name for ${JSON.stringify(name)} among the first ${String(limit)} numbers`);
+}
+
+/** The first of `name`, then `name` numbered 2, 3, … ({@link numberedName}) that `exists` does not know. `exists` is the caller's: it may
+ *  look at a vault, a set, two sources at once, or a pair of paths that must stay together (mailstone's note and its `.eml`). Carries the
+ *  seven private "first free name" loops of the plugins; what stays different on purpose (chat-archive's case-insensitive, byte-clipped
+ *  `uniqueChatFileName`) is in `docs/internal/decisions.md`. */
+export function firstFreeName(name: string, kind: SegmentKind, exists: (candidate: string) => boolean, opts: FirstFreeOptions = {}): string {
+  const limit = freeLimit(opts);
+  const style = opts.style ?? "space";
+  for (let n = 1; n <= limit; n++) {
+    const candidate = numberedName(name, kind, n, style);
+    if (!exists(candidate)) return candidate;
+  }
+  return exhausted(name, limit, opts);
+}
+
+/** {@link firstFreeName} for an `exists` that answers asynchronously (an adapter). Same order, same limits. */
+export async function firstFreeNameAsync(
+  name: string,
+  kind: SegmentKind,
+  exists: (candidate: string) => Promise<boolean>,
+  opts: FirstFreeOptions = {},
+): Promise<string> {
+  const limit = freeLimit(opts);
+  const style = opts.style ?? "space";
+  for (let n = 1; n <= limit; n++) {
+    const candidate = numberedName(name, kind, n, style);
+    if (!(await exists(candidate))) return candidate;
+  }
+  return exhausted(name, limit, opts);
 }

@@ -1,4 +1,4 @@
-// vendored from code-kit@0.63.0, src/ts/pure/answer-retry.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.73.0, src/ts/pure/answer-retry.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** One turn of a chat. Structurally the same as the message types of the callers (`ChatMessage` in obsidian-transmute and slide-deck,
  *  `LlmMessage` in vault-crews, `LlmChatMessage` in `web/llm-stream`), so their arrays go in and come out without a conversion; it is
  *  declared here because `pure/` may not import from `web/`. */
