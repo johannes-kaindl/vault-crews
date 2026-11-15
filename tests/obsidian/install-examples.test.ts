@@ -266,6 +266,11 @@ describe.each(LANGS)('Beispiel-Crews (%s)', (lang) => {
 		});
 	});
 
+	it('die Persona der Beispiel-Crew Eingangsordner hat Raum für ein denkendes Modell: max_tokens 4096 (gemessen: 1536 lief bei 3 von 10 Läufen ins Limit)', () => {
+		const { fm } = splitFrontmatter(asset(lang, lang === 'de' ? 'agents/eingang-sortierer.md' : 'agents/inbox-sorter.md'));
+		expect(fm?.max_tokens).toBe(4096);
+	});
+
 	describe(`assets/examples/${lang}/** ist byte-identisch zu den TS-Konstanten`, () => {
 		it.each(paths)('%s', (p) => {
 			// Der Spiegel legt runs.base ohne den Ordner `runs/` ab.
