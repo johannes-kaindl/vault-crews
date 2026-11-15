@@ -1530,3 +1530,77 @@ describe('executeRun — per_note mit Ziel {{input}}', () => {
     expect(await h.vault.read('n/a.md')).not.toContain('Zeile für B');
   });
 });
+
+// ── notes.create: neue Notizen aus Notizen ───────────────────────────────────
+
+describe('executeRun — notes.create', () => {
+  const INBOX = ['00_Inbox/a.md', '00_Inbox/b.md'];
+  const created = (...titles: string[]): ScriptedCall => ({
+    content: JSON.stringify({ items: titles.map((title) => ({ title, body: `Text zu ${title}.` })) }),
+  });
+
+  function createTeam(output: Record<string, unknown> = {}): TeamFm {
+    return triageTeamFm({
+      limits: { max_writes: 10 },
+      write_scope: ['10_Aufgaben/**/*.md'],
+      tasks: [
+        { id: 'collect', kind: 'collector', collector: 'vault.read', params: { paths: INBOX } },
+        {
+          id: 'make', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'Lege Aufgaben an.', per_note: true, on_error: 'abort',
+          output: { family: 'notes.create', folder: '10_Aufgaben/{{today}}', frontmatter: { type: '💪 Aufgabe', status: 'backlog' }, link_source: 'quelle', ...output },
+        },
+        { id: 'apply', kind: 'actions', inputs: ['make'], allowed_actions: ['note.create'] },
+      ],
+    });
+  }
+
+  it('legt je Notiz die Aufgaben an: fester Ordner, festes Frontmatter, Quell-Link, Text des Modells', async () => {
+    const llm = new ScriptLlmClient([created('Angebot A'), created('Angebot B')]);
+    const h = await harness({ teamFm: createTeam(), files: pnFiles(INBOX), llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    expect(r.writes).toBe(2);
+    const day = expandTarget('{{today}}', START_MS);
+    const a = await h.vault.read(`10_Aufgaben/${day}/Angebot A.md`);
+    expect(a).toContain('status: backlog');
+    expect(a).toContain('[[00_Inbox/a]]');
+    expect(a.trimEnd().endsWith('Text zu Angebot A.')).toBe(true);
+    expect(await h.vault.read(`10_Aufgaben/${day}/Angebot B.md`)).toContain('[[00_Inbox/b]]');
+    // Der Prompt nennt das Beispiel der Familie.
+    expect(llm.calls[0]?.messages[0]?.content).toContain('"title": "Angebot an Meyer schicken"');
+  });
+
+  it('ein zweiter Lauf mit gleichen Titeln schreibt nichts und endet als partial, nicht als failed', async () => {
+    const h = await harness({ teamFm: createTeam(), files: pnFiles(INBOX), llm: new ScriptLlmClient([created('Angebot A'), created('Angebot B')]) });
+    const first = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(first.status).toBe('ok');
+    const day = expandTarget('{{today}}', START_MS);
+    const before = await h.vault.read(`10_Aufgaben/${day}/Angebot A.md`);
+
+    const second = await runToCompletion(executeRun(h.teamPath, { ...h.deps, llm: new ScriptLlmClient([created('Angebot A'), created('Angebot B')]) }), h.clock);
+    expect(second.status).toBe('partial');
+    expect(second.writes).toBe(0);
+    expect(second.errorKind).toBeNull();
+    expect(await h.vault.read(`10_Aufgaben/${day}/Angebot A.md`)).toBe(before);
+  });
+
+  it('ist ein Titel belegt und der andere neu, wird nur der neue geschrieben (partial)', async () => {
+    const h = await harness({ teamFm: createTeam(), files: pnFiles(INBOX), llm: new ScriptLlmClient([created('Angebot A'), created('Angebot B')]) });
+    await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    const second = await runToCompletion(executeRun(h.teamPath, { ...h.deps, llm: new ScriptLlmClient([created('Angebot A'), created('Angebot C')]) }), h.clock);
+    expect(second.status).toBe('partial');
+    expect(second.writes).toBe(1);
+    expect(await h.vault.exists(`10_Aufgaben/${expandTarget('{{today}}', START_MS)}/Angebot C.md`)).toBe(true);
+  });
+
+  it('ein Titel mit Schrägstrich ist eine ungültige Antwort (kein Unterordner), das Modell bekommt eine Reparatur-Runde', async () => {
+    const llm = new ScriptLlmClient([created('Kunde/Meyer'), created('Kunde Meyer'), created('B')]);
+    const h = await harness({ teamFm: createTeam(), files: pnFiles(INBOX), llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    expect(llm.calls).toHaveLength(3);
+    const day = expandTarget('{{today}}', START_MS);
+    expect(await h.vault.exists(`10_Aufgaben/${day}/Kunde Meyer.md`)).toBe(true);
+    expect(await h.vault.exists(`10_Aufgaben/${day}/Kunde`)).toBe(false);
+  });
+});

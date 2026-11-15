@@ -515,7 +515,8 @@ class RunFsm {
 	 *  ab „Primärer Call“ bis zum geprüften Ergebnis. Wirft nie; ein Fehler kommt als `CallFailure` zurück. */
 	private async callModel(ctx: LlmCallContext, call: NoteCall): Promise<CallResult> {
 		const { task, rec, agent } = ctx;
-		const schema = buildSchema(task.output);
+		// Je Aufruf, nicht je Schritt: Zeitpunkt und Notiz gehören zum einzelnen Aufruf (`{{today}}`, Quell-Link bei `per_note`).
+		const schema = buildSchema(task.output, { nowMs: this.deps.clock.now(), notePath: call.notePath, destinations: [] });
 		const sources = call.inputs.flatMap((a) => a.files);
 		const slugTables = { ...mergeSlugTables(call.inputs), ...ctx.extraTables };
 		const target = this.resolveTarget(task, call.notePath);

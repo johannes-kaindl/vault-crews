@@ -1,7 +1,7 @@
 /** Parser + Preflight-Validierung für Agent-/Team-Definitionen aus dem Vault.
  *  Grundsatz (Spec §2.1/§3.1): ALLE Fehler sammeln, zeilenverständlich melden
  *  (`<datei>: <feld>: <problem>`), und zwar BEVOR irgendein LLM-Call passiert. */
-import { isDenied, normalizeVaultPath } from './paths';
+import { checkFixedFolder, isDenied, normalizeVaultPath } from './paths';
 import { foldCase } from '../vendor/kit/fold-case';
 import { normalizeRelPath } from '../vendor/kit/rel-path';
 import { MIN_INTERVAL_MINUTES, parseIntervalMinutes } from './heartbeat';
@@ -16,6 +16,11 @@ const COLLECTORS: CollectorId[] = ['vault.list', 'vault.read', 'tasknotes.query'
 /** Obergrenze von `max_chars` bei `text.append` (wie der Standard von `section.write`); Standard 4000. */
 const MAX_OUTPUT_CHARS = 16_000;
 const TEXT_APPEND_DEFAULT_CHARS = 4000;
+const NOTES_CREATE_DEFAULT_ITEMS = 5;
+/** Obergrenze von `max_items` bei `notes.create` (wie `MAX_TRIAGE_ITEMS` der Triage). */
+const NOTES_CREATE_MAX_ITEMS = 50;
+/** Ein Feldname im festen Frontmatter: ein Wort ohne `:`, `#`, Anführungszeichen und Zeilenumbruch, damit die Zeile `<name>: <wert>` stimmt. */
+const FRONTMATTER_KEY = /^[\p{L}\p{N}_][\p{L}\p{N}_ -]*$/u;
 const ACTIONS: ActionType[] = ['frontmatter.patch', 'note.create', 'note.append', 'section.replace'];
 
 /** Schlüssel, unter dem zwei `target`-Angaben als dieselbe Datei gelten: `normalizeVaultPath` (`./`, `//`, `\`, führendes `/`) und `foldCase`
@@ -118,12 +123,85 @@ function parseAddTo(
 	return ok ? [...raw] : null;
 }
 
+/** `output: { family: notes.create }`: fester Ordner (läuft durch `checkFixedFolder`), festes Frontmatter, optional der Name des Feldes für den Quell-Link. */
+function parseNotesCreate(
+	raw: Record<string, unknown>,
+	feld: string,
+	err: (feld: string, problem: string) => void,
+	denylist: string[],
+	writeScope: string[],
+): OutputSpec | null {
+	let ok = true;
+	if (raw.allowed_keys !== undefined) { err(`${feld}.allowed_keys`, 'gilt nur für frontmatter.set'); ok = false; }
+
+	let folder = '';
+	if (typeof raw.folder !== 'string' || raw.folder.trim() === '') {
+		err(`${feld}.folder`, 'fehlt oder leer (erwartet den Ordner, in dem die Notizen entstehen)');
+		ok = false;
+	} else {
+		const problem = checkFixedFolder(raw.folder, { writeScope }, denylist);
+		if (problem !== null) { err(`${feld}.folder`, problem); ok = false; }
+		else folder = normalizeVaultPath(raw.folder);
+	}
+
+	let maxItems = NOTES_CREATE_DEFAULT_ITEMS;
+	if (raw.max_items !== undefined) {
+		const m = raw.max_items;
+		if (typeof m !== 'number' || !Number.isInteger(m) || m < 1 || m > NOTES_CREATE_MAX_ITEMS) {
+			err(`${feld}.max_items`, `'${show(m)}' (erwartet ganze Zahl von 1 bis ${NOTES_CREATE_MAX_ITEMS})`);
+			ok = false;
+		} else {
+			maxItems = m;
+		}
+	}
+
+	const frontmatter: Record<string, string | number | string[]> = {};
+	if (raw.frontmatter !== undefined) {
+		if (!isRecord(raw.frontmatter)) {
+			err(`${feld}.frontmatter`, 'ist keine Zuordnung (erwartet <feld>: <text|zahl|liste von texten>)');
+			ok = false;
+		} else {
+			for (const [key, value] of Object.entries(raw.frontmatter)) {
+				const f = `${feld}.frontmatter.${key}`;
+				const oneLine = (v: unknown): v is string => typeof v === 'string' && !/[\r\n]/.test(v);
+				if (!FRONTMATTER_KEY.test(key) || key !== key.trim()) {
+					err(`${feld}.frontmatter`, `Feldname '${key}' ungültig (Buchstaben, Ziffern, _, - und Leerzeichen; ohne : # oder Zeilenumbruch)`);
+					ok = false;
+				} else if (oneLine(value) || (typeof value === 'number' && Number.isFinite(value))) {
+					frontmatter[key] = value;
+				} else if (Array.isArray(value) && value.every(oneLine)) {
+					frontmatter[key] = [...value];
+				} else {
+					err(f, `'${show(value)}' (erwartet einzeiligen Text, Zahl oder Liste von einzeiligen Texten)`);
+					ok = false;
+				}
+			}
+		}
+	}
+
+	let linkSource: string | null = null;
+	if (raw.link_source !== undefined) {
+		const l = raw.link_source;
+		if (typeof l !== 'string' || !FRONTMATTER_KEY.test(l) || l !== l.trim()) {
+			err(`${feld}.link_source`, `'${show(l)}' (erwartet den Namen eines Frontmatter-Feldes, etwa quelle)`);
+			ok = false;
+		} else if (Object.hasOwn(frontmatter, l)) {
+			err(`${feld}.link_source`, `'${l}' steht schon in frontmatter (das Feld bekäme zwei Werte)`);
+			ok = false;
+		} else {
+			linkSource = l;
+		}
+	}
+	return ok ? { family: 'notes.create', folder, maxItems, frontmatter, linkSource } : null;
+}
+
 /** Parst den neuen `output:`-Block einer llm-Task auf ein OutputSpec. */
 function parseOutputBlock(
 	raw: unknown,
 	feld: string,
 	err: (feld: string, problem: string) => void,
 	denylist: string[],
+	writeScope: string[],
 ): OutputSpec | null {
 	if (!isRecord(raw)) { err(feld, 'ist kein Objekt (erwartet family: …)'); return null; }
 	const family = raw.family;
@@ -138,7 +216,7 @@ function parseOutputBlock(
 		const addTo = parseAddTo(raw.add_to, `${feld}.add_to`, keys, err);
 		return values === null || addTo === null ? null : { family: 'frontmatter.set', allowedKeys: keys, values, addTo };
 	}
-	if ((family === 'section.write' || family === 'text.append') && (raw.values !== undefined || raw.add_to !== undefined)) {
+	if ((family === 'section.write' || family === 'text.append' || family === 'notes.create') && (raw.values !== undefined || raw.add_to !== undefined)) {
 		err(`${feld}.${raw.values !== undefined ? 'values' : 'add_to'}`, 'gilt nur für frontmatter.set');
 		return null;
 	}
@@ -175,7 +253,8 @@ function parseOutputBlock(
 		}
 		return ok ? { family: 'text.append', maxChars, heading } : null;
 	}
-	err(`${feld}.family`, `'${show(family)}' (erwartet frontmatter.set|section.write|text.append)`);
+	if (family === 'notes.create') return parseNotesCreate(raw, feld, err, denylist, writeScope);
+	err(`${feld}.family`, `'${show(family)}' (erwartet frontmatter.set|section.write|text.append|notes.create)`);
 	return null;
 }
 
@@ -315,7 +394,7 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 					if (hasBlock && hasLegacy) {
 						err(`${label}.output`, 'nicht beide: output und output_schema gleichzeitig gesetzt');
 					} else if (hasBlock) {
-						output = parseOutputBlock(raw.output, `${label}.output`, err, opts.denylist);
+						output = parseOutputBlock(raw.output, `${label}.output`, err, opts.denylist, writeScope);
 					} else if (hasLegacy) {
 						output = resolveSchemaAlias(typeof raw.output_schema === 'string' ? raw.output_schema : '');
 						if (output === null) err(`${label}.output_schema`, `'${show(raw.output_schema)}' (erwartet triage-v1|briefing-v1)`);
@@ -326,6 +405,9 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 					if (raw.on_error !== undefined && raw.on_error !== 'skip' && raw.on_error !== 'abort') err(`${label}.on_error`, `'${show(raw.on_error)}' (erwartet abort|skip)`);
 					if (raw.per_note !== undefined && typeof raw.per_note !== 'boolean') err(`${label}.per_note`, `'${show(raw.per_note)}' (erwartet true|false)`);
 					const perNote = raw.per_note === true;
+					if (output?.family === 'notes.create' && output.linkSource !== null && !perNote) {
+						err(`${label}.output.link_source`, 'verlangt per_note: true am Modellschritt (ohne per_note gibt es keine einzelne Quellnotiz)');
+					}
 					const def: LlmTaskDef = { id, kind: 'llm', agent, inputs, instruction: instruction ?? '', output: output ?? { family: 'frontmatter.set', allowedKeys: '*', values: {}, addTo: [] }, onError, perNote };
 					tasks.push(def);
 					break;
@@ -346,6 +428,11 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 						err(`${label}.create_if_missing`, `'${show(raw.create_if_missing)}' (erwartet true|false)`);
 					}
 					const createIfMissing = raw.create_if_missing === true;
+					for (const m of inputs.map((i) => tasks.find((t) => t.id === i))) {
+						if (m?.kind === 'llm' && m.output.family === 'notes.create' && !allowedActions.includes('note.create')) {
+							err(`${label}.allowed_actions`, `'${m.id}' legt Notizen an (notes.create), der Schritt braucht note.create`);
+						}
+					}
 					if (target !== null && target.includes('{{input}}')) {
 						const models = inputs.map((i) => tasks.find((t) => t.id === i)).filter((t): t is LlmTaskDef => t?.kind === 'llm');
 						if (models.length === 0 || models.some((m) => !m.perNote)) {

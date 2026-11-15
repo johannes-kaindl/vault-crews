@@ -388,6 +388,21 @@ describe('executeActions — note.create: Dateiname über safeName', () => {
     expect(res.writes).toEqual([]);
   });
 
+  it('ein leerer Name von der Namensrichtlinie legt keinen Ordner an (mkdir-Spion)', async () => {
+    const inner = await seed({});
+    const mkdirs: string[] = [];
+    const vault: VaultPort = { ...spyVault(inner).vault, mkdir: async (p) => { mkdirs.push(p); await inner.mkdir(p); } };
+    const res = await executeActions(
+      [{ type: 'note.create', path: '10_Aufgaben/🙂.md', content: 'x' }],
+      ctxOf([], { safeName: () => '' }),
+      vault,
+    );
+    expect(res.outcomes[0]?.result).toBe('rejected');
+    expect(res.writes).toEqual([]);
+    expect(mkdirs).toEqual([]);
+    expect(await inner.exists('10_Aufgaben/🙂.md')).toBe(false);
+  });
+
   it('ohne safeName bleibt alles wie vorher (Plugin-Umgebungen ohne Sanitizer-Verdrahtung)', async () => {
     const vault = await seed({});
     const res = await executeActions([{ type: 'note.create', path: 'Daily/neu.md', content: 'x' }], ctxOf([]), vault);

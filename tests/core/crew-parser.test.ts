@@ -418,6 +418,108 @@ describe('output: block (schema families)', () => {
 		});
 	});
 
+	describe('notes.create', () => {
+		const NC = { family: 'notes.create', folder: '10_Aufgaben', frontmatter: { type: '💪 Aufgabe', prio: 2, tags: ['a', 'b'] }, link_source: 'quelle' };
+		const tasksOf = (output: unknown, llmExtra: Record<string, unknown> = { per_note: true }) => [
+			{ id: 'collect', kind: 'collector', collector: 'vault.read', params: { paths: ['00_Inbox/t.md'] } },
+			{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'x', output, ...llmExtra },
+			{ id: 'apply', kind: 'actions', inputs: ['l'], allowed_actions: ['note.create'] },
+		];
+		const parse = (output: unknown, llmExtra?: Record<string, unknown>, team: Record<string, unknown> = {}) =>
+			parseTeamDef(TEAM_PATH, teamFm({ tasks: tasksOf(output, llmExtra), ...team }), OPTS);
+		const errs = (r: ReturnType<typeof parse>): string => (r.ok ? '' : r.errors.join('\n'));
+
+		it('parst Ordner, festes Frontmatter und Quell-Link, max_items Standard 5', () => {
+			const r = parse(NC);
+			expect(r.ok, errs(r)).toBe(true);
+			if (!r.ok) return;
+			expect((r.value.tasks[1] as { output: unknown }).output).toEqual({
+				family: 'notes.create', folder: '10_Aufgaben', maxItems: 5,
+				frontmatter: { type: '💪 Aufgabe', prio: 2, tags: ['a', 'b'] }, linkSource: 'quelle',
+			});
+		});
+
+		it('Frontmatter und link_source sind optional; der Ordner wird normalisiert', () => {
+			const r = parse({ family: 'notes.create', folder: './10_Aufgaben//', max_items: 50 }, {});
+			expect(r.ok, errs(r)).toBe(true);
+			if (!r.ok) return;
+			expect((r.value.tasks[1] as { output: unknown }).output).toEqual({ family: 'notes.create', folder: '10_Aufgaben', maxItems: 50, frontmatter: {}, linkSource: null });
+		});
+
+		it('der Platzhalter {{today}} im Ordner bleibt stehen', () => {
+			const r = parse({ ...NC, folder: '10_Aufgaben/{{today}}' });
+			expect(r.ok, errs(r)).toBe(true);
+			if (!r.ok) return;
+			expect((r.value.tasks[1] as { output: { folder: string } }).output.folder).toBe('10_Aufgaben/{{today}}');
+		});
+
+		it('ein Ordner außerhalb von write_scope ist ein Fehler, der Ordner und Regel nennt', () => {
+			const r = parse({ ...NC, folder: 'Anderswo' });
+			expect(r.ok).toBe(false);
+			expect(errs(r)).toMatch(/output\.folder.*'Anderswo'.*write_scope/);
+		});
+
+		it('ein Ordner auf der Sperrliste ist ein Fehler, der die Regel nennt', () => {
+			const r = parse({ ...NC, folder: '_crews/x' }, undefined, { write_scope: ['**/*.md'] });
+			expect(r.ok).toBe(false);
+			expect(errs(r)).toMatch(/output\.folder.*'_crews\/x'.*Sperrliste.*_crews\/\*\*/);
+		});
+
+		it.each([['../Geheim'], ['a/../../b'], [''], ['  '], [5], ['10_Aufgaben/{{input}}'], ['10_Aufgaben/*']])('lehnt den Ordner %j ab', (folder) => {
+			const r = parse({ ...NC, folder });
+			expect(r.ok).toBe(false);
+			expect(errs(r)).toMatch(/output\.folder/);
+		});
+
+		it('fehlender Ordner ist ein Fehler', () => {
+			const { folder: _f, ...rest } = NC;
+			expect(errs(parse(rest))).toMatch(/output\.folder.*fehlt/);
+		});
+
+		it('link_source ohne per_note: true ist ein Fehler', () => {
+			const r = parse(NC, {});
+			expect(r.ok).toBe(false);
+			expect(errs(r)).toMatch(/link_source.*per_note/);
+		});
+
+		it('link_source darf nicht ein Schlüssel des festen Frontmatters sein', () => {
+			const r = parse({ ...NC, link_source: 'type' });
+			expect(r.ok).toBe(false);
+			expect(errs(r)).toMatch(/link_source.*type/);
+		});
+
+		it.each([[''], [5], ['a:b']])('lehnt link_source %j ab', (v) => {
+			expect(errs(parse({ ...NC, link_source: v }))).toMatch(/link_source/);
+		});
+
+		it('max_items: Standard 5, über 50 ein Fehler', () => {
+			expect(errs(parse({ ...NC, max_items: 51 }))).toMatch(/max_items/);
+			for (const v of [0, -1, 1.5, '5']) expect(errs(parse({ ...NC, max_items: v }))).toMatch(/max_items/);
+			expect(parse({ ...NC, max_items: 50 }).ok).toBe(true);
+			expect(parse({ ...NC, max_items: 1 }).ok).toBe(true);
+		});
+
+		it.each([[{ a: true }], [{ a: null }], [{ a: { b: 1 } }], [{ a: [1, 2] }], [{ a: ['x', null] }], [{ a: 'zwei\nZeilen' }], [{ 'a:b': 'x' }], [{ '': 'x' }], [['liste']]])('lehnt Frontmatter %j ab', (fm) => {
+			const r = parse({ ...NC, frontmatter: fm });
+			expect(r.ok).toBe(false);
+			expect(errs(r)).toMatch(/output\.frontmatter/);
+		});
+
+		it('lehnt allowed_keys, values und add_to ab', () => {
+			for (const extra of [{ allowed_keys: ['a'] }, { values: {} }, { add_to: ['a'] }]) {
+				expect(parse({ ...NC, ...extra }).ok).toBe(false);
+			}
+		});
+
+		it('der Aktions-Schritt braucht note.create in allowed_actions', () => {
+			const tasks = tasksOf(NC);
+			(tasks[2] as { allowed_actions: string[] }).allowed_actions = ['frontmatter.patch'];
+			const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
+			expect(r.ok).toBe(false);
+			expect(errs(r)).toMatch(/note\.create/);
+		});
+	});
+
 	describe('{{input}} als Ziel', () => {
 		const sw = { family: 'section.write' };
 		const tasksOf = (llmExtra: Record<string, unknown>, target = '{{input}}') => [

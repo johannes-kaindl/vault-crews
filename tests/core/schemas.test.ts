@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_SCHEMAS, buildSchema, makeFrontmatterSet, makeSectionWrite, makeTextAppend } from '../../src/core/schemas';
-import type { CollectedFile, SlugTableData } from '../../src/core/types';
+import { BUILTIN_SCHEMAS, buildSchema, makeFrontmatterSet, makeNotesCreate, makeSectionWrite, makeTextAppend } from '../../src/core/schemas';
+import type { SchemaRuntime } from '../../src/core/schemas';
+import type { CollectedFile, OutputSpec, SlugTableData } from '../../src/core/types';
 
 const sources: CollectedFile[] = [
 	{ path: '10_Aufgaben/a.md', contentHash: 'h', frontmatter: null, content: null },
@@ -182,5 +183,123 @@ describe('makeTextAppend', () => {
 			'Antworte ausschließlich mit dem Text, der angehängt wird, als Markdown-Text — kein JSON, keine Code-Fence, keine Erklärungen davor oder danach.',
 		);
 		expect(s.outputExample).toBe('## Zusammenfassung\n- Kernaussage eins\n- Kernaussage zwei');
+	});
+});
+
+describe('makeNotesCreate', () => {
+	const rt: SchemaRuntime = { nowMs: Date.UTC(2026, 10, 14, 12), notePath: '00_Inbox/t.md', destinations: [] };
+	type NotesCreateSpec = Extract<OutputSpec, { family: 'notes.create' }>;
+	const spec: NotesCreateSpec = {
+		family: 'notes.create', folder: '10_Aufgaben', maxItems: 5,
+		frontmatter: { type: '💪 Aufgabe', status: 'backlog' }, linkSource: 'quelle',
+	};
+	const run = (items: unknown[], s: NotesCreateSpec = spec, r: SchemaRuntime = rt) =>
+		makeNotesCreate(s, r).validate({ items }, sources, noSlugs, null);
+	const created = (items: unknown[], s: NotesCreateSpec = spec, r: SchemaRuntime = rt): { path: string; content: string }[] => {
+		const res = run(items, s, r);
+		if (!res.ok) throw new Error(res.errors.join('; '));
+		return res.actions.map((a) => {
+			if (a.type !== 'note.create') throw new Error('keine note.create');
+			return { path: a.path, content: a.content };
+		});
+	};
+
+	it('baut Pfad aus festem Ordner und Titel, Inhalt aus festem Frontmatter, Quelle und Text', () => {
+		const r = run([{ title: 'Angebot schicken', body: 'Bis Freitag.' }]);
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		expect(r.actions[0]).toMatchObject({ type: 'note.create', path: '10_Aufgaben/Angebot schicken.md' });
+		const content = (r.actions[0] as { content: string }).content;
+		expect(content.startsWith('---\n')).toBe(true);
+		expect(content).toContain('status: backlog');
+		// Pfadlink, eindeutig auch bei gleichnamigen Notizen; im Frontmatter quotiert.
+		expect(content).toContain('[[00_Inbox/t]]');
+		expect(content).not.toContain('[[t]]');
+		expect(content.trimEnd().endsWith('Bis Freitag.')).toBe(true);
+	});
+
+	it('schreibt Frontmatter in der Reihenfolge der Crew-Datei, die Quelle zuletzt', () => {
+		const [note] = created([{ title: 'A', body: 'x' }]);
+		const fm = (note?.content ?? '').split('---\n')[1] ?? '';
+		expect(fm.split('\n').map((l) => l.split(':')[0])).toEqual(['type', 'status', 'quelle', '']);
+	});
+
+	it('ohne link_source steht keine Quelle im Frontmatter', () => {
+		const [note] = created([{ title: 'A', body: 'x' }], { ...spec, linkSource: null });
+		expect(note?.content).not.toContain('quelle');
+		expect(note?.content).not.toContain('[[');
+	});
+
+	it('ein Quellpfad, der sich nicht als Link schreiben lässt, steht als Text', () => {
+		const [note] = created([{ title: 'A', body: 'x' }], spec, { ...rt, notePath: '00_Inbox/Was #1.md' });
+		expect(note?.content).toContain('00_Inbox/Was #1.md');
+		expect(note?.content).not.toContain('[[');
+	});
+
+	it('ohne Quellnotiz (kein per_note) entfällt der Quell-Link', () => {
+		const [note] = created([{ title: 'A', body: 'x' }], spec, { ...rt, notePath: null });
+		expect(note?.content).not.toContain('quelle');
+	});
+
+	it('erweitert {{today}} im Ordner mit dem Zeitpunkt der Laufzeit', () => {
+		const [note] = created([{ title: 'A', body: 'x' }], { ...spec, folder: 'Journal/{{today}}' });
+		expect(note?.path).toBe('Journal/2026-11-14/A.md');
+	});
+
+	it('trimmt den Titel und lässt einen leeren Text zu', () => {
+		const [note] = created([{ title: '  Angebot schicken \n', body: '' }]);
+		expect(note?.path).toBe('10_Aufgaben/Angebot schicken.md');
+		expect(note?.content.endsWith('---\n')).toBe(true);
+	});
+
+	it.each(['🙂 Idee', 'Q3', 'Überfällig', '2026'])('nimmt den Titel %j an', (title) => {
+		expect(run([{ title, body: 'x' }]).ok).toBe(true);
+	});
+
+	it.each(['Kunde/Meyer', 'a\\b', '', '   ', '🙂', '...', '--', 'a\nb', 'x'.repeat(121), `${'🙂'.repeat(120)}`])('lehnt den Titel %j ab', (title) => {
+		const r = run([{ title, body: 'x' }]);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.errors.join('\n')).toMatch(/items\[0\]\.title/);
+	});
+
+	it('zählt die 120 Zeichen des Titels als Codepunkte, nicht als UTF-16-Einheiten', () => {
+		expect(run([{ title: `a${'🙂'.repeat(119)}`, body: 'x' }]).ok).toBe(true);
+		expect(run([{ title: `a${'🙂'.repeat(120)}`, body: 'x' }]).ok).toBe(false);
+		expect(run([{ title: 'x'.repeat(120), body: 'x' }]).ok).toBe(true);
+	});
+
+	it('lehnt einen Text ab, der kein Text ist', () => {
+		expect(run([{ title: 'A' }]).ok).toBe(false);
+		expect(run([{ title: 'A', body: 3 }]).ok).toBe(false);
+		expect(run(['A']).ok).toBe(false);
+	});
+
+	it('lehnt mehr als max_items ab, nimmt genau max_items an', () => {
+		const items = (n: number) => Array.from({ length: n }, (_, i) => ({ title: `t${i}`, body: 'x' }));
+		const over = run(items(6));
+		expect(over.ok).toBe(false);
+		if (!over.ok) expect(over.errors.join('\n')).toMatch(/max_items/);
+		expect(run(items(5)).ok).toBe(true);
+	});
+
+	it('lehnt eine Antwort ohne items-Liste ab, eine leere Liste ist keine Notiz', () => {
+		expect(makeNotesCreate(spec, rt).validate({}, sources, noSlugs, null).ok).toBe(false);
+		const r = run([]);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.actions).toEqual([]);
+	});
+
+	it('nennt Vertrag und Beispiel', () => {
+		const schema = makeNotesCreate(spec, rt);
+		expect(schema.outputFormat).toBe('json');
+		expect(schema.promptContract).toContain('5');
+		expect(schema.outputExample).toBe('{"items": [{"title": "Angebot an Meyer schicken", "body": "Bis Freitag, Vorlage vom letzten Mal."}]}');
+	});
+
+	it('buildSchema reicht die Laufzeit durch; ohne sie ist die Familie nicht baubar', () => {
+		const out: OutputSpec = spec;
+		expect(buildSchema(out, rt).id).toBe('notes.create');
+		expect(() => buildSchema(out)).toThrow(/SchemaRuntime/);
+		expect(buildSchema({ family: 'text.append', maxChars: 10, heading: null }).id).toBe('text.append');
 	});
 });

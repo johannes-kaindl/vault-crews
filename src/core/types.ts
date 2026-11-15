@@ -33,7 +33,13 @@ export type OutputSpec =
 	/** `wording`: `briefing` ist der Wortlaut von `briefing-v1` (Golden-Test, byte-genau), `neutral` der von `output: { family: section.write }`. */
 	| { family: 'section.write'; maxChars: number; wording: 'briefing' | 'neutral' }
 	/** Hängt den Text ans Ende der Zielnotiz (`note.append`), unter `heading`, wenn gesetzt. */
-	| { family: 'text.append'; maxChars: number; heading: string | null };
+	| { family: 'text.append'; maxChars: number; heading: string | null }
+	/** Legt aus den Einträgen des Modells (`title`, `body`) neue Notizen an: Ordner und Frontmatter sind fest, nur Titel und Text kommen vom
+	 *  Modell. `linkSource`: Name des Frontmatter-Feldes, das einen Wikilink auf die bearbeitete Notiz (`per_note`) trägt. */
+	| { family: 'notes.create'; folder: string; maxItems: number; frontmatter: Record<string, string | number | string[]>; linkSource: string | null };
+
+/** Ein Zielordner für das Ablegen einer Notiz (Familie `note.file`): `when` sagt dem Modell, wann er passt; `null` heißt ohne Hinweis. */
+export interface Destination { folder: string; when: string | null }
 
 export interface CollectorTaskDef {
 	id: string;

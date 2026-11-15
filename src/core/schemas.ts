@@ -3,7 +3,9 @@
  *  erzeugt daraus die deterministische Aktionsliste — ein einziger Übergabepunkt.
  *  Quellbindung macht Pfad-Halluzination strukturell unmöglich; Slug-Rück-Mapping passiert
  *  HIER (der Executor kennt keine SlugTables, Skelett-ExecutorContext). */
-import type { Action, CollectedFile, FmValue, FrontmatterPatchAction, OutputSpec, SchemaId, SlugTableData } from './types';
+import { serializeFrontmatter, wikilinkOf } from '../vendor/kit/frontmatter';
+import { expandTarget } from './paths';
+import type { Action, CollectedFile, Destination, FmValue, FrontmatterPatchAction, NoteCreateAction, OutputSpec, SchemaId, SlugTableData } from './types';
 
 export interface SchemaDef {
 	/** Familien-/Alias-Kennung (extern nicht gelesen; rein zur Selbstbeschreibung). */
@@ -166,7 +168,70 @@ export function makeTextAppend(maxChars: number, heading: string | null): Schema
 	};
 }
 
-export function buildSchema(spec: OutputSpec): SchemaDef {
+/** Was ein Schema zur Laufzeit wissen muss und das Crew-Datei nicht festlegt: der Zeitpunkt des Aufrufs (für `{{today}}`), die Notiz, die
+ *  ein `per_note`-Aufruf gerade bearbeitet (`null` ohne `per_note`), und die Zielordner, die der Orchestrator für `note.file` aufgelöst hat. */
+export interface SchemaRuntime { nowMs: number; notePath: string | null; destinations: Destination[] }
+
+export const TITLE_MAX_CHARS = 120;
+
+/** Warum ein Titel kein Dateiname einer neuen Notiz sein kann, sonst `null`. `title` ist schon getrimmt. Gezählt wird in Codepunkten.
+ *  Ein Titel braucht mindestens einen Buchstaben oder eine Ziffer: die Namensrichtlinie macht aus einem Titel ohne beides sonst
+ *  `Untitled` (`...`) oder lässt ihn als bloßes Emoji stehen, beides keine Notiz, die jemand finden will. */
+function titleProblem(title: string): string | null {
+	const length = [...title].length;
+	if (length === 0) return 'ist leer';
+	if (length > TITLE_MAX_CHARS) return `${length} Zeichen überschreiten Maximum ${TITLE_MAX_CHARS}`;
+	if (/[/\\]/.test(title)) return 'enthält / oder \\ (der Titel ist ein Dateiname, kein Pfad)';
+	if ([...title].some((c) => { const cp = c.codePointAt(0) ?? 0; return cp < 0x20 || cp === 0x7f; })) return 'enthält Steuerzeichen oder Zeilenumbrüche';
+	if (!/[\p{L}\p{N}]/u.test(title)) return 'braucht mindestens einen Buchstaben oder eine Ziffer';
+	return null;
+}
+
+/** Neue Notizen: Ordner und Frontmatter stehen in der Crew-Datei, das Modell liefert nur `title` und `body` je Eintrag. Der Pfad ist
+ *  `<Ordner>/<Titel>.md`; die Quell-Notiz des Aufrufs steht als Wikilink im Feld `linkSource` (Pfadlink, eindeutig auch bei gleichnamigen
+ *  Notizen). Dass ein Titel schon belegt ist, entscheidet der Executor (`code: 'exists'`), nicht das Schema. */
+export function makeNotesCreate(spec: Extract<OutputSpec, { family: 'notes.create' }>, rt: SchemaRuntime): SchemaDef {
+	const folder = expandTarget(spec.folder, rt.nowMs);
+	const fixed = { ...spec.frontmatter };
+	const order = Object.keys(fixed);
+	if (spec.linkSource !== null && rt.notePath !== null) {
+		// Lässt sich der Pfad nicht als Link schreiben (`#`, `|`, …), steht er als Text: ein sichtbarer Pfad ist besser als ein falscher Link.
+		fixed[spec.linkSource] = wikilinkOf(rt.notePath) ?? rt.notePath;
+		order.push(spec.linkSource);
+	}
+	const head = serializeFrontmatter(fixed, order);
+	return {
+		id: 'notes.create',
+		outputFormat: 'json',
+		promptContract:
+			'Antworte ausschließlich mit einem JSON-Objekt in einem ```json-Block, keine Erklärungen davor oder danach. '
+			+ `Jeder Eintrag in items wird eine neue Notiz: title ist ihr Name (ein Dateiname, kein Pfad, höchstens ${TITLE_MAX_CHARS} Zeichen), `
+			+ `body ihr Text. Höchstens ${spec.maxItems} Einträge; nichts zu tun heißt eine leere Liste.`,
+		outputExample: '{"items": [{"title": "Angebot an Meyer schicken", "body": "Bis Freitag, Vorlage vom letzten Mal."}]}',
+		validate(json, _sources, _slugTables, _target) {
+			if (!isRecord(json) || !Array.isArray(json.items)) return { ok: false, errors: ['items: fehlt oder ist keine Liste'] };
+			const items: unknown[] = json.items;
+			const errors: string[] = [];
+			if (items.length > spec.maxItems) errors.push(`items: ${items.length} überschreitet max_items ${spec.maxItems}`);
+			const actions: NoteCreateAction[] = [];
+			for (let i = 0; i < items.length; i++) {
+				const item: unknown = items[i];
+				if (!isRecord(item)) { errors.push(`items[${i}]: ist kein Objekt`); continue; }
+				if (typeof item.title !== 'string') { errors.push(`items[${i}].title: fehlt oder ist kein Text`); continue; }
+				const title = item.title.trim();
+				const problem = titleProblem(title);
+				if (problem !== null) { errors.push(`items[${i}].title: ${problem}`); continue; }
+				if (typeof item.body !== 'string') { errors.push(`items[${i}].body: fehlt oder ist kein Text`); continue; }
+				const body = item.body.trim();
+				actions.push({ type: 'note.create', path: `${folder}/${title}.md`, content: body === '' ? head : `${head}\n${body}\n` });
+			}
+			if (errors.length > 0) return { ok: false, errors };
+			return { ok: true, actions };
+		},
+	};
+}
+
+export function buildSchema(spec: OutputSpec, rt?: SchemaRuntime): SchemaDef {
 	switch (spec.family) {
 		case 'frontmatter.set':
 			return makeFrontmatterSet(spec.allowedKeys, spec.addTo);
@@ -174,6 +239,9 @@ export function buildSchema(spec: OutputSpec): SchemaDef {
 			return makeSectionWrite(spec.maxChars, spec.wording);
 		case 'text.append':
 			return makeTextAppend(spec.maxChars, spec.heading);
+		case 'notes.create':
+			if (rt === undefined) throw new Error('notes.create braucht eine SchemaRuntime (Zeitpunkt, Notiz)');
+			return makeNotesCreate(spec, rt);
 	}
 }
 

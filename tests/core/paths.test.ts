@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDenylist, expandTarget, globMatch, isDenied, normalizeVaultPath } from '../../src/core/paths';
+import { buildDenylist, checkFixedFolder, expandTarget, globMatch, isDenied, normalizeVaultPath } from '../../src/core/paths';
 
 const DENYLIST = buildDenylist('.obsidian', '_crews');
 
@@ -138,5 +138,48 @@ describe('expandTarget', () => {
 	it('{{input}} ohne Notiz bleibt stehen (der Parser verlangt per_note, der Orchestrator löst nie auf)', () => {
 		expect(expandTarget('{{input}}', 0)).toBe('{{input}}');
 		expect(expandTarget('{{input}}', 0, null)).toBe('{{input}}');
+	});
+});
+
+describe('checkFixedFolder', () => {
+	const deny = buildDenylist('.obsidian', '_crews');
+	const scope = { writeScope: ['10_Aufgaben/**', 'Journal/**'] };
+	const all = { writeScope: ['**'] };
+
+	it.each(['10_Aufgaben', '10_Aufgaben/Sub', './10_Aufgaben/', 'Journal/{{today}}'])('lässt %j zu', (folder) => {
+		expect(checkFixedFolder(folder, scope, deny)).toBeNull();
+	});
+
+	it('nennt Ordner und write_scope, wenn der Ordner draußen liegt', () => {
+		const msg = checkFixedFolder('Anderswo', scope, deny);
+		expect(msg).toContain("'Anderswo'");
+		expect(msg).toContain('write_scope');
+		expect(msg).toContain('10_Aufgaben/**');
+	});
+
+	it('nennt Ordner und die Regel der Sperrliste', () => {
+		const msg = checkFixedFolder('_crews/x', all, deny);
+		expect(msg).toContain("'_crews/x'");
+		expect(msg).toContain('_crews/**');
+		expect(checkFixedFolder('.obsidian', all, deny)).toContain('.obsidian/**');
+	});
+
+	it('die Sperrliste gilt auch für abweichende Schreibweisen (Dateisystem-Lesart)', () => {
+		expect(checkFixedFolder('_CREWS', all, deny)).not.toBeNull();
+		expect(checkFixedFolder('_crews ', all, deny)).not.toBeNull();
+	});
+
+	it.each(['..', '../x', 'a/../../x', 'a/ .. /b', 'a\0b'])('wirft bei %j nicht, sondern meldet einen Fehler', (folder) => {
+		expect(() => checkFixedFolder(folder, all, deny)).not.toThrow();
+		expect(checkFixedFolder(folder, all, deny)).toMatch(/\.\.|NUL|ungültig/);
+	});
+
+	it.each(['', '  ', '.', '/', './'])('lehnt die Wurzel %j ab', (folder) => {
+		expect(checkFixedFolder(folder, all, deny)).not.toBeNull();
+	});
+
+	it('lehnt andere Platzhalter und Glob-Zeichen ab', () => {
+		expect(checkFixedFolder('a/{{input}}', all, deny)).toContain('{{input}}');
+		expect(checkFixedFolder('a/*', all, deny)).not.toBeNull();
 	});
 });

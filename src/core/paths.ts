@@ -1,6 +1,7 @@
 import { localDate } from '../vendor/kit/local-stamp';
 import { filesystemPath } from '../vendor/kit/folder-scope';
 import { normalizeRelPath } from '../vendor/kit/rel-path';
+import type { TeamDef } from './types';
 
 /** Pfad-Guards des pure-Layers. Jede Schreib-/Leseaktion der Agenten läuft hier durch —
  *  die Denylist überstimmt jede write_scope-Whitelist (Spec §4.4). */
@@ -85,4 +86,32 @@ export function expandTarget(template: string, nowMs: number, inputPath: string 
 	const d = new Date(nowMs);
 	const today = template.replaceAll('{{today}}', localDate(d));
 	return inputPath === null ? today : today.replaceAll('{{input}}', () => inputPath);
+}
+
+const SAMPLE_DAY_MS = Date.UTC(2000, 0, 1, 12);
+
+/** Prüft einen FESTEN Zielordner einer Crew-Datei (`notes.create`, `note.file`) beim Einlesen. Gemessen wird der Probepfad `<Ordner>/x.md`
+ *  mit denselben Wächtern, die der Executor später auf den echten Pfad anwendet: Sperrliste (überstimmt alles) und `write_scope`. Gibt den
+ *  Fehltext zurück (er nennt den Ordner und die Regel, die ihn trifft) oder `null`. Wirft nie: ein `..` oder NUL im Ordner ist ein Fehltext
+ *  statt der Ausnahme von `normalizeVaultPath`. Der Platzhalter `{{today}}` ist erlaubt und wird für die Probe durch ein Beispieldatum ersetzt;
+ *  jeder andere Platzhalter ist ein Fehler, ebenso die Vault-Wurzel und ein Glob-Zeichen (`*`). */
+export function checkFixedFolder(folder: string, team: Pick<TeamDef, 'writeScope'>, denylist: string[]): string | null {
+	const raw = folder.trim();
+	const placeholder = /\{\{([^}]*)\}\}/.exec(raw.replaceAll('{{today}}', ''));
+	if (placeholder !== null) return `'${raw}': der Platzhalter ${placeholder[0]} ist hier nicht erlaubt (nur {{today}})`;
+	let norm: string;
+	try {
+		norm = normalizeVaultPath(raw);
+	} catch {
+		return `'${raw.replaceAll('\0', '\\0')}': ungültiger Ordner (".." und NUL sind nicht erlaubt)`;
+	}
+	if (norm === '') return `'${raw}': der Ordner fehlt oder ist die Vault-Wurzel (erwartet einen Ordner im Vault)`;
+	if (norm.includes('*')) return `'${norm}': ein Ordner ist ein fester Name, kein Muster (kein *)`;
+	const probe = `${expandTarget(norm, SAMPLE_DAY_MS)}/x.md`;
+	if (isDenied(probe, denylist)) {
+		const rule = denylist.find((d) => globMatch(d, probe));
+		return `'${norm}' liegt in einem geschützten Bereich${rule === undefined ? '' : ` (Sperrliste: ${rule})`}`;
+	}
+	if (!team.writeScope.some((g) => globMatch(g, probe))) return `'${norm}' liegt außerhalb von write_scope (${team.writeScope.join(', ')})`;
+	return null;
 }
