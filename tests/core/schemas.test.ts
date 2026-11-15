@@ -75,9 +75,55 @@ describe('makeSectionWrite', () => {
 	});
 });
 
+describe('makeFrontmatterSet — add_to', () => {
+	const path = '10_Aufgaben/a.md';
+	const tagTable = { tags: { toSlug: { 'projekt/alpha': 'projekt-alpha', neu: 'neu' }, fromSlug: { 'projekt-alpha': 'projekt/alpha', neu: 'neu' } } };
+
+	it('ein Listenwert eines add_to-Feldes wandert nach add statt nach set', () => {
+		const r = makeFrontmatterSet(['tags', 'priority'], ['tags']).validate(
+			{ items: [{ path, set: { tags: ['a', 'b'], priority: 'mittel' } }] }, sources, noSlugs, null,
+		);
+		expect(r).toEqual({ ok: true, actions: [{ type: 'frontmatter.patch', path, set: { priority: 'mittel' }, remove: [], add: { tags: ['a', 'b'] } }] });
+	});
+
+	it('ein Einzelwert eines add_to-Feldes wird eine einelementige Liste', () => {
+		const r = makeFrontmatterSet(['tags'], ['tags']).validate({ items: [{ path, set: { tags: 'a' } }] }, sources, noSlugs, null);
+		expect(r).toEqual({ ok: true, actions: [{ type: 'frontmatter.patch', path, set: {}, remove: [], add: { tags: ['a'] } }] });
+	});
+
+	it('Gegenprobe: ohne add_to ersetzt das Feld wie bisher (set, kein add)', () => {
+		const r = makeFrontmatterSet(['tags']).validate({ items: [{ path, set: { tags: ['a'] } }] }, sources, noSlugs, null);
+		expect(r).toEqual({ ok: true, actions: [{ type: 'frontmatter.patch', path, set: { tags: ['a'] }, remove: [] }] });
+		const leer = makeFrontmatterSet(['tags'], []).validate({ items: [{ path, set: { tags: ['a'] } }] }, sources, noSlugs, null);
+		expect(leer).toEqual(r);
+	});
+
+	it('ein Tag, den es im Vault nicht gibt, wird abgelehnt (auch als Einzelwert)', () => {
+		const schema = makeFrontmatterSet(['tags'], ['tags']);
+		for (const wert of [['erfunden'], ['neu', 'erfunden'], 'erfunden']) {
+			const r = schema.validate({ items: [{ path, set: { tags: wert } }] }, sources, tagTable, null);
+			expect(r.ok, JSON.stringify(wert)).toBe(false);
+			if (!r.ok) expect(r.errors.join('\n')).toMatch(/erfunden.*kein erlaubter Wert/);
+		}
+		const ok = schema.validate({ items: [{ path, set: { tags: ['projekt-alpha'] } }] }, sources, tagTable, null);
+		expect(ok.ok).toBe(true);
+	});
+
+	it('ein add_to-Feld mit null ist unzulässig', () => {
+		const r = makeFrontmatterSet(['tags'], ['tags']).validate({ items: [{ path, set: { tags: null } }] }, sources, noSlugs, null);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.errors.join('\n')).toMatch(/tags/);
+	});
+});
+
 describe('buildSchema', () => {
+	it('reicht add_to an frontmatter.set weiter', () => {
+		const r = buildSchema({ family: 'frontmatter.set', allowedKeys: ['tags'], values: {}, addTo: ['tags'] })
+			.validate({ items: [{ path: '10_Aufgaben/a.md', set: { tags: ['x'] } }] }, sources, noSlugs, null);
+		expect(r.ok && r.actions[0]).toMatchObject({ add: { tags: ['x'] } });
+	});
 	it('dispatches frontmatter.set', () => {
-		expect(buildSchema({ family: 'frontmatter.set', allowedKeys: ['tags'] }).outputFormat).toBe('json');
+		expect(buildSchema({ family: 'frontmatter.set', allowedKeys: ['tags'], values: {}, addTo: [] }).outputFormat).toBe('json');
 	});
 	it('dispatches section.write', () => {
 		expect(buildSchema({ family: 'section.write', maxChars: 16000, wording: 'briefing' }).outputFormat).toBe('text');

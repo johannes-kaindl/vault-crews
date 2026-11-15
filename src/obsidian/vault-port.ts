@@ -58,6 +58,7 @@ export class ObsidianVaultPort implements VaultPort {
     path: string,
     set: Record<string, FmValue>,
     remove: string[],
+    add?: Record<string, (string | number)[]>,
   ): Promise<void> {
     const f = this.file(path);
     // processFrontMatter patcht nur den YAML-Block und lässt alle anderen Bytes
@@ -65,6 +66,17 @@ export class ObsidianVaultPort implements VaultPort {
     await this.app.fileManager.processFrontMatter(f, (fm: Record<string, unknown>) => {
       for (const [key, value] of Object.entries(set)) fm[key] = value; // set: auch null-Werte
       for (const key of remove) delete fm[key];                        // remove: Key verschwindet
+      // add: Vereinigung aus dem Stand, den Obsidian HIER übergibt (nicht aus einem vorher gelesenen), exakt und ohne Normalisierung.
+      for (const [key, values] of Object.entries(add ?? {})) {
+        const before = fm[key];
+        let merged: unknown[];
+        if (before === undefined || before === null) merged = [];
+        else if (Array.isArray(before)) merged = [...(before as unknown[])];
+        else if (typeof before === "string" || typeof before === "number") merged = [before];
+        else throw new Error(`vault-crews: Feld '${key}' ist weder Liste noch Text noch Zahl, nichts hinzugefügt`);
+        for (const v of values) if (!merged.includes(v)) merged.push(v);
+        fm[key] = merged;
+      }
     });
   }
 
@@ -96,6 +108,33 @@ export class ObsidianMetadataPort implements MetadataPort {
     const cache = this.app.metadataCache.getFileCache(f);
     // Rohes Cache-Objekt durchreichen — Normalisierung/Kopie macht der Collector (core).
     return cache?.frontmatter ?? null;
+  }
+
+  /** Tags aus `cache.tags` (im Text) und `cache.frontmatter.tags` (Liste oder Text mit Komma/Leerraum), ohne `#`, je Notiz einmal.
+   *  Bewusst ohne `getAllTags` (Modulfunktion, im Test-Mock nicht vorhanden) und ohne Änderung der Schreibweise. */
+  async listTags(): Promise<{ tag: string; count: number }[]> {
+    const counts = new Map<string, number>();
+    for (const f of this.app.vault.getMarkdownFiles()) {
+      const cache = this.app.metadataCache.getFileCache(f);
+      const own = new Set<string>();
+      for (const t of cache?.tags ?? []) own.add(t.tag.replace(/^#/, ""));
+      const fmTags: unknown = cache?.frontmatter?.tags;
+      const raw: unknown[] = Array.isArray(fmTags) ? fmTags : typeof fmTags === "string" ? fmTags.split(/[,\s]+/) : [];
+      for (const t of raw) if (typeof t === "string" && t.replace(/^#/, "") !== "") own.add(t.replace(/^#/, ""));
+      own.delete("");
+      for (const t of own) counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+    return [...counts].map(([tag, count]) => ({ tag, count }));
+  }
+
+  async recentNoteNames(folder: string, limit: number): Promise<string[]> {
+    const files = this.app.vault.getMarkdownFiles();
+    const inFolder = new Set(pathsInFolder(files.map((f) => f.path), folder.trim(), { root: true }));
+    return files
+      .filter((f) => inFolder.has(f.path))
+      .sort((a, b) => b.stat.mtime - a.stat.mtime || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+      .slice(0, Math.max(0, limit))
+      .map((f) => f.basename);
   }
 
   async getBody(path: string): Promise<string> {

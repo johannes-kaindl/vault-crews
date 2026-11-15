@@ -1102,6 +1102,114 @@ describe('executeRun — Modell je llm-Task im Ergebnis', () => {
   });
 });
 
+// ── Wertemengen aus dem Bestand (values) und Hinzufügen (add_to) ─────────────
+
+describe('executeRun — values und add_to', () => {
+  const NOTE_A = '---\ntags:\n  - alt\n---\nInhalt\n';
+  const NOTE_Z = '---\ntags:\n  - projekt/alpha\n---\nAnderes\n';
+
+  function valuesTeam(output: Record<string, unknown>): TeamFm {
+    return triageTeamFm({
+      write_scope: ['n/**/*.md'],
+      tasks: [
+        { id: 'collect', kind: 'collector', collector: 'vault.read', params: { paths: ['n/a.md'] } },
+        { id: 'tag', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'Vergib Tags.', output, on_error: 'abort' },
+        { id: 'apply', kind: 'actions', inputs: ['tag'], allowed_actions: ['frontmatter.patch'], allowed_keys: ['tags', 'type'] },
+      ],
+    });
+  }
+  const answer = (tags: unknown): ScriptedCall => ({ content: JSON.stringify({ items: [{ path: 'n/a.md', set: { tags } }] }) });
+
+  it('add_to ergänzt die Tags der Notiz um einen Tag aus dem Bestand, die alten bleiben', async () => {
+    const llm = new ScriptLlmClient([answer(['projekt-alpha'])]);
+    const h = await harness({
+      teamFm: valuesTeam({ family: 'frontmatter.set', allowed_keys: ['tags'], values: { tags: { from: 'tags' } }, add_to: ['tags'] }),
+      files: { 'n/a.md': NOTE_A, 'n/z.md': NOTE_Z }, llm,
+    });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    const after = await h.vault.read('n/a.md');
+    expect(after).toContain('- alt');
+    expect(after).toContain('- projekt/alpha');
+    // Der Prompt nennt die Kurzformen der Bestands-Tags, nicht die Originale.
+    expect(llm.calls[0]?.messages[0]?.content).toContain('Erlaubte Werte für tags: alt, projekt-alpha');
+  });
+
+  it('ohne add_to ersetzt der Wert die Tags wie bisher', async () => {
+    const llm = new ScriptLlmClient([answer(['projekt-alpha'])]);
+    const h = await harness({
+      teamFm: valuesTeam({ family: 'frontmatter.set', allowed_keys: ['tags'], values: { tags: { from: 'tags' } } }),
+      files: { 'n/a.md': NOTE_A, 'n/z.md': NOTE_Z }, llm,
+    });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    const after = await h.vault.read('n/a.md');
+    expect(after).toContain('- projekt/alpha');
+    expect(after).not.toContain('- alt');
+  });
+
+  it('ein Tag, den es im Vault nicht gibt, wird abgelehnt: kein Schreibvorgang', async () => {
+    const llm = new ScriptLlmClient([answer(['erfunden']), answer(['erfunden'])]);
+    const h = await harness({
+      teamFm: valuesTeam({ family: 'frontmatter.set', allowed_keys: ['tags'], values: { tags: { from: 'tags' } }, add_to: ['tags'] }),
+      files: { 'n/a.md': NOTE_A, 'n/z.md': NOTE_Z }, llm,
+    });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('failed');
+    expect(r.errorKind).toBe('invalid_output');
+    expect(r.writes).toBe(0);
+    expect(await h.vault.read('n/a.md')).toBe(NOTE_A);
+  });
+
+  it('die Wertemenge aus values ersetzt die aus den Eingaben und gilt im Aktions-Schritt (Rück-Mapping auf den Originalwert)', async () => {
+    const note = '---\ntype: 1_alt_🟢\n---\nInhalt\n';
+    const llm = new ScriptLlmClient([{ content: JSON.stringify({ items: [{ path: 'n/a.md', set: { type: 'aufgabe' } }] }) }]);
+    const h = await harness({
+      teamFm: valuesTeam({ family: 'frontmatter.set', allowed_keys: ['type'], values: { type: { from: 'list', list: ['Notiz', 'Aufgabe'] } } }),
+      files: { 'n/a.md': note }, llm,
+    });
+    // Die Eingabe trägt für `type` eine Enum-Tabelle (1_alt_🟢 → alt); values verdrängt sie.
+    const sys = (): string => llm.calls[0]?.messages[0]?.content ?? '';
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    expect(sys()).toContain('Erlaubte Werte für type: aufgabe, notiz');
+    expect(sys()).not.toContain('alt');
+    expect(await h.vault.read('n/a.md')).toContain('type: Aufgabe');
+  });
+
+  it('schreibt die Klartextzeilen zu den Wertemengen in state.json und run.md', async () => {
+    const llm = new ScriptLlmClient([{ content: JSON.stringify({ items: [{ path: 'n/a.md', set: { type: 'notiz' } }] }) }]);
+    const h = await harness({
+      teamFm: valuesTeam({ family: 'frontmatter.set', allowed_keys: ['type'], values: { type: { from: 'list', list: ['🙂', 'Notiz'] } } }),
+      files: { 'n/a.md': NOTE_A }, llm,
+    });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    const state = JSON.parse(await h.vault.read(`_crews/runs/${r.runId}/state.json`)) as { tasks: { taskId: string; valueNotes?: string[] }[] };
+    expect(state.tasks.find((t) => t.taskId === 'tag')?.valueNotes?.join('\n')).toContain('🙂');
+    expect(state.tasks.find((t) => t.taskId === 'collect')?.valueNotes).toBeUndefined();
+    const runMd = await h.vault.read(`_crews/runs/${r.runId}/run.md`);
+    expect(runMd).toMatch(/values\.type: „🙂“ hat keine brauchbare Kurzform/);
+  });
+
+  it('bei per_note gilt die Wertemenge für jede Notiz und wird einmal aufgelöst', async () => {
+    const team = valuesTeam({ family: 'frontmatter.set', allowed_keys: ['tags'], values: { tags: { from: 'tags' } }, add_to: ['tags'] });
+    (team.tasks as Record<string, unknown>[])[0] = { id: 'collect', kind: 'collector', collector: 'vault.read', params: { paths: ['n/a.md', 'n/b.md'] } };
+    (team.tasks as Record<string, unknown>[])[1] = { ...(team.tasks as Record<string, unknown>[])[1], per_note: true };
+    const mk = (p: string): ScriptedCall => ({ content: JSON.stringify({ items: [{ path: p, set: { tags: ['projekt-alpha'] } }] }) });
+    const llm = new ScriptLlmClient([mk('n/a.md'), mk('n/b.md')]);
+    const h = await harness({ teamFm: team, files: { 'n/a.md': NOTE_A, 'n/b.md': NOTE_A, 'n/z.md': NOTE_Z }, llm });
+    let tagCalls = 0;
+    const orig = h.meta.listTags.bind(h.meta);
+    h.meta.listTags = async () => { tagCalls++; return orig(); };
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    expect(tagCalls).toBe(1);
+    expect(llm.calls.every((c) => (c.messages[0]?.content ?? '').includes('Erlaubte Werte für tags: alt, projekt-alpha'))).toBe(true);
+    expect(await h.vault.read('n/b.md')).toContain('- projekt/alpha');
+  });
+});
+
 // ── per_note: ein Modellaufruf je Notiz ──────────────────────────────────────
 
 const PN_NOTE = '---\npriority: niedrig\n---\nInhalt\n';

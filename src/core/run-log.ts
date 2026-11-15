@@ -68,6 +68,7 @@ function taskSection(rec: TaskRecord): string[] {
       : `- Gefunden: ${rec.collected.count} Notiz(en) in \`${rec.collected.source}\``);
   }
   if (rec.skipReason !== undefined) lines.push(`- Übersprungen: ${rec.skipReason}`);
+  for (const n of rec.valueNotes ?? []) lines.push(`- Wertemenge: ${firstLine(n)}`);
   if (rec.error !== null) lines.push(`- Fehler (${rec.error.kind}): ${firstLine(rec.error.message)}`);
   if (rec.artifactJson !== null && rec.artifactJson !== undefined) {
     lines.push('', '```json', JSON.stringify(rec.artifactJson, null, 2), '```');

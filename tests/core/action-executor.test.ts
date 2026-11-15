@@ -53,9 +53,9 @@ function ctxOf(sources: CollectedFile[], overrides: Partial<ExecutorContext> = {
 
 function spyVault(vault: VaultPort): {
   vault: VaultPort;
-  patches: Array<{ path: string; set: Record<string, FmValue>; remove: string[] }>;
+  patches: Array<{ path: string; set: Record<string, FmValue>; remove: string[]; add?: Record<string, (string | number)[]> }>;
 } {
-  const patches: Array<{ path: string; set: Record<string, FmValue>; remove: string[] }> = [];
+  const patches: Array<{ path: string; set: Record<string, FmValue>; remove: string[]; add?: Record<string, (string | number)[]> }> = [];
   return {
     patches,
     vault: {
@@ -65,9 +65,9 @@ function spyVault(vault: VaultPort): {
       append: (p, c) => vault.append(p, c),
       exists: (p) => vault.exists(p),
       mkdir: (p) => vault.mkdir(p),
-      patchFrontmatter: async (p, s, r) => {
-        patches.push({ path: p, set: s, remove: r });
-        await vault.patchFrontmatter(p, s, r);
+      patchFrontmatter: async (p, s, r, a) => {
+        patches.push(a === undefined ? { path: p, set: s, remove: r } : { path: p, set: s, remove: r, add: a });
+        await vault.patchFrontmatter(p, s, r, a);
       },
       trash: (p) => vault.trash(p),
     },
@@ -111,6 +111,54 @@ describe('executeActions — frontmatter.patch', () => {
     expect(res.taskFailed).toBe(false);
     expect(res.outcomes).toEqual([{ action, result: 'applied', reason: null }]);
     expect(patches).toEqual([{ path: '10_Aufgaben/a.md', set: { priority: ['2_mittel_🟡', '1_niedrig_🟢'] }, remove: [] }]);
+  });
+
+  describe('add (add_to)', () => {
+    const tagSlugs = { tags: { toSlug: { 'projekt/alpha': 'projekt-alpha' }, fromSlug: { 'projekt-alpha': 'projekt/alpha' } } };
+    const tagCtx = (extra: Partial<ExecutorContext> = {}): ExecutorContext =>
+      ctxOf([source('10_Aufgaben/a.md', TASK_MD)], { task: makeTask({ allowedKeys: ['priority', 'tags'] }), slugTables: tagSlugs, ...extra });
+
+    it('mappt die Elemente von add byte-genau zurück und reicht sie als vierten Parameter weiter', async () => {
+      const { vault, patches } = spyVault(await seed({ '10_Aufgaben/a.md': TASK_MD }));
+      const action: Action = { type: 'frontmatter.patch', path: '10_Aufgaben/a.md', set: {}, remove: [], add: { tags: ['projekt-alpha'] } };
+      const res = await executeActions([action], tagCtx(), vault);
+      expect(res.taskFailed).toBe(false);
+      expect(res.outcomes[0]?.result).toBe('applied');
+      expect(patches).toEqual([{ path: '10_Aufgaben/a.md', set: {}, remove: [], add: { tags: ['projekt/alpha'] } }]);
+    });
+
+    it('add läuft durch allowed_keys: ein Feld außerhalb wird abgelehnt', async () => {
+      const { vault, patches } = spyVault(await seed({ '10_Aufgaben/a.md': TASK_MD }));
+      const action: Action = { type: 'frontmatter.patch', path: '10_Aufgaben/a.md', set: {}, remove: [], add: { status: ['x'] } };
+      const res = await executeActions([action], tagCtx(), vault);
+      expect(res.outcomes[0]?.result).toBe('rejected');
+      expect(res.outcomes[0]?.reason).toContain('allowed_keys');
+      expect(patches).toEqual([]);
+    });
+
+    it('ein Wert in add außerhalb der Wertemenge wird abgelehnt', async () => {
+      const { vault, patches } = spyVault(await seed({ '10_Aufgaben/a.md': TASK_MD }));
+      const action: Action = { type: 'frontmatter.patch', path: '10_Aufgaben/a.md', set: {}, remove: [], add: { tags: ['erfunden'] } };
+      const res = await executeActions([action], tagCtx(), vault);
+      expect(res.outcomes[0]?.result).toBe('rejected');
+      expect(res.outcomes[0]?.reason).toContain('erfunden');
+      expect(patches).toEqual([]);
+    });
+
+    it('ein zu langer Wert in add überschreitet maxNoteBytes', async () => {
+      const { vault } = spyVault(await seed({ '10_Aufgaben/a.md': TASK_MD }));
+      const action: Action = { type: 'frontmatter.patch', path: '10_Aufgaben/a.md', set: {}, remove: [], add: { tags: ['x'.repeat(100)] } };
+      const res = await executeActions([action], tagCtx({ slugTables: {}, limits: { ...LIMITS, maxNoteBytes: 10 } }), vault);
+      expect(res.outcomes[0]?.result).toBe('rejected');
+      expect(res.outcomes[0]?.reason).toContain('maxNoteBytes');
+    });
+
+    it('ohne add bleibt der Aufruf dreistellig (wie bisher)', async () => {
+      const { vault, patches } = spyVault(await seed({ '10_Aufgaben/a.md': TASK_MD }));
+      const action: Action = { type: 'frontmatter.patch', path: '10_Aufgaben/a.md', set: { priority: 'mittel' }, remove: [] };
+      await executeActions([action], tagCtx({ slugTables: { priority: { toSlug: { '2_mittel_🟡': 'mittel' }, fromSlug: { mittel: '2_mittel_🟡' } } } }), vault);
+      expect(patches[0]).not.toHaveProperty('add');
+    });
   });
 
   it('verwirft Keys außerhalb allowed_keys', async () => {

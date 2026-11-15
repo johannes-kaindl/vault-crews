@@ -7,6 +7,7 @@ import { buildDenylist, expandTarget } from './paths';
 import { parseAgentDef, parseTeamDef } from './crew-parser';
 import { collectorSource, emptyInputSource, runCollector } from './collectors';
 import { buildPrompt } from './prompt-builder';
+import { resolveValueTables } from './value-sources';
 import { buildSchema } from './schemas';
 import { validateOutput } from './output-validator';
 import { executeActions, type ExecutorContext } from './action-executor';
@@ -80,6 +81,8 @@ interface LlmCallContext {
 	model: string; sentModel: string; wire: LlmParams['params']; thinkingLevel: ThinkingLevel; family: FamilyId | null;
 	check: { family: FamilyId | null; thinking: ThinkingLevel; backend: BackendId };
 	sentMax: number; budget: number;
+	/** Wertemengen aus dem Bestand (`values`), einmal je Schritt aufgelöst: sie liegen über den Tabellen der Eingaben. */
+	extraTables: Record<string, SlugTableData>;
 }
 /** Was ein einzelner Aufruf sieht: seine Eingaben, den Namen für Rohantwort-Dateien und, in `per_note`, den Pfad der Notiz. */
 interface NoteCall {
@@ -370,7 +373,17 @@ class RunFsm {
 		// Das Profil kann das Budget für eine Denkstufe anheben: die Kontextrechnung nimmt, was gesendet wird.
 		const sentMax = typeof wire.max_tokens === 'number' ? wire.max_tokens : agent.maxTokens;
 		const budget = Math.max(1, ctxLen - sentMax - Math.floor(ctxLen * BUDGET_RESERVE));
-		const call: LlmCallContext = { task, rec, agent, model: rec.model, sentModel, wire, thinkingLevel, family, check, sentMax, budget };
+		let extraTables: Record<string, SlugTableData> = {};
+		if (task.output.family === 'frontmatter.set' && Object.keys(task.output.values).length > 0) {
+			try {
+				const resolved = await resolveValueTables(task.output.values, this.deps.meta);
+				extraTables = resolved.tables;
+				if (resolved.notes.length > 0) rec.valueNotes = resolved.notes;
+			} catch (e) {
+				return this.failLlm(task, rec, 'io', `Wertemengen nicht lesbar: ${errMsg(e)}`);
+			}
+		}
+		const call: LlmCallContext = { task, rec, agent, model: rec.model, sentModel, wire, thinkingLevel, family, check, sentMax, budget, extraTables };
 
 		if (task.perNote) return this.runPerNote(call, inputs);
 
@@ -381,7 +394,7 @@ class RunFsm {
 		// Zusatz-Vertrag: llm-Artifact.json = { output, actions }; files/slugTables geerbt.
 		const artifact: Artifact = {
 			taskId: task.id, json: { output: result.value.json, actions: result.value.actions },
-			files: inputs.flatMap((a) => a.files), slugTables: mergeSlugTables(inputs),
+			files: inputs.flatMap((a) => a.files), slugTables: { ...mergeSlugTables(inputs), ...extraTables },
 		};
 		this.artifacts.set(task.id, artifact);
 		rec.artifactJson = artifact.json;
@@ -478,7 +491,7 @@ class RunFsm {
 		}
 		const files: CollectedFile[] = [];
 		for (const f of inputs.flatMap((a) => a.files)) if (!files.some((g) => g.path === f.path)) files.push(f);
-		const artifact: Artifact = { taskId: task.id, json: { output: outputs, actions }, files, slugTables: mergeSlugTables(inputs) };
+		const artifact: Artifact = { taskId: task.id, json: { output: outputs, actions }, files, slugTables: { ...mergeSlugTables(inputs), ...call.extraTables } };
 		this.artifacts.set(task.id, artifact);
 		rec.artifactJson = artifact.json;
 		return 'ok';
@@ -500,7 +513,7 @@ class RunFsm {
 		const { task, rec, agent } = ctx;
 		const schema = buildSchema(task.output);
 		const sources = call.inputs.flatMap((a) => a.files);
-		const slugTables = mergeSlugTables(call.inputs);
+		const slugTables = { ...mergeSlugTables(call.inputs), ...ctx.extraTables };
 		const target = this.resolveTarget(task, call.notePath);
 		const params: LlmParams = {
 			model: ctx.model, sentModel: ctx.sentModel, params: ctx.wire, thinkingLevel: ctx.thinkingLevel,
@@ -519,7 +532,7 @@ class RunFsm {
 		for (;;) {
 			const b = overflowRetried ? Math.max(1, Math.floor(ctx.budget / 2)) : ctx.budget;
 			try {
-				const prompt = buildPrompt(agent, task, call.inputs, schema, b);
+				const prompt = buildPrompt(agent, task, call.inputs, schema, b, ctx.extraTables);
 				promptHash = prompt.promptHash;
 				// Eine einzelne Notiz, die nur gekürzt in den Prompt passt, wird nicht bearbeitet: das Modell sähe eine leere Notiz und
 				// meldete „nichts zu tun“, das Protokoll sagte `ok`.

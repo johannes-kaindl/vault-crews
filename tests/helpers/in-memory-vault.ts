@@ -70,9 +70,20 @@ export class InMemoryVaultPort implements VaultPort {
 		// Ordner sind in der Map implizit — außer nach `requireExistingFolders()`.
 		this.addFolders(path);
 	}
-	async patchFrontmatter(path: string, set: Record<string, FmValue>, remove: string[]): Promise<void> {
+	async patchFrontmatter(path: string, set: Record<string, FmValue>, remove: string[], add?: Record<string, (string | number)[]>): Promise<void> {
 		const raw = await this.read(path);
 		const fm = splitFrontmatter(raw);
+		if (add !== undefined) {
+			// Vereinigung aus dem Stand der Datei in diesem Augenblick (wie der Adapter in processFrontMatter), exakt, ohne Normalisierung.
+			const current = fm ? parseFlatYaml(fm.block) : {};
+			set = { ...set };
+			for (const [key, values] of Object.entries(add)) {
+				const before = current[key];
+				const merged: (string | number)[] = Array.isArray(before) ? [...before as (string | number)[]] : before === null || before === undefined ? [] : [before as string | number];
+				for (const v of values) if (!merged.includes(v)) merged.push(v);
+				set[key] = merged;
+			}
+		}
 		const lines = fm ? fm.block.split('\n') : [];
 		const out: string[] = [];
 		const handled = new Set<string>();
@@ -123,6 +134,27 @@ export class FixtureMetadataPort implements MetadataPort {
 		const raw = await this.vault.read(path);
 		const fm = splitFrontmatter(raw);
 		return fm ? fm.body : raw;
+	}
+	/** Tags aus dem Frontmatter-Feld `tags` aller Dateien (ohne `#`), mit der Zahl der Notizen, die sie tragen. */
+	async listTags(): Promise<{ tag: string; count: number }[]> {
+		const counts = new Map<string, number>();
+		for (const [path, raw] of this.vault.files) {
+			if (!path.endsWith('.md')) continue;
+			const fm = this.overrides.get(path) ?? (splitFrontmatter(raw) ? parseFlatYaml(splitFrontmatter(raw)?.block ?? '') : null);
+			const tags = fm?.tags;
+			const list = Array.isArray(tags) ? tags : typeof tags === 'string' ? [tags] : [];
+			for (const t of new Set(list.filter((x): x is string => typeof x === 'string'))) {
+				const tag = t.replace(/^#/, '');
+				counts.set(tag, (counts.get(tag) ?? 0) + 1);
+			}
+		}
+		return [...counts].map(([tag, count]) => ({ tag, count }));
+	}
+	/** Dateinamen im Ordner (mit Unterordnern); ohne Änderungszeit im Fake: neueste Einfügung zuerst. */
+	async recentNoteNames(folder: string, limit: number): Promise<string[]> {
+		const prefix = folder === '' ? '' : folder.endsWith('/') ? folder : `${folder}/`;
+		const paths = [...this.vault.files.keys()].filter((p) => p.startsWith(prefix) && p.endsWith('.md')).reverse();
+		return paths.slice(0, limit).map((p) => (p.split('/').pop() ?? p).replace(/\.md$/, ''));
 	}
 }
 

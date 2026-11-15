@@ -96,6 +96,57 @@ describe("ObsidianVaultPort", () => {
   });
 });
 
+describe("ObsidianVaultPort — patchFrontmatter add", () => {
+  // Die Vereinigung geschieht in processFrontMatter aus dem Stand, den Obsidian dort übergibt, nicht aus einem vorher gelesenen.
+  // Exakter Vergleich ohne Normalisierung: "#tag" ist nicht "tag", "1" ist nicht 1, ein Text mit Komma bleibt ein Element.
+  async function addTo(before: unknown, add: (string | number)[], more: { set?: Record<string, string | number | null>; remove?: string[] } = {}) {
+    const file = new TFile("a.md");
+    app.vault.getAbstractFileByPath = vi.fn().mockReturnValue(file);
+    const fm: Record<string, unknown> = {};
+    if (before !== undefined) fm.tags = before;
+    app.fileManager.processFrontMatter = vi.fn(
+      async (_f: unknown, cb: (fm: Record<string, unknown>) => void) => { cb(fm); },
+    );
+    await new ObsidianVaultPort(app).patchFrontmatter("a.md", more.set ?? {}, more.remove ?? [], { tags: add });
+    return fm;
+  }
+
+  it.each([
+    [["a", "b"], ["b", "c"], ["a", "b", "c"]],
+    ["a", ["c"], ["a", "c"]],
+    [null, ["c"], ["c"]],
+    [undefined, ["c"], ["c"]],
+    [["a"], ["a", "a"], ["a"]],
+    [["a"], [], ["a"]],
+    [["#a"], ["a"], ["#a", "a"]],
+    [["1"], [1], ["1", 1]],
+    ["a, b", ["b"], ["a, b", "b"]],
+    [3, [4], [3, 4]],
+  ])("add vereinigt %j mit %j zu %j", async (before, add, after) => {
+    const fm = await addTo(before, add as (string | number)[]);
+    expect(fm.tags).toEqual(after);
+  });
+
+  it("rührt ein anderes Feld nicht an und wendet set und remove neben add an", async () => {
+    const fm = await addTo(["a"], ["b"], { set: { priority: "mittel" }, remove: ["alt"] });
+    expect(fm).toEqual({ tags: ["a", "b"], priority: "mittel" });
+  });
+
+  it("wirft, statt einen Wert zu überschreiben, den es nicht als Liste lesen kann", async () => {
+    await expect(addTo({ a: 1 }, ["x"])).rejects.toThrow(/tags/);
+    await expect(addTo(true, ["x"])).rejects.toThrow(/tags/);
+  });
+
+  it("ohne add bleibt es beim bisherigen Verhalten (set ersetzt)", async () => {
+    const file = new TFile("a.md");
+    app.vault.getAbstractFileByPath = vi.fn().mockReturnValue(file);
+    const fm: Record<string, unknown> = { tags: ["a"] };
+    app.fileManager.processFrontMatter = vi.fn(async (_f: unknown, cb: (fm: Record<string, unknown>) => void) => { cb(fm); });
+    await new ObsidianVaultPort(app).patchFrontmatter("a.md", { tags: ["b"] }, []);
+    expect(fm.tags).toEqual(["b"]);
+  });
+});
+
 describe("ObsidianMetadataPort", () => {
   it("listMarkdownFiles filtert rekursiv per Ordner-Präfix und sortiert deterministisch", async () => {
     app.vault.getMarkdownFiles = vi.fn().mockReturnValue([
@@ -160,5 +211,57 @@ describe("ObsidianMetadataPort", () => {
     app.vault.cachedRead = vi.fn().mockResolvedValue("Nur Body\n");
     app.metadataCache.getFileCache = vi.fn().mockReturnValue(null);
     expect(await new ObsidianMetadataPort(app).getBody("b.md")).toBe("Nur Body\n");
+  });
+
+  describe("listTags", () => {
+    function noteWith(path: string, cache: unknown): TFile {
+      const f = new TFile(path);
+      cacheOf.set(f, cache);
+      return f;
+    }
+    const cacheOf = new Map<TFile, unknown>();
+    beforeEach(() => {
+      cacheOf.clear();
+      app.metadataCache.getFileCache = vi.fn((f: TFile) => cacheOf.get(f) ?? null);
+    });
+
+    it("zählt Tags aus dem Text (cache.tags) und dem Frontmatter, ohne #, je Notiz einmal", async () => {
+      app.vault.getMarkdownFiles = vi.fn().mockReturnValue([
+        noteWith("a.md", { tags: [{ tag: "#projekt/alpha" }, { tag: "#projekt/alpha" }, { tag: "#neu" }], frontmatter: { tags: ["alt", "#projekt/alpha"] } }),
+        noteWith("b.md", { frontmatter: { tags: "alt, neu extra" } }),
+        noteWith("c.md", null),
+        noteWith("d.md", { frontmatter: { tags: [3, null, ""] } }),
+      ]);
+      const tags = await new ObsidianMetadataPort(app).listTags();
+      expect(Object.fromEntries(tags.map((t) => [t.tag, t.count]))).toEqual({ "projekt/alpha": 1, neu: 2, alt: 2, extra: 1 });
+    });
+
+    it("liefert [] für einen Vault ohne Tags", async () => {
+      app.vault.getMarkdownFiles = vi.fn().mockReturnValue([noteWith("a.md", {})]);
+      expect(await new ObsidianMetadataPort(app).listTags()).toEqual([]);
+    });
+  });
+
+  describe("recentNoteNames", () => {
+    function noteAt(path: string, mtime: number): TFile {
+      const f = new TFile(path);
+      f.stat.mtime = mtime;
+      return f;
+    }
+
+    it("liefert die Dateinamen ohne .md, zuletzt geänderte zuerst, mit Unterordnern, höchstens limit", async () => {
+      app.vault.getMarkdownFiles = vi.fn().mockReturnValue([
+        noteAt("P/alt.md", 10), noteAt("P/sub/neu.md", 30), noteAt("P/mitte.md", 20),
+        noteAt("P-Archiv/x.md", 99), noteAt("Q/y.md", 99),
+      ]);
+      const port = new ObsidianMetadataPort(app);
+      expect(await port.recentNoteNames("P", 10)).toEqual(["neu", "mitte", "alt"]);
+      expect(await port.recentNoteNames("P", 2)).toEqual(["neu", "mitte"]);
+    });
+
+    it("bei gleicher Änderungszeit entscheidet der Pfad; ein leerer Ordner ist die Wurzel", async () => {
+      app.vault.getMarkdownFiles = vi.fn().mockReturnValue([noteAt("b.md", 5), noteAt("a.md", 5), noteAt("X/c.md", 1)]);
+      expect(await new ObsidianMetadataPort(app).recentNoteNames("", 10)).toEqual(["a", "b", "c"]);
+    });
   });
 });

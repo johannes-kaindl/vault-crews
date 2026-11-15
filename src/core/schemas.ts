@@ -27,7 +27,9 @@ export interface SchemaDef {
 
 const MAX_TRIAGE_ITEMS = 50;
 
-export function makeFrontmatterSet(allowedKeys: string[] | '*'): SchemaDef {
+/** `addTo`: Felder, deren Wert zur vorhandenen Liste hinzukommt (Aktion `add`) statt sie zu ersetzen (`set`); ein Einzelwert gilt als
+ *  einelementige Liste. Die Wertemenge (`slugTables`) prüft in beiden Fällen jedes Element: ein Tag, den es im Vault nicht gibt, ist ein Fehler. */
+export function makeFrontmatterSet(allowedKeys: string[] | '*', addTo: string[] = []): SchemaDef {
 	return {
 		id: 'frontmatter.set',
 		outputFormat: 'json',
@@ -54,13 +56,15 @@ export function makeFrontmatterSet(allowedKeys: string[] | '*'): SchemaDef {
 				}
 				if (!isRecord(item.set)) { errors.push(`items[${i}].set: fehlt oder ist kein Objekt`); continue; }
 				const set: Record<string, FmValue> = {};
+				const add: Record<string, (string | number)[]> = {};
 				for (const [key, rawValue] of Object.entries(item.set)) {
 					if (allowedKeys !== '*' && !allowedKeys.includes(key)) {
 						errors.push(`items[${i}].set.${key}: Feld nicht in allowed_keys (${allowedKeys.join(', ')})`);
 						continue;
 					}
+					const adding = addTo.includes(key);
+					const table = slugTables[key];
 					if (Array.isArray(rawValue)) {
-						const table = slugTables[key];
 						const list: (string | number)[] = [];
 						let bad = false;
 						for (const el of rawValue) {
@@ -79,16 +83,20 @@ export function makeFrontmatterSet(allowedKeys: string[] | '*'): SchemaDef {
 								break;
 							}
 						}
-						if (!bad) set[key] = list;
+						if (!bad) { if (adding) add[key] = list; else set[key] = list; }
 						continue;
 					}
-					const table = slugTables[key];
 					if (table) {
 						if (typeof rawValue !== 'string' || !(rawValue in table.fromSlug)) {
 							errors.push(`items[${i}].set.${key}: '${String(rawValue)}' ist kein erlaubter Wert (${Object.keys(table.fromSlug).sort().join(', ')})`);
 							continue;
 						}
-						set[key] = rawValue;
+						if (adding) add[key] = [rawValue]; else set[key] = rawValue;
+						continue;
+					}
+					if (adding) {
+						if (typeof rawValue === 'string' || typeof rawValue === 'number') add[key] = [rawValue];
+						else errors.push(`items[${i}].set.${key}: unzulässiger Werttyp (das Feld wird ergänzt, erwartet Text, Zahl oder Liste)`);
 						continue;
 					}
 					if (typeof rawValue === 'string' || typeof rawValue === 'number' || rawValue === null) {
@@ -97,7 +105,7 @@ export function makeFrontmatterSet(allowedKeys: string[] | '*'): SchemaDef {
 						errors.push(`items[${i}].set.${key}: unzulässiger Werttyp`);
 					}
 				}
-				actions.push({ type: 'frontmatter.patch', path, set, remove: [] });
+				actions.push({ type: 'frontmatter.patch', path, set, remove: [], ...(Object.keys(add).length > 0 ? { add } : {}) });
 			}
 			if (errors.length > 0) return { ok: false, errors };
 			return { ok: true, actions };
@@ -161,7 +169,7 @@ export function makeTextAppend(maxChars: number, heading: string | null): Schema
 export function buildSchema(spec: OutputSpec): SchemaDef {
 	switch (spec.family) {
 		case 'frontmatter.set':
-			return makeFrontmatterSet(spec.allowedKeys);
+			return makeFrontmatterSet(spec.allowedKeys, spec.addTo);
 		case 'section.write':
 			return makeSectionWrite(spec.maxChars, spec.wording);
 		case 'text.append':

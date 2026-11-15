@@ -19,8 +19,17 @@ export type CollectorId = 'vault.list' | 'vault.read' | 'tasknotes.query';
 export type SchemaId = 'triage-v1' | 'briefing-v1';
 export type ActionType = 'frontmatter.patch' | 'note.create' | 'note.append' | 'section.replace';
 
+/** Woher die erlaubten Werte eines Feldes kommen (`values.<feld>.from` in der Crew-Datei): eine feste Liste, die Tags des Vaults
+ *  oder die Namen der zuletzt geänderten Notizen eines Ordners (der Wert ist dann der Wikilink). */
+export type ValueSource =
+	| { kind: 'list'; list: string[] }
+	| { kind: 'tags' }
+	| { kind: 'notes'; folder: string };
+
 export type OutputSpec =
-	| { family: 'frontmatter.set'; allowedKeys: string[] | '*' }
+	/** `values`: Wertemenge je Feld aus dem Bestand (ersetzt die aus den Eingaben); `addTo`: Felder, deren Wert zur vorhandenen Liste
+	 *  hinzukommt, statt sie zu ersetzen. Beides ist bei `allowedKeys: '*'` (Alias `triage-v1`) leer. */
+	| { family: 'frontmatter.set'; allowedKeys: string[] | '*'; values: Record<string, ValueSource>; addTo: string[] }
 	/** `wording`: `briefing` ist der Wortlaut von `briefing-v1` (Golden-Test, byte-genau), `neutral` der von `output: { family: section.write }`. */
 	| { family: 'section.write'; maxChars: number; wording: 'briefing' | 'neutral' }
 	/** Hängt den Text ans Ende der Zielnotiz (`note.append`), unter `heading`, wenn gesetzt. */
@@ -92,6 +101,8 @@ export interface FrontmatterPatchAction {
 	path: string;
 	set: Record<string, FmValue>;
 	remove: string[];
+	/** Werte, die zur vorhandenen Liste des Feldes hinzukommen (Vereinigung, ohne Doppelte); fehlt, wenn nichts hinzuzufügen ist. */
+	add?: Record<string, (string | number)[]>;
 }
 export interface NoteCreateAction { type: 'note.create'; path: string; content: string; }
 export interface NoteAppendAction { type: 'note.append'; path: string; heading: string | null; content: string; }
@@ -138,6 +149,8 @@ export interface TaskRecord {
 	error: { kind: ErrorKind; message: string } | null;
 	/** Nur `per_note`-Schritte: eine Zeile je Notiz der Eingaben, in Reihenfolge. */
 	notes?: NoteRecord[];
+	/** Nur Schritte mit `values`: Klartextzeilen zu den Wertemengen (Kürzung, Werte ohne Kurzform oder mit gleicher Kurzform, leere Menge). */
+	valueNotes?: string[];
 }
 export interface RunState {
 	runId: string;

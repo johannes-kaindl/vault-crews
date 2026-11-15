@@ -5,7 +5,7 @@ import { fnv1a } from './collectors';
 import { LlmCallError } from './ports';
 import type { LlmMessage } from './ports';
 import type { SchemaDef } from './schemas';
-import type { AgentDef, Artifact, LlmTaskDef } from './types';
+import type { AgentDef, Artifact, LlmTaskDef, SlugTableData } from './types';
 
 export interface BuiltPrompt { messages: LlmMessage[]; promptHash: string; truncated: boolean; }
 
@@ -19,8 +19,10 @@ export function buildPrompt(
 	inputs: Artifact[],
 	schema: SchemaDef,
 	budgetTokens: number,
+	/** Wertemengen aus dem Bestand (`values`): sie stehen vor denen der Eingaben, und ein Schlüssel von hier verdrängt den gleichen Schlüssel dort. */
+	extraTables?: Record<string, SlugTableData>,
 ): BuiltPrompt {
-	const system = buildSystem(agent, inputs, schema);
+	const system = buildSystem(agent, inputs, schema, extraTables);
 	const fixedUser = task.instruction;
 	const fixedTokens = estimateTokens(system) + estimateTokens(fixedUser);
 	if (fixedTokens > budgetTokens) {
@@ -51,17 +53,19 @@ export function buildPrompt(
 	}
 }
 
-function buildSystem(agent: AgentDef, inputs: Artifact[], schema: SchemaDef): string {
+function buildSystem(agent: AgentDef, inputs: Artifact[], schema: SchemaDef, extraTables?: Record<string, SlugTableData>): string {
 	const parts = [agent.systemPrompt, schema.promptContract];
 	const seen = new Set<string>();
-	for (const a of inputs) {
-		for (const [key, table] of Object.entries(a.slugTables)) {
+	const addTables = (tables: Record<string, SlugTableData>): void => {
+		for (const [key, table] of Object.entries(tables)) {
 			if (seen.has(key)) continue;
 			seen.add(key);
 			const slugs = Object.keys(table.fromSlug).sort();
 			if (slugs.length > 0) parts.push(`Erlaubte Werte für ${key}: ${slugs.join(', ')}`);
 		}
-	}
+	};
+	if (extraTables !== undefined) addTables(extraTables);
+	for (const a of inputs) addTables(a.slugTables);
 	// 'text'-Schemata (briefing-v1) dürfen das Beispiel NICHT in einem ```json-Fence sehen —
 	// sonst ahmt das Modell den Fence in seiner Antwort nach (genau der Bug, den outputFormat
 	// vermeiden soll). 'json'-Schemata bekommen den Fence weiterhin, das schärft das Format ein.

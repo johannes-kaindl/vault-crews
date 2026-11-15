@@ -289,7 +289,69 @@ describe('output: block (schema families)', () => {
 		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks }), OPTS);
 		expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
 		if (!r.ok) return;
-		expect((r.value.tasks[1] as { output: unknown }).output).toEqual({ family: 'frontmatter.set', allowedKeys: ['tags', 'kategorie'] });
+		expect((r.value.tasks[1] as { output: unknown }).output).toEqual({ family: 'frontmatter.set', allowedKeys: ['tags', 'kategorie'], values: {}, addTo: [] });
+	});
+
+	describe('frontmatter.set: values und add_to', () => {
+		const parseFs = (extra: Record<string, unknown>, keys: unknown = ['tags', 'projekt']) => parseTeamDef(TEAM_PATH, teamFm({ tasks: [
+			{ id: 'collect', kind: 'collector', collector: 'vault.list', params: {} },
+			{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'x', output: { family: 'frontmatter.set', allowed_keys: keys, ...extra } },
+		] }), OPTS);
+		const outputOf = (r: ReturnType<typeof parseFs>): unknown => (r.ok ? (r.value.tasks[1] as { output: unknown }).output : null);
+
+		it('parst values aus Liste, Tags und Notizen sowie add_to', () => {
+			const r = parseFs({
+				values: { tags: { from: 'tags' }, projekt: { from: 'notes', folder: '40_Projekte' } },
+				add_to: ['tags'],
+			});
+			expect(r.ok, JSON.stringify(!r.ok && r.errors)).toBe(true);
+			expect(outputOf(r)).toEqual({
+				family: 'frontmatter.set', allowedKeys: ['tags', 'projekt'],
+				values: { tags: { kind: 'tags' }, projekt: { kind: 'notes', folder: '40_Projekte' } }, addTo: ['tags'],
+			});
+		});
+
+		it('parst eine feste Liste', () => {
+			const r = parseFs({ values: { tags: { from: 'list', list: ['a', 'b'] } } });
+			expect(outputOf(r)).toMatchObject({ values: { tags: { kind: 'list', list: ['a', 'b'] } } });
+		});
+
+		it('der Alias triage-v1 bekommt die Standardwerte', () => {
+			const r = parseTeamDef(TEAM_PATH, teamFm(), OPTS);
+			expect(r.ok && (r.value.tasks[1] as { output: unknown }).output).toEqual({ family: 'frontmatter.set', allowedKeys: '*', values: {}, addTo: [] });
+		});
+
+		it.each([
+			['values-Schlüssel nicht in allowed_keys', { values: { fremd: { from: 'tags' } } }, /values\.fremd.*allowed_keys/],
+			['add_to-Eintrag nicht in allowed_keys', { add_to: ['fremd'] }, /add_to.*fremd.*allowed_keys/],
+			['notes ohne folder', { values: { projekt: { from: 'notes' } } }, /values\.projekt\.folder/],
+			['notes mit leerem folder', { values: { projekt: { from: 'notes', folder: '  ' } } }, /values\.projekt\.folder/],
+			['unbekanntes from', { values: { tags: { from: 'irgendwas' } } }, /values\.tags\.from.*irgendwas/],
+			['from fehlt', { values: { tags: {} } }, /values\.tags\.from/],
+			['list ohne Einträge', { values: { tags: { from: 'list', list: [] } } }, /values\.tags\.list/],
+			['list mit Nicht-Text', { values: { tags: { from: 'list', list: ['a', 3] } } }, /values\.tags\.list/],
+			['list über 300 Werte', { values: { tags: { from: 'list', list: Array.from({ length: 301 }, (_, i) => `w${i}`) } } }, /values\.tags\.list.*300/],
+			['list bei from: tags', { values: { tags: { from: 'tags', list: ['a'] } } }, /values\.tags\.list/],
+			['folder bei from: tags', { values: { tags: { from: 'tags', folder: 'X' } } }, /values\.tags\.folder/],
+			['values ist keine Zuordnung', { values: ['tags'] }, /values/],
+			['add_to ist keine Liste', { add_to: 'tags' }, /add_to/],
+			['add_to mit Nicht-Text', { add_to: ['tags', 3] }, /add_to/],
+			['folder in geschütztem Bereich', { values: { projekt: { from: 'notes', folder: '_crews/teams' } } }, /values\.projekt\.folder.*geschützt/],
+			['folder mit ..', { values: { projekt: { from: 'notes', folder: '../x' } } }, /values\.projekt\.folder/],
+		])('lehnt ab: %s', (_name, extra, re) => {
+			const r = parseFs(extra);
+			expect(r.ok).toBe(false);
+			if (!r.ok) expect(r.errors.join('\n')).toMatch(re);
+		});
+
+		it('values und add_to gelten nicht für section.write und text.append', () => {
+			for (const family of ['section.write', 'text.append']) {
+				for (const extra of [{ values: { a: { from: 'tags' } } }, { add_to: ['a'] }]) {
+					const r = parseTeamDef(TEAM_PATH, teamFm({ tasks: [{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: [], instruction: 'x', output: { family, ...extra } }] }), OPTS);
+					expect(r.ok, `${family} ${JSON.stringify(extra)}`).toBe(false);
+				}
+			}
+		});
 	});
 
 	it('parst section.write mit Default max_chars', () => {

@@ -11,7 +11,7 @@ const AGENT: AgentDef = {
 };
 const TASK: LlmTaskDef = {
 	id: 'analyse', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'],
-	instruction: 'Bewerte jede Aufgabe.', output: { family: 'frontmatter.set', allowedKeys: '*' }, onError: 'abort', perNote: false,
+	instruction: 'Bewerte jede Aufgabe.', output: { family: 'frontmatter.set', allowedKeys: '*', values: {}, addTo: [] }, onError: 'abort', perNote: false,
 };
 const SCHEMA: Pick<SchemaDef, 'id' | 'outputFormat' | 'promptContract' | 'outputExample'> = {
 	id: 'triage-v1',
@@ -68,6 +68,36 @@ describe('buildPrompt', () => {
 		expect(sys?.content).toContain(TEXT_SCHEMA.promptContract);
 		expect(sys?.content).not.toContain('```json');
 		expect(sys?.content).toContain(`Beispiel:\n${TEXT_SCHEMA.outputExample}`);
+	});
+
+	describe('extraTables (Wertemengen aus dem Bestand)', () => {
+		const tags = { tags: { toSlug: { 'projekt/alpha': 'projekt-alpha', neu: 'neu' }, fromSlug: { 'projekt-alpha': 'projekt/alpha', neu: 'neu' } } };
+
+		it('erscheinen als „Erlaubte Werte für <key>“ im System-Prompt', () => {
+			const p = buildPrompt(AGENT, TASK, [artifact(1)], SCHEMA as SchemaDef, 4000, tags);
+			expect(p.messages[0]?.content).toContain('Erlaubte Werte für tags: neu, projekt-alpha');
+			expect(p.messages[0]?.content).toContain('Erlaubte Werte für status: backlog');
+		});
+
+		it('ein Schlüssel aus extraTables verdrängt den gleichen Schlüssel eines Eingabe-Artefakts', () => {
+			const extra = { status: { toSlug: { Offen: 'offen' }, fromSlug: { offen: 'Offen' } } };
+			const sys = buildPrompt(AGENT, TASK, [artifact(1)], SCHEMA as SchemaDef, 4000, extra).messages[0]?.content ?? '';
+			expect(sys).toContain('Erlaubte Werte für status: offen');
+			expect(sys).not.toContain('backlog');
+			expect(sys.match(/Erlaubte Werte für status/g)).toHaveLength(1);
+		});
+
+		it('ohne extraTables (fehlend oder leer) ist der Prompt byte-gleich zu vorher', () => {
+			const plain = buildPrompt(AGENT, TASK, [artifact(2)], SCHEMA as SchemaDef, 4000);
+			const empty = buildPrompt(AGENT, TASK, [artifact(2)], SCHEMA as SchemaDef, 4000, {});
+			expect(empty.messages).toEqual(plain.messages);
+			expect(empty.promptHash).toBe(plain.promptHash);
+		});
+
+		it('eine leere Tabelle schreibt keine Zeile', () => {
+			const sys = buildPrompt(AGENT, TASK, [artifact(1)], SCHEMA as SchemaDef, 4000, { tags: { toSlug: {}, fromSlug: {} } }).messages[0]?.content ?? '';
+			expect(sys).not.toContain('Erlaubte Werte für tags');
+		});
 	});
 
 	it('ist byte-deterministisch (gleicher Hash bei gleichen Inputs)', () => {

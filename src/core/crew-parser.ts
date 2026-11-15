@@ -5,8 +5,9 @@ import { isDenied, normalizeVaultPath } from './paths';
 import { foldCase } from '../vendor/kit/fold-case';
 import { normalizeRelPath } from '../vendor/kit/rel-path';
 import { MIN_INTERVAL_MINUTES, parseIntervalMinutes } from './heartbeat';
+import { VALUES_MAX } from './value-sources';
 import type {
-	ActionType, AgentDef, CollectorId, LlmTaskDef, OutputSpec, RunLimits, TaskDef, TeamDef,
+	ActionType, AgentDef, CollectorId, LlmTaskDef, OutputSpec, RunLimits, TaskDef, TeamDef, ValueSource,
 } from './types';
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
@@ -35,10 +36,86 @@ function slugFromPath(path: string): string {
  *  an der triage-v1/briefing-v1 zu Familien werden. */
 function resolveSchemaAlias(id: string): OutputSpec | null {
 	switch (id) {
-		case 'triage-v1': return { family: 'frontmatter.set', allowedKeys: '*' };
+		case 'triage-v1': return { family: 'frontmatter.set', allowedKeys: '*', values: {}, addTo: [] };
 		case 'briefing-v1': return { family: 'section.write', maxChars: 16_000, wording: 'briefing' };
 		default: return null;
 	}
+}
+
+/** `values:` an `frontmatter.set`: je Feld eine Wertemenge (`from: list|tags|notes`). Ein Feld muss in `allowed_keys` stehen. */
+function parseValues(
+	raw: unknown,
+	feld: string,
+	allowedKeys: string[],
+	err: (feld: string, problem: string) => void,
+	denylist: string[],
+): Record<string, ValueSource> | null {
+	if (raw === undefined) return {};
+	if (!isRecord(raw)) { err(feld, 'ist keine Zuordnung (erwartet <feld>: { from: list|tags|notes })'); return null; }
+	const out: Record<string, ValueSource> = {};
+	let ok = true;
+	for (const [key, entry] of Object.entries(raw)) {
+		const f = `${feld}.${key}`;
+		if (!allowedKeys.includes(key)) { err(f, `'${key}' steht nicht in allowed_keys (${allowedKeys.join(', ')})`); ok = false; continue; }
+		if (!isRecord(entry)) { err(`${f}.from`, 'fehlt (erwartet list|tags|notes)'); ok = false; continue; }
+		const from = entry.from;
+		const stray = (names: string[]): void => {
+			for (const n of names) if (entry[n] !== undefined) { err(`${f}.${n}`, `gilt nicht für from: ${String(from)}`); ok = false; }
+		};
+		if (from === 'tags') {
+			stray(['list', 'folder']);
+			out[key] = { kind: 'tags' };
+		} else if (from === 'list') {
+			stray(['folder']);
+			const list = entry.list;
+			if (!Array.isArray(list) || list.length === 0 || !list.every((v): v is string => typeof v === 'string' && v.trim() !== '')) {
+				err(`${f}.list`, 'fehlt oder ist keine nicht-leere Liste von Texten');
+				ok = false;
+			} else if (list.length > VALUES_MAX) {
+				err(`${f}.list`, `${list.length} Werte überschreiten das Maximum ${VALUES_MAX}`);
+				ok = false;
+			} else {
+				out[key] = { kind: 'list', list: [...list] };
+			}
+		} else if (from === 'notes') {
+			stray(['list']);
+			const folder = typeof entry.folder === 'string' ? entry.folder.trim() : '';
+			const rel = folder === '' ? null : normalizeRelPath(folder, { absolute: 'strip', allowEmpty: false });
+			if (folder === '') {
+				err(`${f}.folder`, 'fehlt oder leer (erwartet den Ordner, dessen Notizen die Werte sind)');
+				ok = false;
+			} else if (rel === null || !rel.ok || rel.path === '') {
+				err(`${f}.folder`, `'${folder}' ist kein gültiger Ordner im Vault`);
+				ok = false;
+			} else if (isDenied(`${rel.path}/x.md`, denylist)) {
+				err(`${f}.folder`, `'${rel.path}' liegt in einem geschützten Bereich`);
+				ok = false;
+			} else {
+				out[key] = { kind: 'notes', folder: rel.path };
+			}
+		} else {
+			err(`${f}.from`, `'${show(from)}' (erwartet list|tags|notes)`);
+			ok = false;
+		}
+	}
+	return ok ? out : null;
+}
+
+/** `add_to:` an `frontmatter.set`: Felder, deren Wert zur vorhandenen Liste hinzukommt statt sie zu ersetzen. */
+function parseAddTo(
+	raw: unknown,
+	feld: string,
+	allowedKeys: string[],
+	err: (feld: string, problem: string) => void,
+): string[] | null {
+	if (raw === undefined) return [];
+	if (!Array.isArray(raw) || !raw.every((k): k is string => typeof k === 'string' && k.trim() !== '')) {
+		err(feld, 'ist keine Liste von Feldnamen');
+		return null;
+	}
+	let ok = true;
+	for (const k of raw) if (!allowedKeys.includes(k)) { err(feld, `'${k}' steht nicht in allowed_keys (${allowedKeys.join(', ')})`); ok = false; }
+	return ok ? [...raw] : null;
 }
 
 /** Parst den neuen `output:`-Block einer llm-Task auf ein OutputSpec. */
@@ -46,6 +123,7 @@ function parseOutputBlock(
 	raw: unknown,
 	feld: string,
 	err: (feld: string, problem: string) => void,
+	denylist: string[],
 ): OutputSpec | null {
 	if (!isRecord(raw)) { err(feld, 'ist kein Objekt (erwartet family: …)'); return null; }
 	const family = raw.family;
@@ -56,7 +134,13 @@ function parseOutputBlock(
 		}
 		const keys = raw.allowed_keys.filter((k): k is string => typeof k === 'string');
 		if (keys.length !== raw.allowed_keys.length) { err(`${feld}.allowed_keys`, 'enthält Nicht-String-Einträge'); return null; }
-		return { family: 'frontmatter.set', allowedKeys: keys };
+		const values = parseValues(raw.values, `${feld}.values`, keys, err, denylist);
+		const addTo = parseAddTo(raw.add_to, `${feld}.add_to`, keys, err);
+		return values === null || addTo === null ? null : { family: 'frontmatter.set', allowedKeys: keys, values, addTo };
+	}
+	if ((family === 'section.write' || family === 'text.append') && (raw.values !== undefined || raw.add_to !== undefined)) {
+		err(`${feld}.${raw.values !== undefined ? 'values' : 'add_to'}`, 'gilt nur für frontmatter.set');
+		return null;
 	}
 	if (family === 'section.write') {
 		if (raw.allowed_keys !== undefined) { err(`${feld}.allowed_keys`, 'gilt nur für frontmatter.set'); return null; }
@@ -231,7 +315,7 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 					if (hasBlock && hasLegacy) {
 						err(`${label}.output`, 'nicht beide: output und output_schema gleichzeitig gesetzt');
 					} else if (hasBlock) {
-						output = parseOutputBlock(raw.output, `${label}.output`, err);
+						output = parseOutputBlock(raw.output, `${label}.output`, err, opts.denylist);
 					} else if (hasLegacy) {
 						output = resolveSchemaAlias(typeof raw.output_schema === 'string' ? raw.output_schema : '');
 						if (output === null) err(`${label}.output_schema`, `'${show(raw.output_schema)}' (erwartet triage-v1|briefing-v1)`);
@@ -242,7 +326,7 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 					if (raw.on_error !== undefined && raw.on_error !== 'skip' && raw.on_error !== 'abort') err(`${label}.on_error`, `'${show(raw.on_error)}' (erwartet abort|skip)`);
 					if (raw.per_note !== undefined && typeof raw.per_note !== 'boolean') err(`${label}.per_note`, `'${show(raw.per_note)}' (erwartet true|false)`);
 					const perNote = raw.per_note === true;
-					const def: LlmTaskDef = { id, kind: 'llm', agent, inputs, instruction: instruction ?? '', output: output ?? { family: 'frontmatter.set', allowedKeys: '*' }, onError, perNote };
+					const def: LlmTaskDef = { id, kind: 'llm', agent, inputs, instruction: instruction ?? '', output: output ?? { family: 'frontmatter.set', allowedKeys: '*', values: {}, addTo: [] }, onError, perNote };
 					tasks.push(def);
 					break;
 				}

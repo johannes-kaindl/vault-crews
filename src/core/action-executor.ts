@@ -48,6 +48,7 @@ interface ValidatedAction {
 	path: string;
 	outcome: ActionOutcome | null; // null = Validierung bestanden, wird in Phase 2 angewendet
 	mappedSet: Record<string, FmValue> | null; // rückgemappte Werte (frontmatter.patch)
+	mappedAdd: Record<string, (string | number)[]> | null; // rückgemappte Werte, die zur Liste hinzukommen (frontmatter.patch)
 }
 
 function byteLength(s: string): number {
@@ -67,8 +68,37 @@ function findHeadingLine(lines: string[], heading: string): number {
 	});
 }
 
+/** Prüft einen Wert für ein Frontmatter-Feld (Größe, Wertemenge) und mappt Kurzformen auf die Originalwerte zurück. */
+function mapFmValue(key: string, value: FmValue, ctx: ExecutorContext): { ok: true; value: FmValue } | { ok: false; reason: string } {
+	const table = ctx.slugTables[key];
+	const tooBig = (el: string | number | null): boolean => typeof el === 'string' && byteLength(el) > ctx.limits.maxNoteBytes;
+	const tooBigReason = `Wert für '${key}' überschreitet maxNoteBytes (${ctx.limits.maxNoteBytes})`;
+	const unknownReason = (el: string): string => `Wert '${el}' für '${key}' nicht in enumerierter Wertemenge`;
+	if (Array.isArray(value)) {
+		const list: (string | number)[] = [];
+		for (const el of value) {
+			if (tooBig(el)) return { ok: false, reason: tooBigReason };
+			if (typeof el === 'string' && table !== undefined) {
+				const original = table.fromSlug[el];
+				if (original === undefined) return { ok: false, reason: unknownReason(el) };
+				list.push(original);
+			} else {
+				list.push(el);
+			}
+		}
+		return { ok: true, value: list };
+	}
+	if (tooBig(value)) return { ok: false, reason: tooBigReason };
+	if (typeof value === 'string' && table !== undefined) {
+		const original = table.fromSlug[value];
+		if (original === undefined) return { ok: false, reason: unknownReason(value) };
+		return { ok: true, value: original };
+	}
+	return { ok: true, value };
+}
+
 async function validateAction(action: Action, ctx: ExecutorContext, vault: VaultPort): Promise<ValidatedAction> {
-	const v: ValidatedAction = { action, path: '', outcome: null, mappedSet: null };
+	const v: ValidatedAction = { action, path: '', outcome: null, mappedSet: null, mappedAdd: null };
 
 	// 1. Pfad-Normalisierung — '..' ist hart verboten
 	try {
@@ -104,57 +134,28 @@ async function validateAction(action: Action, ctx: ExecutorContext, vault: Vault
 		return v;
 	}
 	if (action.type === 'frontmatter.patch') {
-		const keys = [...Object.keys(action.set), ...action.remove];
+		const keys = [...Object.keys(action.set), ...action.remove, ...Object.keys(action.add ?? {})];
 		const allowed = ctx.task.allowedKeys ?? [];
 		const badKey = keys.find((k) => !allowed.includes(k));
 		if (badKey !== undefined) {
 			v.outcome = outcomeOf(action, 'rejected', `Key nicht in allowed_keys: ${badKey}`);
 			return v;
 		}
+		// set und add laufen durch dieselbe Prüfung: Größe, Wertemenge, Rück-Mapping der Kurzformen auf die Originalwerte.
 		const mapped: Record<string, FmValue> = {};
 		for (const [key, value] of Object.entries(action.set)) {
-			if (Array.isArray(value)) {
-				const table = ctx.slugTables[key];
-				const mappedList: (string | number)[] = [];
-				let rejected = false;
-				for (const el of value) {
-					if (typeof el === 'string' && byteLength(el) > ctx.limits.maxNoteBytes) {
-						v.outcome = outcomeOf(action, 'rejected', `Wert für '${key}' überschreitet maxNoteBytes (${ctx.limits.maxNoteBytes})`);
-						rejected = true;
-						break;
-					}
-					if (typeof el === 'string' && table !== undefined) {
-						const original = table.fromSlug[el];
-						if (original === undefined) {
-							v.outcome = outcomeOf(action, 'rejected', `Wert '${el}' für '${key}' nicht in enumerierter Wertemenge`);
-							rejected = true;
-							break;
-						}
-						mappedList.push(original);
-					} else {
-						mappedList.push(el);
-					}
-				}
-				if (rejected) return v;
-				mapped[key] = mappedList;
-				continue;
-			}
-			if (typeof value === 'string' && byteLength(value) > ctx.limits.maxNoteBytes) {
-				v.outcome = outcomeOf(action, 'rejected', `Wert für '${key}' überschreitet maxNoteBytes (${ctx.limits.maxNoteBytes})`);
-				return v;
-			}
-			const table = ctx.slugTables[key];
-			if (typeof value === 'string' && table !== undefined) {
-				const original = table.fromSlug[value];
-				if (original === undefined) {
-					v.outcome = outcomeOf(action, 'rejected', `Wert '${value}' für '${key}' nicht in enumerierter Wertemenge`);
-					return v;
-				}
-				mapped[key] = original;
-			} else {
-				mapped[key] = value;
-			}
+			const r = mapFmValue(key, value, ctx);
+			if (!r.ok) { v.outcome = outcomeOf(action, 'rejected', r.reason); return v; }
+			mapped[key] = r.value;
 		}
+		let mappedAdd: Record<string, (string | number)[]> | null = null;
+		for (const [key, list] of Object.entries(action.add ?? {})) {
+			const r = mapFmValue(key, list, ctx);
+			if (!r.ok) { v.outcome = outcomeOf(action, 'rejected', r.reason); return v; }
+			mappedAdd ??= {};
+			mappedAdd[key] = r.value as (string | number)[];
+		}
+		v.mappedAdd = mappedAdd;
 		if (!(await vault.exists(v.path))) {
 			v.outcome = outcomeOf(action, 'failed', `Datei existiert nicht: ${v.path}`);
 			return v;
@@ -265,7 +266,8 @@ function replaceSection(current: string, teamId: string, content: string): strin
 async function applyAction(v: ValidatedAction, ctx: ExecutorContext, vault: VaultPort): Promise<void> {
 	const action = v.action;
 	if (action.type === 'frontmatter.patch') {
-		await vault.patchFrontmatter(v.path, v.mappedSet ?? {}, action.remove);
+		if (v.mappedAdd !== null) await vault.patchFrontmatter(v.path, v.mappedSet ?? {}, action.remove, v.mappedAdd);
+		else await vault.patchFrontmatter(v.path, v.mappedSet ?? {}, action.remove);
 	} else if (action.type === 'note.create') {
 		const slash = v.path.lastIndexOf('/');
 		if (slash > 0) await vault.mkdir(v.path.slice(0, slash)); // wie bei section.replace: mkdir ist idempotent + rekursiv (VaultPort); Wurzelziele legen keinen Ordner an
