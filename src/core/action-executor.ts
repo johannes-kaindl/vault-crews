@@ -8,12 +8,15 @@ import type {
 import type { VaultPort } from './ports';
 import { globMatch, isDenied, normalizeVaultPath } from './paths';
 import { fnv1a } from './collectors';
+import { foldCase } from '../vendor/kit/fold-case';
 
 export interface ExecutorContext {
 	team: TeamDef;
 	task: ActionsTaskDef;
 	limits: RunLimits;
-	writeCount: number;
+	/** Pfade der Notizen, die dieser Lauf bisher geschrieben hat. `max_writes` zählt Notizen, nicht Aktionen: eine Aktion verbraucht
+	 *  nur dann einen Schreibvorgang, wenn ihr Pfad weder hier noch in diesem Durchgang schon vorkommt. */
+	writtenPaths: ReadonlySet<string>;
 	sources: CollectedFile[];
 	/** Slug-Tabellen der Input-Artefakte (key = Frontmatter-Key); für byte-genaues Rück-Mapping. */
 	slugTables: Record<string, SlugTableData>;
@@ -51,8 +54,10 @@ function byteLength(s: string): number {
 	return new TextEncoder().encode(s).length;
 }
 
-function outcomeOf(action: Action, result: 'rejected' | 'stale' | 'failed', reason: string): ActionOutcome {
-	return { action, result, reason };
+function outcomeOf(
+	action: Action, result: 'rejected' | 'stale' | 'failed', reason: string, code?: ActionOutcome['code'],
+): ActionOutcome {
+	return code === undefined ? { action, result, reason } : { action, result, reason, code };
 }
 
 function findHeadingLine(lines: string[], heading: string): number {
@@ -161,7 +166,7 @@ async function validateAction(action: Action, ctx: ExecutorContext, vault: Vault
 			return v;
 		}
 		if (await vault.exists(v.path)) {
-			v.outcome = outcomeOf(action, 'rejected', `existiert bereits — note.create überschreibt nie: ${v.path}`);
+			v.outcome = outcomeOf(action, 'rejected', `existiert bereits — note.create überschreibt nie: ${v.path}`, 'exists');
 			return v;
 		}
 		if (byteLength(action.content) > ctx.limits.maxNoteBytes) {
@@ -290,17 +295,24 @@ export async function executeActions(
 	let taskFailed = false;
 
 	// Phase 1: ALLE Aktionen validieren, bevor irgendetwas geschrieben wird.
+	// Pfade werden gefaltet verglichen (Kit foldCase): auf macOS und Windows sind `Angebot.md` und `angebot.md` dieselbe Datei.
 	const validated: ValidatedAction[] = [];
-	let budgetUsed = 0;
+	const budgeted = new Set<string>(); // Notizen, die in diesem Durchgang schon einen Schreibvorgang verbrauchen
+	const plannedCreates = new Set<string>();
+	const alreadyWritten = new Set([...ctx.writtenPaths].map(foldCase));
 	for (const action of actions) {
 		const v = await validateAction(action, ctx, vault);
 		if (v.outcome === null) {
-			// 6. Schreiblimit (writeCount aus dem Lauf + in diesem Task budgetierte Writes)
-			if (ctx.writeCount + budgetUsed + 1 > ctx.team.maxWrites) {
+			const key = foldCase(v.path);
+			if (action.type === 'note.create' && plannedCreates.has(key)) {
+				v.outcome = outcomeOf(action, 'rejected', `derselbe Pfad zweimal in einem Durchgang: ${v.path}`, 'duplicate');
+			} else if (!alreadyWritten.has(key) && !budgeted.has(key) && alreadyWritten.size + budgeted.size + 1 > ctx.team.maxWrites) {
+				// 6. Schreiblimit (Notizen aus dem Lauf + in diesem Task budgetierte Notizen)
 				v.outcome = outcomeOf(action, 'rejected', `write_limit: max_writes (${ctx.team.maxWrites}) erreicht`);
 				taskFailed = true;
 			} else {
-				budgetUsed += 1;
+				budgeted.add(key);
+				if (action.type === 'note.create') plannedCreates.add(key);
 			}
 		} else if (v.outcome.result === 'failed') {
 			taskFailed = true;
@@ -309,10 +321,12 @@ export async function executeActions(
 	}
 
 	// Konsistenz-Schwelle: > 50 % rejected/stale → Task-Fail, KEINE Aktion anwenden.
-	const invalidCount = validated.filter(
+	// Ablehnungen mit `code` (Titel belegt, Titel doppelt) zählen weder im Zähler noch im Nenner.
+	const counted = validated.filter((v) => v.outcome?.code === undefined);
+	const invalidCount = counted.filter(
 		(v) => v.outcome !== null && (v.outcome.result === 'rejected' || v.outcome.result === 'stale'),
 	).length;
-	if (actions.length > 0 && invalidCount * 2 > actions.length) {
+	if (counted.length > 0 && invalidCount * 2 > counted.length) {
 		taskFailed = true;
 		for (const v of validated) {
 			if (v.outcome === null) {

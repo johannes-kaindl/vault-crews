@@ -435,7 +435,7 @@ class RunFsm {
 		const actions = inputs.flatMap(artifactActions);
 		const ctx: ExecutorContext = {
 			team: this.team as TeamDef, task, limits: this.limits,
-			writeCount: this.uniqueWrites().length,
+			writtenPaths: new Set(this.uniqueWrites()),
 			...(this.deps.safeName !== undefined ? { safeName: this.deps.safeName } : {}),
 			sources: inputs.flatMap((a) => a.files),
 			slugTables: mergeSlugTables(inputs),

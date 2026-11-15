@@ -91,7 +91,10 @@ export interface SectionReplaceAction { type: 'section.replace'; path: string; c
 export type Action = FrontmatterPatchAction | NoteCreateAction | NoteAppendAction | SectionReplaceAction;
 
 export type ActionResult = 'applied' | 'rejected' | 'stale' | 'failed';
-export interface ActionOutcome { action: Action; result: ActionResult; reason: string | null; }
+/** `code` kennzeichnet Ablehnungen von `note.create`, die nicht für die Konsistenz-Schwelle zählen: der Titel ist schon belegt
+ *  (`exists`) oder kommt in diesem Durchgang zweimal vor (`duplicate`). Das ist ein Versehen des Modells bei Titeln, kein Zeichen
+ *  für eine kaputte Antwort. */
+export interface ActionOutcome { action: Action; result: ActionResult; reason: string | null; code?: 'exists' | 'duplicate'; }
 
 export type RunStatus = 'ok' | 'partial' | 'failed' | 'aborted' | 'refused';
 export type ErrorKind =

@@ -44,7 +44,7 @@ async function seed(files: Record<string, string>): Promise<InMemoryVaultPort> {
 
 function ctxOf(sources: CollectedFile[], overrides: Partial<ExecutorContext> = {}): ExecutorContext {
   return {
-    team: makeTeam(), task: makeTask(), limits: LIMITS, writeCount: 0, sources,
+    team: makeTeam(), task: makeTask(), limits: LIMITS, writtenPaths: new Set<string>(), sources,
     slugTables: { priority: { toSlug: { '2_mittel_🟡': 'mittel' }, fromSlug: { mittel: '2_mittel_🟡' } } },
     denylist: buildDenylist('.obsidian', '_crews'),
     ...overrides,
@@ -569,10 +569,10 @@ describe('executeActions — Schreiblimit', () => {
     expect(await vault.exists('10_Aufgaben/n2.md')).toBe(false);
   });
 
-  it('berücksichtigt bereits verbrauchte writes aus ctx.writeCount', async () => {
+  it('berücksichtigt bereits verbrauchte writes aus ctx.writtenPaths', async () => {
     const vault = await seed({});
     const a1: Action = { type: 'note.create', path: '10_Aufgaben/n1.md', content: 'x' };
-    const res = await executeActions([a1], ctxOf([], { team: makeTeam({ maxWrites: 1 }), writeCount: 1 }), vault);
+    const res = await executeActions([a1], ctxOf([], { team: makeTeam({ maxWrites: 1 }), writtenPaths: new Set(['fremd.md']) }), vault);
     expect(res.outcomes[0]?.result).toBe('rejected');
     expect(res.outcomes[0]?.reason).toContain('write_limit');
     expect(res.taskFailed).toBe(true);
@@ -725,5 +725,66 @@ describe('executeActions — section.replace create_if_missing', () => {
     expect(res.outcomes[0]?.result).toBe('applied');
     expect(await vault.exists('briefing.md')).toBe(true);
     expect(mkdirs).toEqual([]); // kein mkdir-Aufruf für root-level Ziel
+  });
+});
+
+describe('executeActions — Zählung nach Notizen (max_writes)', () => {
+  it('zählt zwei Aktionen auf dieselbe Notiz als einen Schreibvorgang', async () => {
+    const vault = await seed({ '10_Aufgaben/a.md': TASK_MD });
+    const ctx = ctxOf([source('10_Aufgaben/a.md', TASK_MD)], { team: makeTeam({ maxWrites: 1 }), writtenPaths: new Set() });
+    const r = await executeActions([
+      { type: 'frontmatter.patch', path: '10_Aufgaben/a.md', set: { kontext: 'x' }, remove: [] },
+      { type: 'note.append', path: '10_Aufgaben/a.md', heading: null, content: 'y' },
+    ], ctx, vault);
+    expect(r.outcomes.map((o) => o.result)).toEqual(['applied', 'applied']);
+  });
+
+  it('zählt eine im Lauf schon geschriebene Notiz nicht erneut', async () => {
+    const vault = await seed({ '10_Aufgaben/a.md': TASK_MD });
+    const ctx = ctxOf([source('10_Aufgaben/a.md', TASK_MD)], {
+      team: makeTeam({ maxWrites: 1 }), writtenPaths: new Set(['10_Aufgaben/a.md']),
+    });
+    const r = await executeActions([{ type: 'note.append', path: '10_Aufgaben/a.md', heading: null, content: 'y' }], ctx, vault);
+    expect(r.outcomes.map((o) => o.result)).toEqual(['applied']);
+  });
+
+  it('lehnt den zweiten note.create auf denselben Pfad in Phase 1 ab', async () => {
+    const vault = await seed({});
+    const a = { type: 'note.create' as const, path: '10_Aufgaben/x.md', content: 'a' };
+    const r = await executeActions([a, { ...a, content: 'b' }], ctxOf([], { writtenPaths: new Set() }), vault);
+    expect(r.outcomes.map((o) => [o.result, o.code])).toEqual([['applied', undefined], ['rejected', 'duplicate']]);
+    expect(r.taskFailed).toBe(false);
+  });
+
+  it('erkennt den doppelten Pfad auch bei anderer Schreibweise', async () => {
+    const vault = await seed({});
+    const r = await executeActions([
+      { type: 'note.create', path: '10_Aufgaben/Angebot.md', content: 'a' },
+      { type: 'note.create', path: '10_Aufgaben/angebot.md', content: 'b' },
+    ], ctxOf([], { writtenPaths: new Set() }), vault);
+    expect(r.outcomes.map((o) => [o.result, o.code])).toEqual([['applied', undefined], ['rejected', 'duplicate']]);
+  });
+
+  it('zählt „existiert bereits“ nicht für die Konsistenz-Schwelle', async () => {
+    const vault = await seed({ '10_Aufgaben/x.md': 'da', '10_Aufgaben/y.md': 'da' });
+    const r = await executeActions([
+      { type: 'note.create', path: '10_Aufgaben/x.md', content: 'a' },
+      { type: 'note.create', path: '10_Aufgaben/y.md', content: 'b' },
+      { type: 'note.create', path: '10_Aufgaben/z.md', content: 'c' },
+    ], ctxOf([], { writtenPaths: new Set() }), vault);
+    expect(r.outcomes.map((o) => o.result)).toEqual(['rejected', 'rejected', 'applied']);
+    expect(r.outcomes[0]?.code).toBe('exists');
+    expect(r.taskFailed).toBe(false);
+  });
+
+  it('Gegenprobe: andere Ablehnungen zählen weiter für die Schwelle', async () => {
+    const vault = await seed({});
+    const r = await executeActions([
+      { type: 'note.create', path: '.obsidian/x.md', content: 'x' },
+      { type: 'note.create', path: 'Notizen/x.md', content: 'x' },
+      { type: 'note.create', path: '10_Aufgaben/neu.md', content: 'x' },
+    ], ctxOf([], { writtenPaths: new Set() }), vault);
+    expect(r.taskFailed).toBe(true);
+    expect(r.outcomes.map((o) => o.result)).toEqual(['rejected', 'rejected', 'rejected']);
   });
 });
