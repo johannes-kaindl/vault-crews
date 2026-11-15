@@ -85,6 +85,8 @@ class RunFsm {
 	private readonly denylist: string[];
 	private limits: RunLimits;
 	private readonly artifacts = new Map<string, Artifact>();
+	/** Pfad → fnv1a des Stands, den dieser Lauf zuletzt selbst geschrieben hat (Stale-Schutz späterer Schritte). */
+	private readonly ownHashes = new Map<string, string>();
 	/** Collector-Task-Id → Quelle, fuer Collectors, die 0 Notizen fanden. */
 	private readonly emptyCollectors = new Map<string, string>();
 	private readonly agents = new Map<string, AgentDef>();
@@ -438,6 +440,7 @@ class RunFsm {
 			sources: inputs.flatMap((a) => a.files),
 			slugTables: mergeSlugTables(inputs),
 			denylist: this.denylist,
+			ownHashes: this.ownHashes,
 			// Copy-on-Write: Pre-Image sichern, BEVOR der Executor schreibt (first-write-wins
 			// macht der Store). Ein Throw hier → Aktion failed, nie Write ohne Sicherheitsnetz.
 			preWrite: async (path) => {
@@ -451,6 +454,10 @@ class RunFsm {
 		rec.artifactJson = { actions };
 		for (const outcome of outcomes) this.deps.reporter.emit({ type: 'actionApplied', outcome });
 		for (const w of writes) if (!this.state.writeRegister.includes(w)) this.state.writeRegister.push(w);
+		// Eigener Schreibstand: ein späterer Schritt darf auf diese Notizen schreiben, ohne am eigenen Stand als stale zu scheitern.
+		for (const w of writes) {
+			try { this.ownHashes.set(w, fnv1a(await this.deps.vault.read(w))); } catch { this.ownHashes.delete(w); /* seither entfernt */ }
+		}
 
 		if (taskFailed) {
 			const kind = actionsErrorKind(outcomes);

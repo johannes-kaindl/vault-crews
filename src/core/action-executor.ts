@@ -29,6 +29,10 @@ export interface ExecutorContext {
 	 *  write_scope, die also den bereinigten Pfad sehen. Optional: Tests und Umgebungen ohne Verdrahtung lassen ihn weg. Nur `note.create`
 	 *  bildet einen Namen aus Modellvorschlag; das Ziel von `section.replace` nennt der Team-Autor. */
 	safeName?: (segment: string) => string;
+	/** Pfad → `fnv1a` des Inhalts, den dieser Lauf zuletzt selbst geschrieben hat. Ein späterer Schritt darf auf eine Notiz schreiben,
+	 *  die ein früherer Schritt desselben Laufs verändert hat: ihr Stand gilt neben dem gesammelten als nicht veraltet. Eine fremde Änderung
+	 *  (weder gesammelter noch eigener Stand) bleibt `stale`. Optional: Tests und Läufe ohne frühere Schreibschritte lassen es weg. */
+	ownHashes?: ReadonlyMap<string, string>;
 }
 
 export const CREW_MARKER = (teamId: string): { start: string; end: string } => ({
@@ -201,7 +205,8 @@ async function validateAction(action: Action, ctx: ExecutorContext, vault: Vault
 		const src = ctx.sources.find((f) => f.path === v.path);
 		if (src !== undefined) {
 			const current = await vault.read(v.path);
-			if (fnv1a(current) !== src.contentHash) {
+			const hash = fnv1a(current);
+			if (hash !== src.contentHash && hash !== ctx.ownHashes?.get(v.path)) {
 				v.outcome = { action, result: 'stale', reason: `Datei seit Collect geändert: ${v.path}` };
 				return v;
 			}

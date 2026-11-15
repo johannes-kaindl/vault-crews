@@ -846,6 +846,52 @@ describe('executeRun — target threading (briefing-v1 → section.replace)', ()
   });
 });
 
+describe('executeRun — zwei Schritte auf dieselbe Notiz (eigener Schreibstand)', () => {
+  const TWO_STEP_TEAM: TeamFm = {
+    'crew-kind': 'team', name: 'Task-Triage', version: 1, trigger: 'manual', description: '',
+    limits: { max_writes: 5 },
+    write_scope: ['10_Aufgaben/**/*.md'],
+    tasks: [
+      { id: 'collect', kind: 'collector', collector: 'vault.list', params: { folder: '10_Aufgaben' } },
+      { id: 'analyse', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'Bewerte.', output: { family: 'frontmatter.set', allowed_keys: ['priority'] }, on_error: 'abort' },
+      { id: 'apply1', kind: 'actions', inputs: ['analyse'], allowed_actions: ['frontmatter.patch'], allowed_keys: ['priority'] },
+      { id: 'brief', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'Schreibe.', output: { family: 'section.write' }, on_error: 'abort' },
+      { id: 'apply2', kind: 'actions', inputs: ['brief'], allowed_actions: ['section.replace'], allowed_keys: null, target: '10_Aufgaben/a.md' },
+    ],
+  };
+
+  it('beide actions-Schritte enden mit applied: der Stand des ersten gilt im zweiten nicht als stale', async () => {
+    const llm = new ScriptLlmClient([{ content: TRIAGE_OK }, { content: '## Notiz\n- erledigt' }]);
+    const h = await harness({ teamFm: TWO_STEP_TEAM, llm });
+    const result = await executeRun(h.teamPath, h.deps);
+    const state = JSON.parse(await h.vault.read(`_crews/runs/${result.runId}/state.json`)) as { tasks: { taskId: string; status: string }[] };
+    expect(state.tasks.filter((t) => t.taskId.startsWith('apply')).map((t) => [t.taskId, t.status])).toEqual([['apply1', 'ok'], ['apply2', 'ok']]);
+    expect(result.status).toBe('ok');
+    const note = await h.vault.read('10_Aufgaben/a.md');
+    expect(note).toContain('priority: mittel');
+    expect(note).toContain('- erledigt');
+  });
+
+  it('eine fremde Änderung zwischen den Schritten bleibt stale', async () => {
+    class EditingLlm extends ScriptLlmClient {
+      constructor(private readonly vaultRef: () => InMemoryVaultPort) { super([{ content: TRIAGE_OK }, { content: '## Notiz\n- erledigt' }]); }
+      override async stream(...args: Parameters<ScriptLlmClient['stream']>): ReturnType<ScriptLlmClient['stream']> {
+        const r = await super.stream(...args);
+        if (this.calls.length === 2) await this.vaultRef().modify('10_Aufgaben/a.md', `${await this.vaultRef().read('10_Aufgaben/a.md')}FREMD\n`);
+        return r;
+      }
+    }
+    let vaultRef: InMemoryVaultPort | undefined;
+    const llm = new EditingLlm(() => vaultRef as InMemoryVaultPort);
+    const h = await harness({ teamFm: TWO_STEP_TEAM, llm });
+    vaultRef = h.vault;
+    const result = await executeRun(h.teamPath, h.deps);
+    const state = JSON.parse(await h.vault.read(`_crews/runs/${result.runId}/state.json`)) as { tasks: { taskId: string; status: string }[] };
+    expect(state.tasks.find((t) => t.taskId === 'apply2')?.status).toBe('failed');
+    expect(await h.vault.read('10_Aufgaben/a.md')).not.toContain('- erledigt');
+  });
+});
+
 describe('executeRun — raw-output artifacts on validation failure (V1 §2.4/§3.4/§9)', () => {
   it('primary invalid AND repair invalid → both raw outputs saved under artifacts/, never registered as writes', async () => {
     const llm = new ScriptLlmClient([{ content: 'kaputt' }, { content: 'immer noch kaputt' }]);

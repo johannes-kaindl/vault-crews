@@ -525,6 +525,36 @@ describe('executeActions — Stale-Guard', () => {
   });
 });
 
+describe('executeActions — Stale-Guard: eigener Schreibstand', () => {
+  it('lässt eine Notiz gelten, deren Stand der eigene letzte Schreibstand ist', async () => {
+    const vault = await seed({ '10_Aufgaben/a.md': 'NEU\n' });
+    const src = source('10_Aufgaben/a.md', 'ALT\n');
+    const ctx = ctxOf([src], { ownHashes: new Map([['10_Aufgaben/a.md', fnv1a('NEU\n')]]) });
+    const r = await executeActions([{ type: 'note.append', path: '10_Aufgaben/a.md', heading: null, content: 'x' }], ctx, vault);
+    expect(r.outcomes[0]?.result).toBe('applied');
+  });
+
+  it('bleibt stale, wenn der Stand weder der gesammelte noch der eigene ist', async () => {
+    const vault = await seed({ '10_Aufgaben/a.md': 'FREMD\n' });
+    const ctx = ctxOf([source('10_Aufgaben/a.md', 'ALT\n')], { ownHashes: new Map([['10_Aufgaben/a.md', fnv1a('NEU\n')]]) });
+    const r = await executeActions([{ type: 'note.append', path: '10_Aufgaben/a.md', heading: null, content: 'x' }], ctx, vault);
+    expect(r.outcomes[0]?.result).toBe('stale');
+  });
+
+  it('Gegenprobe: ohne ownHashes bleibt der eigene Stand stale (wie bisher)', async () => {
+    const vault = await seed({ '10_Aufgaben/a.md': 'NEU\n' });
+    const r = await executeActions([{ type: 'note.append', path: '10_Aufgaben/a.md', heading: null, content: 'x' }], ctxOf([source('10_Aufgaben/a.md', 'ALT\n')]), vault);
+    expect(r.outcomes[0]?.result).toBe('stale');
+  });
+
+  it('der gesammelte Stand gilt weiter, auch wenn ownHashes einen anderen Pfad führt', async () => {
+    const vault = await seed({ '10_Aufgaben/a.md': 'ALT\n' });
+    const ctx = ctxOf([source('10_Aufgaben/a.md', 'ALT\n')], { ownHashes: new Map([['10_Aufgaben/b.md', fnv1a('X')]]) });
+    const r = await executeActions([{ type: 'note.append', path: '10_Aufgaben/a.md', heading: null, content: 'x' }], ctx, vault);
+    expect(r.outcomes[0]?.result).toBe('applied');
+  });
+});
+
 describe('executeActions — Schreiblimit', () => {
   it('verwirft Aktionen über max_writes mit reason write_limit und taskFailed', async () => {
     const vault = await seed({});
