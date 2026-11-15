@@ -35,6 +35,9 @@
  * `--ohne-modell` lässt den Punkt „echtes Modell“ (w11, POST an :1234) aus und führt ihn als nichts gemessen (Wellen-Regel:
  * kein Lauf schickt eine Anfrage an LM Studio/Ollama). `--keep` lässt `data.json.smoke-rettung` liegen — vor dem nächsten Lauf löschen,
  * sonst meldet „Keine liegen gebliebene Rettungskopie“ rot.
+ * `--nur-schreiben` fährt nur den Abschnitt „Schreiben“ (Verschieben mit Linknachzug, Rückgängig, `notes.create`, `text.append`, `per_note` mit Tags, Statusleiste, Beispiel-Crew
+ * mit lokalem Modell; Wegwerf-Klon mit `scripts/clone-vault.sh`, `--modell` Standard `google/gemma-4-e4b`, vorher in LM Studio laden, danach entladen); `--nur-messung --messung <n>`
+ * fährt nur die Messreihe der Beispiel-Crew (`--messung 0` lässt sie im Gesamtlauf aus), `SMOKE_MESS_DIR=<Ordner>` legt Protokolle und `messung-eingang.json` dort ab.
  * Je Messlauf ein frischer Prozess; der erste Lauf nach einer Profilanlage ist ein Aufwaermlauf.
  * Exit 0 gruen/uebersprungen, 1 bei Rot oder „nichts gemessen", 2 bei Abbruch.
  */
@@ -59,6 +62,13 @@ const OHNE_MODELL = args.has("ohne-modell");
 /** Gegenprobe der Folge-Messung (README der Brücke § Folge-Messung): ein Beobachter setzt nach jeder Änderung `scrollTop = scrollHeight`,
  *  wie ein Plugin, das ein Hochscrollen überschreibt. Erwartet: genau der Punkt „Hochscrollen wird respektiert“ wird rot. */
 const FOLGE_GEGENPROBE = args.has("folge-gegenprobe");
+/** Nur den Abschnitt „Schreiben“ fahren (Verschieben, Neuanlage, Anhängen, per_note, Statusleiste, Beispiel-Crew mit Modell); die Soll-Liste ist dann nur dieser Abschnitt. */
+const NUR_SCHREIBEN = args.has("nur-schreiben");
+/** Nur die Messung (Beispiel-Crew, `--messung <n>` Läufe) — langer Lauf ohne Einstellungen und ohne Stub-Punkte, eigene Soll-Liste. */
+const NUR_MESSUNG = args.has("nur-messung");
+/** Zahl der Läufe der Messung „Eingangsordner einsortieren“ (Standard 10); `SMOKE_MESS_DIR` legt das Ergebnis als JSON ab. */
+const MESS_N = Number(args.value("messung") ?? "10");
+const MESS_DIR = process.env.SMOKE_MESS_DIR;
 
 // --- Prüfpunkte --------------------------------------------------------------
 
@@ -95,6 +105,22 @@ const P_V_E = "Modelle V-e — der Aufklapp-Zustand übersteht ein Neuzeichnen (
 const P_V_F = "Modelle V-f — der Link führt in die Einstellungen dieses Plugins";
 const P_V_G = "Modelle V-g — nach einem Lauf nennt die Anzeige das Modell, das am Draht ankam (nicht den Wunsch der Zeile), auch bei schmaler Panelbreite";
 const P_V_H = "Modelle V-h — vor dem ersten Lauf fehlt die Zeile „zuletzt benutzt“ (Gegenprobe zu V-g: danach steht sie)";
+
+// Schritt 1 „Crew schreibt“ (Task 11): die Punkte stehen in `SCHREIB_PUNKTE`, damit `--nur-schreiben` sie als eigene Soll-Liste führen kann.
+const P_SW_LINKS_STUB = "Schreiben — Verschieben zieht Links nach (deterministische Antwort): beide Links lösen auf Ziel/a.md auf, Rückgängig stellt sie her";
+const P_SW_LINKS = "Schreiben — Verschieben zieht Links nach (lokales Modell): beide Links lösen auf Ziel/a.md auf, Rückgängig stellt sie her";
+const P_SW_LINKS_AUS = "Schreiben — Gegenprobe: bei ausgeschaltetem „Automatically update internal links“ fragt Obsidian im Lauf (Dialog „Update links“); „Do not update“ lässt den Verweis, „Just once“ zieht ihn nach";
+const P_SW_UNDO_ORDNER = "Schreiben — Rückgängig bei gelöschtem alten Ordner: keine Notiz geht verloren, der Lauf bleibt rückgängig-fähig oder die Rücknahme gelingt";
+const P_SW_TITEL_PUNKT = "Schreiben — notes.create: Titel mit führendem Punkt und Sonderzeichen gehen durch die Namensrichtlinie, nichts bleibt unsichtbar liegen";
+const P_SW_TITEL_EMOJI = "Schreiben — notes.create: ein Titel nur aus Emoji wird abgelehnt (invalid_output), es entsteht keine Notiz";
+const P_SW_APPEND_HEADING = "Schreiben — text.append mit heading: der Text steht unter der Überschrift, Rückgängig stellt das Original her";
+const P_SW_PERNOTE_TAGS = "Schreiben — per_note mit values/add_to: bestehende Tags bleiben, die Tags stehen im MetadataCache";
+const P_SW_STATUS_AN = "Schreiben — Statusleiste an: der Lauf-Zähler erscheint während eines Laufs";
+const P_SW_STATUS_AUS = "Schreiben — Statusleiste aus: der Eintrag ist abgehängt und erscheint auch im Lauf nicht, an: wieder da";
+const P_SW_EINGANG = "Schreiben — Beispiel-Crew „Eingangsordner einsortieren“ mit acht Notizen und lokalem Modell";
+const P_SW_MESSUNG = "Schreiben — Messung: dieselbe Crew mehrfach auf acht Notizen mit bekanntem Soll-Ziel (Zahlen in docs/internal/decisions.md)";
+const P_SW_ENDE = "Schreiben — Abschnitt lief bis zum Ende";
+const SCHREIB_PUNKTE = [P_SW_LINKS_STUB, P_SW_LINKS, P_SW_LINKS_AUS, P_SW_UNDO_ORDNER, P_SW_TITEL_PUNKT, P_SW_TITEL_EMOJI, P_SW_APPEND_HEADING, P_SW_PERNOTE_TAGS, P_SW_STATUS_AN, P_SW_STATUS_AUS, P_SW_EINGANG, P_SW_MESSUNG, P_SW_ENDE] as const;
 
 const PUNKTE = [
   "Alte Endpunkt-Liste wird zu genau einem Eintrag",
@@ -189,9 +215,10 @@ const PUNKTE = [
   "Keine liegen gebliebene Rettungskopie aus einem abgebrochenen Vorlauf",
   N1_PUNKT,
   P_V_ENDE, P_V_A, P_V_B, P_V_C, P_V_D, P_V_E, P_V_F, P_V_G, P_V_H,
+  ...SCHREIB_PUNKTE,
 ] as const;
 type Punktname = (typeof PUNKTE)[number];
-const bilanz = createBilanz({ punkte: PUNKTE });
+const bilanz = createBilanz({ punkte: (NUR_MESSUNG ? [P_SW_MESSUNG] : NUR_SCHREIBEN ? SCHREIB_PUNKTE : PUNKTE) as unknown as typeof PUNKTE });
 const record = (name: Punktname, passed: boolean, detail: string): void => bilanz.record(name, passed, detail);
 /** Der Punkt ist nicht anwendbar (z. B. ein echter Manager ist geladen) — mit Grund, aber nichts gemessen. */
 const skipped = (name: Punktname, reason: string): void => bilanz.skipped(name, reason);
@@ -2401,6 +2428,641 @@ async function modelleLetzterLauf(cdp: Cdp): Promise<void> {
   }
 }
 
+// --- Schreib-Fähigkeiten: Verschieben, Neuanlage, Anhängen, per_note, Statusleiste (Schritt 1 „Crew schreibt“) -------------
+//
+// Gemessen wird, was nur ein echtes Obsidian zeigt: Linknachzug von `fileManager.renameFile`, `processFrontMatter`, Tags im MetadataCache,
+// die Namensrichtlinie am echten Dateisystem. Die Punkte „mit Modell“ fahren gegen LM Studio (`--modell`, Standard gemma-4-e4b), alle anderen
+// gegen den zentralen Stub (deterministische Antworten). `--nur-schreiben` lässt alle älteren Abschnitte aus (Soll-Liste = nur diese Punkte);
+// `--messung <n>` setzt die Zahl der Läufe der Messung (Standard 10, `SMOKE_MESS_DIR` legt das Ergebnis als JSON ab).
+
+const SW_AGENT_ID = "zz-sw-agent";
+const SW_AGENT = ["---", "crew-kind: agent", "name: ZZ SW", "temperature: 0.1", "max_tokens: 1536", "thinking: off", "---",
+  "Du bist ein nüchterner Test-Agent. Du richtest dich nur nach dem Material und der Aufgabe.", ""].join("\n");
+
+async function swRoot(cdp: Cdp): Promise<string> {
+  return cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
+}
+
+/** Dateien anlegen oder überschreiben, fehlende Ordner entstehen mit. */
+async function swSchreibe(cdp: Cdp, dateien: Record<string, string>): Promise<void> {
+  await cdp.evaluate(`
+    for (const [pfad, inhalt] of Object.entries(${JSON.stringify(dateien)})) {
+      const teile = pfad.split("/"); teile.pop();
+      let p = "";
+      for (const t of teile) { p = p ? p + "/" + t : t; if (!app.vault.getAbstractFileByPath(p)) await app.vault.createFolder(p); }
+      const f = app.vault.getAbstractFileByPath(pfad);
+      if (f) await app.vault.modify(f, inhalt); else await app.vault.create(pfad, inhalt);
+    }
+    return true;`);
+}
+
+async function swOrdner(cdp: Cdp, ordner: string[]): Promise<void> {
+  await cdp.evaluate(`
+    for (const o of ${JSON.stringify(ordner)}) if (!app.vault.getAbstractFileByPath(o)) await app.vault.createFolder(o);
+    return true;`);
+}
+
+/** Löschen (endgültig, nicht Papierkorb); fehlende Pfade sind kein Fehler. */
+async function swLoesche(cdp: Cdp, pfade: string[]): Promise<void> {
+  await cdp.evaluate(`
+    for (const p of ${JSON.stringify(pfade)}) { const f = app.vault.getAbstractFileByPath(p); if (f) await app.vault.delete(f, true); }
+    return true;`);
+}
+
+async function swLies(cdp: Cdp, pfad: string): Promise<string | null> {
+  return cdp.evaluate<string | null>(`const f = app.vault.getAbstractFileByPath(${JSON.stringify(pfad)}); return f && "extension" in f ? await app.vault.read(f) : null;`);
+}
+
+async function swCacheBereit(cdp: Cdp, pfade: string[], timeoutMs = 8000): Promise<boolean> {
+  return wartetAuf(cdp, `${JSON.stringify(pfade)}.every((p) => { const f = app.vault.getAbstractFileByPath(p); return f && app.metadataCache.getFileCache(f); })`, timeoutMs);
+}
+
+/** Team und Agent anlegen, Crew-Liste neu lesen. Liefert den Fehlertext der Crew (`problem`) oder `null`. */
+async function swCrew(cdp: Cdp, id: string, team: string, agent: string = SW_AGENT, agentId: string = SW_AGENT_ID): Promise<string | null> {
+  const root = await swRoot(cdp);
+  await swSchreibe(cdp, { [`${root}/teams/${id}.md`]: team, [`${root}/agents/${agentId}.md`]: agent });
+  await swCacheBereit(cdp, [`${root}/teams/${id}.md`, `${root}/agents/${agentId}.md`]);
+  await wartetAuf(cdp, `app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(`${root}/teams/${id}.md`)}))?.frontmatter`, 8000);
+  await cdp.evaluate(`await ${PLUGIN}.refreshTeams(); return true;`);
+  return cdp.evaluate<string | null>(`return ${PLUGIN}.teamCache.find((t) => t.id === ${JSON.stringify(id)})?.problem ?? null;`);
+}
+
+function swTeam(opts: { name: string; scope: string[]; tasks: string[]; maxWrites?: number }): string {
+  return ["---", "crew-kind: team", `name: ${opts.name}`, "version: 1", "description: Smoke", "trigger: manual", "review: false",
+    "limits:", `  max_writes: ${opts.maxWrites ?? 10}`, "write_scope:", ...opts.scope.map((s) => `  - "${s}"`), "tasks:", ...opts.tasks, "---", "Smoke", ""].join("\n");
+}
+
+interface SwLauf {
+  info: { runId: string; status: string; undoable: boolean; writes: number; errorKind: string | null } | null;
+  state: { llmCalls: number; status: string; errorKind: string | null; tasks: { taskId: string; kind: string; status: string; error?: { kind: string; message: string } | null; notes?: { path: string; status: string; reason: string | null }[]; outcomes: { action: { type: string; path: string; to?: string }; result: string; reason: string | null }[]; valueNotes?: string[] }[] } | null;
+  runMd: string;
+  dateien: string[];
+  notice: string;
+}
+
+/** Einen Lauf starten (nicht awaiten: ein Lauf dauert länger als die 30 s eines `Cdp.send`) und auf `lastRuns` warten. */
+async function swLauf(cdp: Cdp, id: string, maxMs = 120_000, waehrend?: () => Promise<void>): Promise<SwLauf> {
+  const root = await swRoot(cdp);
+  await clearNotices(cdp);
+  await cdp.evaluate(`delete ${PLUGIN}.lastRuns[${JSON.stringify(id)}]; ${PLUGIN}.runCrew(${JSON.stringify(id)}); return true;`);
+  if (waehrend) await waehrend();
+  const info = await pollUntil<NonNullable<SwLauf["info"]>>(cdp, `return ${PLUGIN}.lastRuns[${JSON.stringify(id)}] ?? null;`, maxMs, 500);
+  const notice = await notices(cdp);
+  if (!info) {
+    const aktiv = await cdp.evaluate<string>(`return JSON.stringify({ runActive: ${PLUGIN}.runActive, lastRuns: Object.keys(${PLUGIN}.lastRuns), problem: ${PLUGIN}.teamCache.find((t) => t.id === ${JSON.stringify(id)})?.problem ?? null });`);
+    console.log(`  (kein Lauf-Ergebnis für ${id} nach ${maxMs} ms: Notices „${swKurz(notice, 200)}" · ${aktiv})`);
+    return { info: null, state: null, runMd: "", dateien: [], notice: `${notice} ${aktiv}` };
+  }
+  const dir = `${root}/runs/${info.runId}`;
+  const gelesen = await cdp.evaluate<{ state: string | null; runMd: string; dateien: string[] }>(`
+    const a = app.vault.adapter;
+    const lies = async (p) => (await a.exists(p)) ? await a.read(p) : null;
+    const l = (await a.exists(${JSON.stringify(dir)})) ? await a.list(${JSON.stringify(dir)}) : { files: [] };
+    const art = (await a.exists(${JSON.stringify(`${dir}/artifacts`)})) ? (await a.list(${JSON.stringify(`${dir}/artifacts`)})).files : [];
+    return { state: await lies(${JSON.stringify(`${dir}/state.json`)}), runMd: (await lies(${JSON.stringify(`${dir}/run.md`)})) ?? "", dateien: [...l.files, ...art] };`);
+  return { info, state: gelesen.state ? JSON.parse(gelesen.state) : null, runMd: gelesen.runMd, dateien: gelesen.dateien, notice };
+}
+
+interface SwUndo { dialog: string; notice: string; undoable: boolean | null; geklickt: boolean }
+
+/** Rückgängig über den echten Weg (Befehl, Bestätigungsdialog, Klick auf den Bestätigen-Knopf). */
+async function swRueckgaengig(cdp: Cdp, teamId: string): Promise<SwUndo> {
+  await clearNotices(cdp);
+  await cdp.evaluate(`${PLUGIN}.undoLastRun(); return true;`);
+  const dialog = await pollUntil<string>(cdp, `return document.querySelector(".modal-container .modal-button-container") ? document.querySelector(".modal-container .modal")?.innerText ?? "" : null;`, 10_000, 250);
+  if (dialog === null) return { dialog: "", notice: await notices(cdp), undoable: null, geklickt: false };
+  const geklickt = await cdp.evaluate<boolean>(`
+    const b = [...document.querySelectorAll(".modal-container .modal-button-container button")].find((x) => /^(Undo|Rückgängig machen)$/.test(x.textContent.trim()));
+    if (!b) return false; b.click(); return true;`);
+  if (geklickt) await new Promise((r) => setTimeout(r, 2500));
+  return { dialog, notice: await notices(cdp), undoable: await cdp.evaluate<boolean | null>(`return ${PLUGIN}.lastRuns[${JSON.stringify(teamId)}]?.undoable ?? null;`), geklickt };
+}
+
+async function swSchliesseDialoge(cdp: Cdp): Promise<void> {
+  await cdp.evaluate(`for (const m of document.querySelectorAll(".modal-container .modal-close-button")) m.click(); return true;`).catch(() => undefined);
+}
+
+function swKurz(s: string, n = 200): string { return s.replace(/\s+/g, " ").slice(0, n); }
+
+/** Wo liegt Dritte.md's Verweis gerade? Auflösung im MetadataCache plus Text der Notiz. */
+async function swLinkStand(cdp: Cdp, erwartet: string): Promise<{ aufgeloest: string[]; text: string }> {
+  await pollUntil(cdp, `const r = app.metadataCache.resolvedLinks["Dritte.md"] ?? {}; return Object.keys(r).includes(${JSON.stringify(erwartet)}) ? true : null;`, 6000, 250);
+  return cdp.evaluate(`return { aufgeloest: Object.keys(app.metadataCache.resolvedLinks["Dritte.md"] ?? {}), text: await app.vault.read(app.vault.getAbstractFileByPath("Dritte.md")) };`);
+}
+
+const SW_LINKS_TEAM = (modellFrage: string): string => swTeam({
+  name: "ZZ SW Verschieben", scope: ["Inbox/**/*.md", "Ziel/**/*.md"], maxWrites: 3,
+  tasks: ["  - id: collect", "    kind: collector", "    collector: vault.read", "    params:", "      paths: [Inbox/a.md]",
+    "  - id: file", "    kind: llm", `    agent: ${SW_AGENT_ID}`, "    inputs: [collect]", `    instruction: ${modellFrage}`,
+    "    output:", "      family: note.file", "      destinations:", "        - { folder: Ziel, when: \"Every note belongs there\" }", "    on_error: abort",
+    "  - id: apply", "    kind: actions", "    inputs: [file]", "    allowed_actions: [note.move]"],
+});
+
+async function swLinksVorbereiten(cdp: Cdp): Promise<void> {
+  await swLoesche(cdp, ["Inbox", "Ziel", "Dritte.md"]);
+  await swSchreibe(cdp, {
+    "Inbox/a.md": "# Rechnung Stromanbieter\n\nRechnung Nr. 4711 über 83 Euro, zahlbar bis Monatsende.\n",
+    "Dritte.md": "Erster Verweis: [[a]]\nZweiter Verweis: [[Inbox/a]]\n",
+  });
+  await swOrdner(cdp, ["Ziel"]);
+  await swCacheBereit(cdp, ["Inbox/a.md", "Dritte.md"]);
+  await pollUntil(cdp, `return (app.metadataCache.resolvedLinks["Dritte.md"] ?? {})["Inbox/a.md"] ? true : null;`, 6000, 250);
+}
+
+/** Punkt „Verschieben zieht Links nach“. `antwort` ist der Stub (deterministisch) oder `null` (echtes Modell, bis zu dreimal bei `none`). */
+async function swLinks(cdp: Cdp, punkt: Punktname, stub: LlmStub | null): Promise<void> {
+  const id = stub ? "zz-sw-links-stub" : "zz-sw-links";
+  await swLinksVorbereiten(cdp);
+  const vorher = await cdp.evaluate<{ aufgeloest: string[]; text: string }>(`return { aufgeloest: Object.keys(app.metadataCache.resolvedLinks["Dritte.md"] ?? {}), text: await app.vault.read(app.vault.getAbstractFileByPath("Dritte.md")) };`);
+  const config = await cdp.evaluate<unknown>(`return app.vault.getConfig("alwaysUpdateLinks");`);
+  const problem = await swCrew(cdp, id, SW_LINKS_TEAM(stub ? "Lege die Notiz ab." : "Lege die Notiz in den Ordner Ziel ab; wähle nur none, wenn sie dort sicher nicht hingehört."));
+  if (problem) { unmeasured(punkt, `Crew ungültig: ${problem}`); return; }
+  let lauf: SwLauf | null = null;
+  let versuche = 0;
+  for (; versuche < (stub ? 1 : 3);) {
+    lauf = await swLauf(cdp, id, 240_000);
+    versuche += 1;
+    const bewegt = await cdp.evaluate<boolean>(`return Boolean(app.vault.getAbstractFileByPath("Ziel/a.md"));`);
+    if (bewegt || !lauf.info) break;
+  }
+  if (!lauf?.info) { unmeasured(punkt, `kein Lauf-Ergebnis (${swKurz(lauf?.notice ?? "", 120)})`); return; }
+  const bewegt = await cdp.evaluate<boolean>(`return Boolean(app.vault.getAbstractFileByPath("Ziel/a.md")) && !app.vault.getAbstractFileByPath("Inbox/a.md");`);
+  if (!bewegt) {
+    unmeasured(punkt, `Notiz nicht verschoben nach ${versuche} Lauf/Läufen (Status ${lauf.info.status}, ${swKurz(JSON.stringify(lauf.state?.tasks.map((t) => t.outcomes) ?? []), 160)}) — das Modell hat none gewählt oder die Aktion scheiterte`);
+    return;
+  }
+  const nach = await swLinkStand(cdp, "Ziel/a.md");
+  const u = await swRueckgaengig(cdp, id);
+  const zurueck = await cdp.evaluate<boolean>(`return Boolean(app.vault.getAbstractFileByPath("Inbox/a.md")) && !app.vault.getAbstractFileByPath("Ziel/a.md");`);
+  const wieder = await swLinkStand(cdp, "Inbox/a.md");
+  const nachOk = nach.aufgeloest.includes("Ziel/a.md") && !nach.aufgeloest.includes("Inbox/a.md");
+  const wiederOk = zurueck && wieder.aufgeloest.includes("Inbox/a.md") && !wieder.aufgeloest.includes("Ziel/a.md");
+  record(punkt, precondOk(vorher.aufgeloest) && nachOk && wiederOk,
+    `alwaysUpdateLinks=${String(config)} · Läufe ${versuche} · Status ${lauf.info.status} · vorher ${vorher.aufgeloest.join(",")} · nach dem Lauf ${nach.aufgeloest.join(",")} Text „${swKurz(nach.text, 90)}" · `
+    + `nach Rückgängig ${wieder.aufgeloest.join(",")} Text „${swKurz(wieder.text, 90)}" (Notiz zurück: ${String(zurueck)}) · Dialog „${swKurz(u.dialog, 140)}" · Notice „${swKurz(u.notice, 80)}"`);
+}
+function precondOk(aufgeloest: string[]): boolean { return aufgeloest.includes("Inbox/a.md"); }
+
+/** Gegenprobe: bei ausgeschaltetem „Automatically update internal links“ fragt Obsidian im Lauf per Dialog („Update links“), und der Lauf wartet auf die Antwort.
+ *  Zwei Arme: „Do not update“ lässt den Verweis, „Just once“ zieht ihn nach. „Always update“ wird nie geklickt (es änderte die Einstellung des Vaults). */
+async function swLinksAus(cdp: Cdp): Promise<void> {
+  const alt = await cdp.evaluate<unknown>(`return app.vault.getConfig("alwaysUpdateLinks");`);
+  const arm = async (knopf: string): Promise<{ dialog: string; status: string; text: string; aufgeloest: string[]; bewegt: boolean }> => {
+    await swLinksVorbereiten(cdp);
+    let dialog = "";
+    const lauf = await swLauf(cdp, "zz-sw-links-stub", 60_000, async () => {
+      dialog = await pollUntil<string>(cdp, `const m = [...document.querySelectorAll(".modal-container .modal")].find((x) => /Update links/i.test(x.innerText)); return m ? m.innerText.replace(/\\s+/g, " ") : null;`, 15_000, 250) ?? "";
+      if (dialog) {
+        await cdp.evaluate(`const b = [...document.querySelectorAll(".modal-container .modal button")].find((x) => x.textContent.trim() === ${JSON.stringify(knopf)}); b?.click(); return Boolean(b);`);
+      }
+    });
+    const bewegt = await cdp.evaluate<boolean>(`return Boolean(app.vault.getAbstractFileByPath("Ziel/a.md")) && !app.vault.getAbstractFileByPath("Inbox/a.md");`);
+    await new Promise((r) => setTimeout(r, 1500));
+    const nach = await cdp.evaluate<{ aufgeloest: string[]; text: string }>(`return { aufgeloest: Object.keys(app.metadataCache.resolvedLinks["Dritte.md"] ?? {}), text: await app.vault.read(app.vault.getAbstractFileByPath("Dritte.md")) };`);
+    if (lauf.info) await swRueckgaengig(cdp, "zz-sw-links-stub");
+    return { dialog, status: lauf.info?.status ?? "kein Ergebnis", text: nach.text, aufgeloest: nach.aufgeloest, bewegt };
+  };
+  try {
+    await cdp.evaluate(`app.vault.setConfig("alwaysUpdateLinks", false); return true;`);
+    const nein = await arm("Do not update");
+    const einmal = await arm("Just once");
+    const ok = nein.dialog !== "" && nein.bewegt && nein.status !== "kein Ergebnis" && nein.text.includes("[[Inbox/a]]")
+      && einmal.dialog !== "" && einmal.bewegt && einmal.status !== "kein Ergebnis" && !einmal.text.includes("[[Inbox/a]]");
+    record(P_SW_LINKS_AUS, ok,
+      `alwaysUpdateLinks=false (vorher ${String(alt)}) · Dialog im Lauf: „${swKurz(nein.dialog, 170)}" · „Do not update“: Lauf ${nein.status}, Text „${swKurz(nein.text, 80)}" · „Just once“: Lauf ${einmal.status}, Text „${swKurz(einmal.text, 80)}"`);
+  } finally {
+    await cdp.evaluate(`app.vault.setConfig("alwaysUpdateLinks", ${JSON.stringify(alt === undefined ? true : alt)}); return true;`).catch(() => undefined);
+    await swSchliesseDialoge(cdp);
+  }
+}
+
+/** b) Rückgängig, wenn der alte Ordner inzwischen gelöscht ist. */
+async function swUndoOrdnerGeloescht(cdp: Cdp): Promise<void> {
+  const id = "zz-sw-links-stub";
+  await swLinksVorbereiten(cdp);
+  const lauf = await swLauf(cdp, id, 60_000);
+  const bewegt = await cdp.evaluate<boolean>(`return Boolean(app.vault.getAbstractFileByPath("Ziel/a.md"));`);
+  if (!lauf.info || !bewegt) { unmeasured(P_SW_UNDO_ORDNER, `Vorlauf verschob nichts (Status ${lauf.info?.status ?? "kein Ergebnis"})`); return; }
+  await swLoesche(cdp, ["Inbox"]);
+  const u1 = await swRueckgaengig(cdp, id);
+  const nachEins = await cdp.evaluate<{ ziel: boolean; inbox: boolean; ordner: boolean }>(`return { ziel: Boolean(app.vault.getAbstractFileByPath("Ziel/a.md")), inbox: Boolean(app.vault.getAbstractFileByPath("Inbox/a.md")), ordner: Boolean(app.vault.getAbstractFileByPath("Inbox")) };`);
+  let zweiter = "nicht nötig";
+  let endOk = false;
+  if (nachEins.inbox && !nachEins.ziel) {
+    zweiter = "der erste Versuch hat die Notiz zurückgeschoben (Obsidian legt den Ordner an)";
+    endOk = true;
+  } else if (nachEins.ziel && u1.undoable === true) {
+    await swOrdner(cdp, ["Inbox"]);
+    const u2 = await swRueckgaengig(cdp, id);
+    const nachZwei = await cdp.evaluate<boolean>(`return Boolean(app.vault.getAbstractFileByPath("Inbox/a.md")) && !app.vault.getAbstractFileByPath("Ziel/a.md");`);
+    zweiter = `zweiter Versuch nach Neuanlage des Ordners: Notiz zurück ${String(nachZwei)}, Notice „${swKurz(u2.notice, 80)}"`;
+    endOk = nachZwei;
+  } else {
+    zweiter = "Notiz weder zurück noch Lauf rückgängig-fähig";
+  }
+  record(P_SW_UNDO_ORDNER, endOk,
+    `1. Versuch: Notiz zurück ${String(nachEins.inbox)}, Ziel/a.md noch da ${String(nachEins.ziel)}, Ordner Inbox da ${String(nachEins.ordner)}, Lauf danach rückgängig-fähig ${String(u1.undoable)}, Notice „${swKurz(u1.notice, 120)}" · ${zweiter}`);
+}
+
+/** a) Titel mit führendem Punkt und Titel nur aus Emoji — am echten Sanitizer (Kit-Regeln, kein filename-sanitizer-Plugin im Wegwerf-Vault). */
+async function swTitel(cdp: Cdp, stub: LlmStub): Promise<void> {
+  const id = "zz-sw-titel";
+  await swLoesche(cdp, ["Neu", "Quelle.md"]);
+  await swSchreibe(cdp, { "Quelle.md": "# Quelle\n\nEine Notiz, aus der neue Notizen entstehen.\n" });
+  await swOrdner(cdp, ["Neu"]);
+  await swCacheBereit(cdp, ["Quelle.md"]);
+  const team = swTeam({ name: "ZZ SW Titel", scope: ["Neu/**/*.md"], maxWrites: 10,
+    tasks: ["  - id: collect", "    kind: collector", "    collector: vault.read", "    params:", "      paths: [Quelle.md]",
+      "  - id: neu", "    kind: llm", `    agent: ${SW_AGENT_ID}`, "    inputs: [collect]", "    per_note: true", "    instruction: Lege Notizen an.",
+      "    output:", "      family: notes.create", "      folder: Neu", "      max_items: 5", "      frontmatter: { type: Test }", "      link_source: quelle", "    on_error: abort",
+      "  - id: apply", "    kind: actions", "    inputs: [neu]", "    allowed_actions: [note.create]"] });
+  const problem = await swCrew(cdp, id, team);
+  if (problem) { unmeasured(P_SW_TITEL_PUNKT, `Crew ungültig: ${problem}`); unmeasured(P_SW_TITEL_EMOJI, `Crew ungültig: ${problem}`); return; }
+  // (1) Punkt am Anfang, ein Sonderzeichen-Titel, ein normaler Titel
+  stub.setzeAntwort(() => "```json\n" + JSON.stringify({ items: [{ title: ".x", body: "Punkt am Anfang" }, { title: "Plan: Q1?", body: "Doppelpunkt und Fragezeichen" }, { title: "Normal", body: "ohne Besonderheit" }] }) + "\n```");
+  const l1 = await swLauf(cdp, id, 60_000);
+  const dateien = await cdp.evaluate<{ sichtbar: string[]; adapter: string[] }>(`
+    const l = await app.vault.adapter.list("Neu");
+    return { sichtbar: app.vault.getFiles().filter((f) => f.path.startsWith("Neu/")).map((f) => f.path).sort(), adapter: l.files.sort() };`);
+  const aus = l1.state?.tasks.flatMap((t) => t.outcomes).map((o) => `${o.action.path} → ${o.result}${o.reason ? ` (${swKurz(o.reason, 70)})` : ""}`) ?? [];
+  const punktPfad = aus.find((z) => z.includes("x.md")) ?? "";
+  const punktSichtbar = dateien.sichtbar.some((p) => /x\.md$/.test(p) && p !== "Neu/Normal.md");
+  // Der Punkt ist gruen, wenn das Ergebnis in sich stimmig ist: entweder die Notiz entstand UND ist im Vault sichtbar, oder sie wurde mit Grund abgelehnt, nichts blieb unsichtbar liegen.
+  const unsichtbarDa = dateien.adapter.length !== dateien.sichtbar.length;
+  record(P_SW_TITEL_PUNKT, l1.info !== null && !unsichtbarDa,
+    `Status ${l1.info?.status ?? "kein Ergebnis"} · Aktionen: ${aus.join(" ; ")} · im Vault sichtbar: ${dateien.sichtbar.join(", ") || "nichts"} · auf der Platte: ${dateien.adapter.join(", ") || "nichts"}${punktPfad && !punktSichtbar ? " · .x NICHT sichtbar" : ""}`);
+  // (2) Titel nur aus Emoji: das Schema lehnt ihn ab; die Reparatur-Runde bekommt dieselbe Antwort, der Lauf endet mit invalid_output
+  await swLoesche(cdp, ["Neu"]); await swOrdner(cdp, ["Neu"]);
+  stub.setzeAntwort(() => "```json\n" + JSON.stringify({ items: [{ title: "🎉🎉", body: "nur Emoji" }] }) + "\n```");
+  const l2 = await swLauf(cdp, id, 60_000);
+  const angelegt = await cdp.evaluate<string[]>(`return app.vault.getFiles().filter((f) => f.path.startsWith("Neu/")).map((f) => f.path);`);
+  const fehler = l2.state?.tasks.find((t) => t.status === "failed")?.error;
+  record(P_SW_TITEL_EMOJI, l2.info !== null && l2.info.status === "failed" && l2.info.errorKind === "invalid_output" && angelegt.length === 0,
+    `Status ${l2.info?.status ?? "kein Ergebnis"}/${l2.info?.errorKind ?? "-"} · angelegt: ${angelegt.join(", ") || "nichts"} · Fehler „${swKurz(fehler?.message ?? "", 150)}" · Aufrufe ${l2.state?.llmCalls ?? "?"}`);
+  stub.setzeAntwort(undefined);
+}
+
+/** c) text.append mit heading. */
+async function swAnhaengen(cdp: Cdp, stub: LlmStub): Promise<void> {
+  const id = "zz-sw-append";
+  const original = "# Journal\n\n## Log\n- 2026-01-01 erster Eintrag\n\n## Ideen\n- eine Idee\n";
+  await swSchreibe(cdp, { "Journal.md": original });
+  await swCacheBereit(cdp, ["Journal.md"]);
+  const crew = (heading: string): string => swTeam({ name: "ZZ SW Append", scope: ["Journal.md"], maxWrites: 3,
+    tasks: ["  - id: collect", "    kind: collector", "    collector: vault.read", "    params:", "      paths: [Journal.md]",
+      "  - id: txt", "    kind: llm", `    agent: ${SW_AGENT_ID}`, "    inputs: [collect]", "    instruction: Schreibe einen Logeintrag.",
+      "    output:", "      family: text.append", `      heading: ${heading}`, "    on_error: abort",
+      "  - id: apply", "    kind: actions", "    inputs: [txt]", "    allowed_actions: [note.append]", "    target: Journal.md"] });
+  stub.setzeAntwort(() => "- 2026-11-15 angehängter Eintrag");
+  const problem = await swCrew(cdp, id, crew("Log"));
+  if (problem) { unmeasured(P_SW_APPEND_HEADING, `Crew ungültig: ${problem}`); return; }
+  const lauf = await swLauf(cdp, id, 60_000);
+  const text = (await swLies(cdp, "Journal.md")) ?? "";
+  const iNeu = text.indexOf("angehängter Eintrag");
+  const unterLog = iNeu > text.indexOf("## Log") && iNeu < text.indexOf("## Ideen") && iNeu > text.indexOf("erster Eintrag");
+  const u = await swRueckgaengig(cdp, id);
+  const zurueck = (await swLies(cdp, "Journal.md")) === original;
+  // Gegenprobe: eine Überschrift, die es nicht gibt, schreibt nichts
+  const problem2 = await swCrew(cdp, id, crew("Fehlt"));
+  let fehlt = "nicht gemessen";
+  if (!problem2) {
+    const l2 = await swLauf(cdp, id, 60_000);
+    const aus = l2.state?.tasks.flatMap((t) => t.outcomes).map((o) => `${o.result}${o.reason ? ` (${swKurz(o.reason, 90)})` : ""}`) ?? [];
+    fehlt = `Überschrift „Fehlt“: Status ${l2.info?.status ?? "kein Ergebnis"}, ${aus.join(" ; ")}, Notiz unverändert ${String((await swLies(cdp, "Journal.md")) === original)}`;
+  }
+  record(P_SW_APPEND_HEADING, lauf.info !== null && unterLog && u.undoable === false && zurueck,
+    `Status ${lauf.info?.status ?? "kein Ergebnis"} · Eintrag steht unter ## Log vor ## Ideen: ${String(unterLog)} · Rückgängig stellt das Original her: ${String(zurueck)} (Notice „${swKurz(u.notice, 60)}") · ${fehlt}`);
+  stub.setzeAntwort(undefined);
+}
+
+/** d) per_note mit values { tags: { from: tags } } und add_to: [tags]: bestehende Tags bleiben, die Tags stehen im MetadataCache. */
+async function swTags(cdp: Cdp, stub: LlmStub): Promise<void> {
+  const id = "zz-sw-tags";
+  await swLoesche(cdp, ["Inbox", "Referenz"]);
+  await swSchreibe(cdp, {
+    "Inbox/p1.md": "---\ntags: [eingang, alt]\n---\nEine Rechnung für das Projekt Küche.\n",
+    "Inbox/p2.md": "---\ntags: [eingang]\n---\nNotizen zum Projekt Garten und eine Rechnung.\n",
+    "Inbox/p3.md": "Eine Notiz ganz ohne Frontmatter über eine Rechnung.\n",
+    "Referenz/Tags.md": "---\ntags: [projekt, rechnung, alt, eingang]\n---\nVorrat an Tags.\n",
+  });
+  await swCacheBereit(cdp, ["Inbox/p1.md", "Inbox/p2.md", "Inbox/p3.md", "Referenz/Tags.md"]);
+  const team = swTeam({ name: "ZZ SW Tags", scope: ["Inbox/**/*.md"], maxWrites: 5,
+    tasks: ["  - id: collect", "    kind: collector", "    collector: tasknotes.query", "    params:", "      folder: Inbox", "      limit: 8", "      fields: [tags]", "      include_content: true",
+      "  - id: tag", "    kind: llm", `    agent: ${SW_AGENT_ID}`, "    inputs: [collect]", "    per_note: true", "    instruction: Wähle passende Tags.",
+      "    output:", "      family: frontmatter.set", "      allowed_keys: [tags]", "      values:", "        tags: { from: tags }", "      add_to: [tags]", "    on_error: abort",
+      "  - id: apply", "    kind: actions", "    inputs: [tag]", "    allowed_actions: [frontmatter.patch]", "    allowed_keys: [tags]"] });
+  const problem = await swCrew(cdp, id, team);
+  if (problem) { unmeasured(P_SW_PERNOTE_TAGS, `Crew ungültig: ${problem}`); return; }
+  const wahl: Record<string, string[]> = { "Inbox/p1.md": ["projekt"], "Inbox/p2.md": ["projekt", "rechnung"], "Inbox/p3.md": ["rechnung"] };
+  stub.setzeAntwort((a) => {
+    const text = a.body;
+    const pfad = Object.keys(wahl).find((p) => text.includes(p));
+    return "```json\n" + JSON.stringify({ items: pfad ? [{ path: pfad, set: { tags: wahl[pfad] } }] : [] }) + "\n```";
+  });
+  const zaehlerVorher = await cdp.evaluate<Record<string, number>>(`return app.metadataCache.getTags();`);
+  const lauf = await swLauf(cdp, id, 90_000);
+  const erwartet: Record<string, string[]> = { "Inbox/p1.md": ["alt", "eingang", "projekt"], "Inbox/p2.md": ["eingang", "projekt", "rechnung"], "Inbox/p3.md": ["rechnung"] };
+  // MetadataCache nach dem Schreiben abwarten (processFrontMatter -> Neuindizierung)
+  await pollUntil(cdp, `
+    const soll = ${JSON.stringify(erwartet)};
+    return Object.entries(soll).every(([p, t]) => { const f = app.vault.getAbstractFileByPath(p); const fm = f && app.metadataCache.getFileCache(f)?.frontmatter; const ist = [].concat(fm?.tags ?? []).map(String).sort(); return JSON.stringify(ist) === JSON.stringify(t); }) ? true : null;`, 8000, 250);
+  const ist = await cdp.evaluate<Record<string, { cache: string[]; datei: string }>>(`
+    const out = {};
+    for (const p of ${JSON.stringify(Object.keys(erwartet))}) {
+      const f = app.vault.getAbstractFileByPath(p);
+      const fm = f && app.metadataCache.getFileCache(f)?.frontmatter;
+      out[p] = { cache: [].concat(fm?.tags ?? []).map(String).sort(), datei: (await app.vault.read(f)).split("\\n").slice(0, 8).join("\\n") };
+    }
+    return out;`);
+  const zaehlerNachher = await cdp.evaluate<Record<string, number>>(`return app.metadataCache.getTags();`);
+  const gleich = Object.entries(erwartet).every(([p, t]) => JSON.stringify(ist[p]?.cache ?? []) === JSON.stringify(t));
+  // Zähler je Tag = Zahl der Notizen: #projekt = Referenz + p1 + p2, #rechnung = Referenz + p2 + p3, #alt = Referenz + p1, #eingang = Referenz + p1 + p2.
+  const zaehlerOk = (zaehlerNachher["#projekt"] ?? 0) === 3 && (zaehlerNachher["#rechnung"] ?? 0) === 3 && (zaehlerNachher["#alt"] ?? 0) === 2 && (zaehlerNachher["#eingang"] ?? 0) === 3;
+  record(P_SW_PERNOTE_TAGS, lauf.info !== null && gleich && zaehlerOk,
+    `Status ${lauf.info?.status ?? "kein Ergebnis"} · Aufrufe ${lauf.state?.llmCalls ?? "?"} · Tags im Cache: ${Object.entries(ist).map(([p, v]) => `${p.slice(6)} [${v.cache.join(",")}]`).join(" ") } · getTags() vorher ${swKurz(JSON.stringify(zaehlerVorher), 100)} nachher ${swKurz(JSON.stringify(zaehlerNachher), 120)} · p1 auf der Platte „${swKurz(ist["Inbox/p1.md"]?.datei ?? "", 90)}"`);
+  stub.setzeAntwort(undefined);
+}
+
+/** e) Statusleisten-Schalter: Eintrag ab- und anhängen, Lauf-Zähler während eines Laufs. */
+async function swStatusleiste(cdp: Cdp, stub: LlmStub): Promise<void> {
+  const id = "zz-sw-status";
+  await swLoesche(cdp, ["Sb"]);
+  await swSchreibe(cdp, { "Sb/n1.md": "---\npriority: mittel\n---\nx\n" });
+  await swCacheBereit(cdp, ["Sb/n1.md"]);
+  const team = swTeam({ name: "ZZ SW Status", scope: ["Sb/**/*.md"], maxWrites: 2,
+    tasks: ["  - id: collect", "    kind: collector", "    collector: vault.list", "    params:", "      folder: Sb",
+      "  - id: a", "    kind: llm", `    agent: ${SW_AGENT_ID}`, "    inputs: [collect]", "    instruction: Tue nichts.", "    output_schema: triage-v1", "    on_error: abort",
+      "  - id: b", "    kind: llm", `    agent: ${SW_AGENT_ID}`, "    inputs: [collect]", "    instruction: Tue nichts.", "    output_schema: triage-v1", "    on_error: abort"] });
+  const problem = await swCrew(cdp, id, team);
+  if (problem) { unmeasured(P_SW_STATUS_AN, `Crew ungültig: ${problem}`); unmeasured(P_SW_STATUS_AUS, `Crew ungültig: ${problem}`); return; }
+  stub.setzeAntwort(() => ({ text: "```json\n{\"items\": []}\n```", verzoegerungMs: 2500 }));
+  const leiste = `Array.from(document.querySelectorAll(".status-bar .status-bar-item")).filter((e) => !e.classList.contains("is-hidden") && e.offsetParent !== null).map((e) => e.textContent.trim()).filter(Boolean)`;
+  const marke = `Array.from(document.querySelectorAll(".status-bar .status-bar-item")).filter((e) => /⚙/.test(e.textContent))`;
+  const vorher = await cdp.evaluate<boolean>(`return ${PLUGIN}.settings.showStatusBar !== false;`);
+  /** Schalter in den Einstellungen setzen (echter Klick auf den Schalter), danach den Zustand lesen. */
+  const schalte = async (an: boolean): Promise<string> => {
+    const ui = await einstellungenOeffnen(cdp);
+    if (!ui) return "Einstellungen ließen sich nicht öffnen";
+    try {
+      const r = await ui.evaluate<string>(`
+        const zeile = [...document.querySelectorAll(".setting-item")].find((z) => /^(Status bar|Statusleiste)/.test(z.querySelector(".setting-item-name")?.textContent.trim() ?? ""));
+        if (!zeile) return "keine Zeile Status bar";
+        const t = zeile.querySelector(".checkbox-container");
+        if (!t) return "kein Schalter in der Zeile";
+        const istAn = t.classList.contains("is-enabled");
+        if (istAn !== ${an}) { t.click(); await new Promise((r) => setTimeout(r, 600)); }
+        return "ok";`);
+      return r;
+    } finally { await schliesseEinstellungen(cdp).catch(() => undefined); }
+  };
+  const messeLauf = async (): Promise<{ markeWaehrend: string[]; leiste: string[]; status: string }> => {
+    await cdp.evaluate(`delete ${PLUGIN}.lastRuns[${JSON.stringify(id)}]; ${PLUGIN}.runCrew(${JSON.stringify(id)}); return true;`);
+    const waehrend = await pollUntil<string[]>(cdp, `const m = ${marke}.map((e) => e.textContent.trim()); return m.length ? m : null;`, 6000, 150);
+    const sichtbar = await cdp.evaluate<string[]>(`return ${leiste};`);
+    const info = await pollUntil<{ status: string }>(cdp, `return ${PLUGIN}.lastRuns[${JSON.stringify(id)}] ?? null;`, 60_000, 400);
+    return { markeWaehrend: waehrend ?? [], leiste: sichtbar, status: info?.status ?? "kein Ergebnis" };
+  };
+  try {
+    const sAn = await schalte(true);
+    const an = await cdp.evaluate<{ gesetzt: boolean; element: boolean }>(`return { gesetzt: ${PLUGIN}.settings.showStatusBar === true, element: Boolean(${PLUGIN}.statusItem?.el && ${PLUGIN}.statusItem.el.isConnected) };`);
+    const lAn = await messeLauf();
+    const nachLaufAn = await cdp.evaluate<string[]>(`return ${marke}.map((e) => e.textContent.trim());`);
+    record(P_SW_STATUS_AN, sAn === "ok" && an.gesetzt && an.element && lAn.markeWaehrend.some((t) => /⚙\s*\d+\/\d+/.test(t)) && nachLaufAn.length === 0,
+      `Schalter an (${sAn}) · Einstellung ${String(an.gesetzt)}, Eintrag im DOM ${String(an.element)} · während des Laufs: ${lAn.markeWaehrend.join(" | ") || "nichts"} · nach dem Lauf ⚙-Einträge: ${nachLaufAn.length} · Lauf ${lAn.status}`);
+    const sAus = await schalte(false);
+    const aus = await cdp.evaluate<{ gesetzt: boolean; element: boolean; angehaengt: boolean }>(`return { gesetzt: ${PLUGIN}.settings.showStatusBar === true, element: Boolean(${PLUGIN}.statusItem?.el), angehaengt: ${marke}.length > 0 };`);
+    const lAus = await messeLauf();
+    // Gegenprobe zum Wiedereinschalten: der Eintrag steht danach wieder da
+    const sWieder = await schalte(true);
+    const wieder = await cdp.evaluate<{ element: boolean }>(`return { element: Boolean(${PLUGIN}.statusItem?.el && ${PLUGIN}.statusItem.el.isConnected) };`);
+    record(P_SW_STATUS_AUS, sAus === "ok" && !aus.gesetzt && !aus.element && lAus.markeWaehrend.length === 0 && lAus.status !== "kein Ergebnis" && sWieder === "ok" && wieder.element,
+      `Schalter aus (${sAus}) · Einstellung ${String(aus.gesetzt)}, Eintrag im DOM ${String(aus.element)} · während des Laufs ⚙-Einträge: ${lAus.markeWaehrend.length} · Lauf ${lAus.status} · wieder an (${sWieder}): Eintrag da ${String(wieder.element)}`);
+  } finally {
+    await cdp.evaluate(`${PLUGIN}.settings.showStatusBar = ${vorher}; await ${PLUGIN}.saveSettings(); return true;`).catch(() => undefined);
+    stub.setzeAntwort(undefined);
+  }
+}
+
+// --- Beispiel-Crew „Eingangsordner einsortieren“ mit dem lokalen Modell ----------------------------------------------------
+
+/** Acht Notizen mit bekanntem Soll-Ziel (Beschreibungen der mitgelieferten Beispiel-Crew: laufende Projekte / Fertiges). */
+const SW_EINGANG: { name: string; soll: "Projects" | "Archive"; text: string }[] = [
+  { name: "Kitchen renovation", soll: "Projects", text: "Meeting with the electrician on Thursday to plan the sockets. Order the tiles for the kitchen renovation and check the budget for this month." },
+  { name: "Website relaunch", soll: "Projects", text: "Open tasks for the website relaunch of the customer Meyer: finish the new landing page, review the copy with the team, deploy on Friday." },
+  { name: "Thesis chapter 3", soll: "Projects", text: "Draft of chapter 3 of my thesis. Still to do: add the interview results, fix the references, send it to my supervisor next week." },
+  { name: "Garden shed build", soll: "Projects", text: "Building the garden shed this month: material list done, foundation poured, roof still open, helpers confirmed for Saturday." },
+  { name: "Tax return 2019", soll: "Archive", text: "Tax return for 2019, filed and accepted, assessment received. Nothing left to do, kept only for the records." },
+  { name: "Concert tickets last year", soll: "Archive", text: "Tickets for the concert last June. The event is over, no action needed." },
+  { name: "Old apartment contract", soll: "Archive", text: "Rental contract of my previous apartment, terminated in 2018. Deposit returned. Finished, only for reference." },
+  { name: "Conference notes 2021", soll: "Archive", text: "Notes from the 2021 conference in Berlin. The project that followed is completed and closed." },
+];
+
+async function swEingangVorbereiten(cdp: Cdp): Promise<void> {
+  await swLoesche(cdp, ["Inbox", "Projects", "Archive", "Referenz"]);
+  const dateien: Record<string, string> = {
+    "Referenz/Tags.md": "---\ntags: [projekt, rechnung, vertrag, steuer, haus, garten, urlaub, konzert, forschung, web, kunde, archiv]\n---\nVorrat an Tags des Vaults.\n",
+  };
+  for (const n of SW_EINGANG) dateien[`Inbox/${n.name}.md`] = `---\ntags: [eingang]\n---\n${n.text}\n`;
+  await swSchreibe(cdp, dateien);
+  await swOrdner(cdp, ["Projects", "Archive"]);
+  await swCacheBereit(cdp, Object.keys(dateien));
+  await pollUntil(cdp, `return (app.metadataCache.getTags()["#projekt"] ?? 0) >= 1 ? true : null;`, 6000, 250);
+}
+
+interface SwEingangErgebnis {
+  /** Modellantworten dieses Laufs: gestellt (Modellschritte, die liefen), davon gültig ohne Reparatur, gültig erst nach der Reparatur-Runde, am Ende ungültig. */
+  antworten: number; sauber: number; repariert: number; ungueltig: number; fehler: string[];
+  status: string; errorKind: string | null; llmCalls: number; reparaturen: number; aufgabenOk: number; dauerS: number;
+  verschoben: number; richtig: number; falsch: string[]; geblieben: number; verloren: number; tagsErhalten: boolean; tagsNeu: number;
+  aufgaben: string; modell: string;
+}
+
+let swEingangZaehler = 0;
+
+async function swEingangLauf(cdp: Cdp): Promise<SwEingangErgebnis | null> {
+  await swEingangVorbereiten(cdp);
+  const t0 = Date.now();
+  const lauf = await swLauf(cdp, "sort-inbox", 420_000);
+  if (!lauf.info || !lauf.state) return null;
+  // Die Tags in den Metadaten ziehen mit Verzug nach: ein zweiter Blick nach dem Schreiben.
+  await new Promise((r) => setTimeout(r, 1500));
+  const orte2 = await cdp.evaluate<Record<string, { ort: string | null; tags: string[] }>>(`
+    const out = {};
+    for (const n of ${JSON.stringify(SW_EINGANG.map((n) => n.name))}) {
+      out[n] = { ort: null, tags: [] };
+      for (const o of ["Inbox", "Projects", "Archive"]) {
+        const f = app.vault.getAbstractFileByPath(o + "/" + n + ".md");
+        if (f) { out[n] = { ort: o, tags: [].concat(app.metadataCache.getFileCache(f)?.frontmatter?.tags ?? []).map(String) }; break; }
+      }
+    }
+    return out;`);
+  let richtig = 0, verschoben = 0, geblieben = 0, verloren = 0, neu = 0; let erhalten = true; const falsch: string[] = [];
+  for (const n of SW_EINGANG) {
+    const o = orte2[n.name];
+    if (!o || o.ort === null) { verloren += 1; continue; }
+    if (o.ort === "Inbox") geblieben += 1; else verschoben += 1;
+    if (o.ort === n.soll) richtig += 1; else falsch.push(`${n.name}: ${o.ort} statt ${n.soll}`);
+    if (!o.tags.includes("eingang")) erhalten = false;
+    neu += o.tags.filter((t) => t !== "eingang").length;
+  }
+  // Je Modellschritt: übersprungene (Kaskade) zählen nicht; `<id>-1.txt` ist die Rohantwort VOR der Reparatur-Runde (oder die letzte ungültige Antwort).
+  const gelaufen = lauf.state.tasks.filter((t) => t.kind === "llm" && t.status !== "skipped");
+  const hatArtefakt = (id: string): boolean => lauf.dateien.some((f) => f.endsWith(`/artifacts/${id}-1.txt`) || f.endsWith(`/${id}-1.txt`));
+  const sauber = gelaufen.filter((t) => t.status === "ok" && !hatArtefakt(t.taskId)).length;
+  const repariert = gelaufen.filter((t) => t.status === "ok" && hatArtefakt(t.taskId)).length;
+  const ungueltig = gelaufen.filter((t) => t.status === "failed").length;
+  const fehler = lauf.state.tasks.filter((t) => t.status === "failed").map((t) => `${t.taskId}: ${t.error ? `${t.error.kind} — ${swKurz(t.error.message, 140)}` : "?"}`);
+  if (MESS_DIR) {
+    const nr = ++swEingangZaehler;
+    writeFileSync(`${MESS_DIR}/lauf-${String(nr).padStart(2, "0")}-run.md`, lauf.runMd);
+    for (const f of lauf.dateien.filter((x) => x.endsWith(".txt"))) {
+      const roh = await swLies(cdp, f).catch(() => null) ?? await cdp.evaluate<string>(`return await app.vault.adapter.read(${JSON.stringify(f)});`).catch(() => "");
+      writeFileSync(`${MESS_DIR}/lauf-${String(nr).padStart(2, "0")}-${f.split("/").pop() ?? "roh.txt"}`, roh);
+    }
+  }
+  const aufgaben = lauf.state.tasks.map((t) => `${t.taskId}:${t.status}${t.error ? `(${t.error.kind})` : ""}`).join(" ");
+  const llmAufgaben = lauf.state.tasks.filter((t) => t.kind === "llm");
+  return {
+    antworten: gelaufen.length, sauber, repariert, ungueltig, fehler,
+    status: lauf.info.status, errorKind: lauf.info.errorKind, llmCalls: lauf.state.llmCalls,
+    reparaturen: Math.max(0, lauf.state.llmCalls - llmAufgaben.length), aufgabenOk: llmAufgaben.filter((t) => t.status === "ok").length,
+    dauerS: Math.round((Date.now() - t0) / 1000), verschoben, richtig, falsch, geblieben, verloren, tagsErhalten: erhalten, tagsNeu: neu, aufgaben,
+    modell: await cdp.evaluate<string>(`return ${PLUGIN}.lastRuns["sort-inbox"]?.models?.[0]?.model ?? "?";`),
+  };
+}
+
+async function swEingangInstallieren(cdp: Cdp): Promise<string | null> {
+  const root = await swRoot(cdp);
+  await cdp.evaluate(`${PLUGIN}.installExamples(); return true;`);
+  const da = await wartetAuf(cdp, `app.vault.getAbstractFileByPath(${JSON.stringify(`${root}/teams/sort-inbox.md`)}) && app.vault.getAbstractFileByPath(${JSON.stringify(`${root}/agents/inbox-sorter.md`)})`, 10_000);
+  if (!da) return "Beispiel-Crew sort-inbox wurde nicht installiert";
+  await swCacheBereit(cdp, [`${root}/teams/sort-inbox.md`, `${root}/agents/inbox-sorter.md`]);
+  await cdp.evaluate(`await ${PLUGIN}.refreshTeams(); return true;`);
+  return cdp.evaluate<string | null>(`return ${PLUGIN}.teamCache.find((t) => t.id === "sort-inbox")?.problem ?? (${PLUGIN}.teamCache.some((t) => t.id === "sort-inbox") ? null : "sort-inbox nicht in der Crew-Liste");`);
+}
+
+/** Endpunkt auf LM Studio stellen, Modell prüfen, Beispiel-Crew installieren. Liefert den Grund, wenn der Gegenstand nicht erreichbar ist, sonst `null`. */
+async function swEingangBereit(cdp: Cdp): Promise<string | null> {
+  if (OHNE_MODELL) return "--ohne-modell (LM-Regel der Welle 20)";
+  const modell = MODELL_W11;
+  const gelistet = await cdp.evaluate<boolean>(`
+    ${PLUGIN}.settings.endpoints = [{ url: "http://localhost:1234", model: ${JSON.stringify(modell)} }];
+    try { return (await ${PLUGIN}.buildLlmClient().listModels()).includes(${JSON.stringify(modell)}); } catch { return false; }`);
+  if (!gelistet) return `Modell ${modell} nicht am Endpunkt gelistet oder Endpunkt nicht erreichbar`;
+  return swEingangInstallieren(cdp);
+}
+
+async function swEingang(cdp: Cdp, mitMessung: boolean): Promise<void> {
+  const modell = MODELL_W11;
+  const nicht = await swEingangBereit(cdp);
+  if (nicht) { unmeasured(P_SW_EINGANG, nicht); if (mitMessung) unmeasured(P_SW_MESSUNG, nicht); return; }
+  // Bis zu dreimal, solange das Modell keinen brauchbaren Lauf liefert (Status failed oder kein einziger Zug); jeder Versuch steht im Detail.
+  let r: SwEingangErgebnis | null = null;
+  const versuche: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    r = await swEingangLauf(cdp);
+    versuche.push(r ? `${r.status}${r.fehler.length ? ` [${r.fehler.join("; ")}]` : ""}, ${r.verschoben} verschoben` : "kein Ergebnis");
+    if (r && (r.status === "ok" || r.status === "partial") && r.verschoben > 0) break;
+  }
+  if (!r) { unmeasured(P_SW_EINGANG, `kein Lauf-Ergebnis (${versuche.join(" | ")})`); }
+  else {
+    record(P_SW_EINGANG, (r.status === "ok" || r.status === "partial") && r.verschoben > 0 && r.verloren === 0 && r.tagsErhalten,
+      `${modell} · Versuche: ${versuche.join(" | ")} · letzter Lauf: Status ${r.status} · ${r.aufgaben} · verschoben ${r.verschoben} von 8, richtige Ziele ${r.richtig}, geblieben ${r.geblieben}, verloren ${r.verloren} · Tag „eingang“ erhalten ${String(r.tagsErhalten)} · neue Tags ${r.tagsNeu} · Antworten ${r.antworten}: ${r.sauber} ohne Reparatur, ${r.repariert} nach Reparatur, ${r.ungueltig} ungültig · ${r.dauerS} s${r.falsch.length ? ` · Abweichungen: ${r.falsch.join("; ")}` : ""}`);
+  }
+  if (mitMessung) await swMessung(cdp);
+}
+
+/** Messung: dieselbe Crew n-mal auf demselben Satz von acht Notizen (Crew muss installiert sein, siehe `swEingangBereit`). */
+async function swMessung(cdp: Cdp): Promise<void> {
+  const modell = MODELL_W11;
+  if (MESS_N === 0) { skipped(P_SW_MESSUNG, "--messung 0"); return; }
+  const reihe: (SwEingangErgebnis | null)[] = [];
+  for (let i = 0; i < MESS_N; i++) {
+    const e = await swEingangLauf(cdp);
+    reihe.push(e);
+    console.log(`  Messung ${i + 1}/${MESS_N}: ${e ? `${e.status} · richtig ${e.richtig}/8 · verschoben ${e.verschoben} · Antworten ${e.sauber}/${e.repariert}/${e.ungueltig} (sauber/repariert/ungültig) · ${e.aufgaben} · ${e.dauerS} s${e.fehler.length ? ` · ${e.fehler.join("; ")}` : ""}` : "kein Ergebnis"}`);
+  }
+  const gueltig = reihe.filter((e): e is SwEingangErgebnis => e !== null);
+  const summe = (f: (e: SwEingangErgebnis) => number): number => gueltig.reduce((s, e) => s + f(e), 0);
+  const richtig = summe((e) => e.richtig);
+  const verloren = summe((e) => e.verloren);
+  const zusammen = `${modell} · ${gueltig.length} von ${MESS_N} Läufen mit Ergebnis · Antworten ${summe((e) => e.antworten)}: ${summe((e) => e.sauber)} gültig ohne Reparatur, ${summe((e) => e.repariert)} gültig nach Reparatur, ${summe((e) => e.ungueltig)} ungültig · richtige Ziele ${richtig} von ${MESS_N * 8} (verschoben ${summe((e) => e.verschoben)}, geblieben ${summe((e) => e.geblieben)}) · verloren ${verloren} · Status ${gueltig.map((e) => e.status).join(",")}`;
+  if (MESS_DIR) writeFileSync(`${MESS_DIR}/messung-eingang.json`, JSON.stringify({ modell, n: MESS_N, reihe, zusammen }, null, 2));
+  if (gueltig.length < MESS_N) unmeasured(P_SW_MESSUNG, `nur ${gueltig.length} von ${MESS_N} Läufen mit Ergebnis · ${zusammen}`);
+  else record(P_SW_MESSUNG, verloren === 0, zusammen);
+}
+
+async function abschnittMessung(cdp: Cdp): Promise<void> {
+  const gesichert = await cdp.evaluate<unknown>(`return JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints));`);
+  const dateienVorher = await cdp.evaluate<string[]>(`return app.vault.getAllLoadedFiles().map((f) => f.path);`);
+  try {
+    const nicht = await swEingangBereit(cdp);
+    if (nicht) unmeasured(P_SW_MESSUNG, nicht);
+    else await swMessung(cdp);
+  } finally {
+    await cdp.evaluate(`
+      ${PLUGIN}.settings.endpoints = ${JSON.stringify(gesichert)};
+      const vorher = new Set(${JSON.stringify(dateienVorher)});
+      const neu = app.vault.getAllLoadedFiles().filter((f) => f.path !== "/" && !vorher.has(f.path)).map((f) => f.path).sort((a, b) => b.length - a.length);
+      for (const p of neu) { const f = app.vault.getAbstractFileByPath(p); if (f) await app.vault.delete(f, true); }
+      return true;`).catch(() => undefined);
+  }
+}
+
+async function abschnittSchreiben(cdp: Cdp): Promise<void> {
+  const gesichert = await cdp.evaluate<{ endpoints: unknown; show: boolean }>(`return { endpoints: JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints)), show: ${PLUGIN}.settings.showStatusBar !== false };`);
+  const stub = await startLlmStub({ models: ["fake-modell"] });
+  const dateienVorher = await cdp.evaluate<string[]>(`return app.vault.getAllLoadedFiles().map((f) => f.path);`);
+  try {
+    await cdp.evaluate(`${PLUGIN}.settings.endpoints = [{ url: "http://127.0.0.1:${stub.port}/v1", model: "fake-modell" }]; return true;`);
+    const einProbe = async (name: Punktname, fn: () => Promise<void>): Promise<void> => {
+      try { await fn(); } catch (e) {
+        await swSchliesseDialoge(cdp);
+        unmeasured(name, `Treiberfehler: ${swKurz(e instanceof Error ? e.message : String(e), 200)}`);
+      }
+    };
+    stub.setzeAntwort(() => "```json\n{\"items\":[{\"path\":\"Inbox/a.md\",\"to\":\"Ziel\"}]}\n```");
+    await einProbe(P_SW_LINKS_STUB, () => swLinks(cdp, P_SW_LINKS_STUB, stub));
+    await einProbe(P_SW_LINKS_AUS, () => swLinksAus(cdp));
+    await einProbe(P_SW_UNDO_ORDNER, () => swUndoOrdnerGeloescht(cdp));
+    stub.setzeAntwort(undefined);
+    await einProbe(P_SW_TITEL_PUNKT, () => swTitel(cdp, stub));
+    await einProbe(P_SW_APPEND_HEADING, () => swAnhaengen(cdp, stub));
+    await einProbe(P_SW_PERNOTE_TAGS, () => swTags(cdp, stub));
+    await einProbe(P_SW_STATUS_AN, () => swStatusleiste(cdp, stub));
+    // Punkte, die nur zusammen mit ihrem Partner gemessen werden, aber ausfielen: nichts gemessen statt stiller Lücke
+    for (const n of [P_SW_TITEL_EMOJI, P_SW_STATUS_AUS] as const) {
+      if (!bilanz.eintraege().some((p) => p.name === n)) unmeasured(n, "Partnerpunkt wurde nicht erreicht");
+    }
+    // Modell: echtes LM Studio
+    if (OHNE_MODELL) {
+      unmeasured(P_SW_LINKS, "--ohne-modell (LM-Regel der Welle 20)");
+    } else {
+      const modell = MODELL_W11;
+      const gelistet = await cdp.evaluate<boolean>(`
+        ${PLUGIN}.settings.endpoints = [{ url: "http://localhost:1234", model: ${JSON.stringify(modell)} }];
+        try { return (await ${PLUGIN}.buildLlmClient().listModels()).includes(${JSON.stringify(modell)}); } catch { return false; }`);
+      if (!gelistet) unmeasured(P_SW_LINKS, `Modell ${modell} nicht am Endpunkt gelistet`);
+      else await einProbe(P_SW_LINKS, () => swLinks(cdp, P_SW_LINKS, null));
+    }
+    await einProbe(P_SW_EINGANG, () => swEingang(cdp, true));
+    for (const n of [P_SW_MESSUNG] as const) {
+      if (!bilanz.eintraege().some((p) => p.name === n)) unmeasured(n, "Messung wurde nicht erreicht");
+    }
+    record(P_SW_ENDE, true, "Abschnitt lief bis zum Ende");
+  } finally {
+    await stub.stop();
+    await swSchliesseDialoge(cdp);
+    await cdp.evaluate(`
+      ${PLUGIN}.settings.endpoints = ${JSON.stringify(gesichert.endpoints)};
+      ${PLUGIN}.settings.showStatusBar = ${gesichert.show}; await ${PLUGIN}.saveSettings();
+      const vorher = new Set(${JSON.stringify(dateienVorher)});
+      const neu = app.vault.getAllLoadedFiles().filter((f) => f.path !== "/" && !vorher.has(f.path)).map((f) => f.path).sort((a, b) => b.length - a.length);
+      for (const p of neu) { const f = app.vault.getAbstractFileByPath(p); if (f) await app.vault.delete(f, true); }
+      return true;`).catch(() => undefined);
+  }
+}
+
 async function main(): Promise<void> {
   if (!Number.isInteger(PORT) || PORT <= 0) {
     throw new Vorbedingung("--port <port> ist Pflicht (Zweitinstanz, siehe Kopf dieser Datei); kein Standardport.");
@@ -2478,7 +3140,7 @@ async function main(): Promise<void> {
   const aktuellVorRestore = existsSync(dataPfad) ? readFileSync(dataPfad) : null;
   const rettungWeichtAb = rettungVorher !== null
     && (aktuellVorRestore === null || !rettungVorher.equals(aktuellVorRestore));
-  record(
+  if (!NUR_SCHREIBEN && !NUR_MESSUNG) record(
     "Keine liegen gebliebene Rettungskopie aus einem abgebrochenen Vorlauf",
     !rettungWeichtAb,
     rettungWeichtAb
@@ -2536,32 +3198,40 @@ async function main(): Promise<void> {
   const zustand = beimAbbruch(zustandZurueck, "Wirt-Zustand zurücksetzen (data.json, Plugin neu laden, neue Vault-Dateien, Fake-Manager)");
 
   try {
-    if (vorwert) {
-      await abschnittMigration(cdp, dataPfad);
+    if (NUR_MESSUNG) {
+      await abschnittMessung(cdp);
+    } else if (NUR_SCHREIBEN) {
+      // Nur der Abschnitt „Schreiben“: die älteren Abschnitte (Migration, Einstellungen, Panel, Wellen) laufen im Gesamtlauf.
+      await abschnittSchreiben(cdp);
     } else {
-      alleUebersprungen([
-        "Alte Endpunkt-Liste wird zu genau einem Eintrag",
-        "Das alte globale Modell landet in der Zeile und geht nicht verloren",
-        "Das globale Modellfeld existiert nicht mehr",
-        "Die übrigen Einstellungen überstehen die Migration",
-        "Ein kaputtes data.json-Feld reisst den Plugin-Start nicht mit",
-      ], "keine data.json vorhanden");
-    }
+      if (vorwert) {
+        await abschnittMigration(cdp, dataPfad);
+      } else {
+        alleUebersprungen([
+          "Alte Endpunkt-Liste wird zu genau einem Eintrag",
+          "Das alte globale Modell landet in der Zeile und geht nicht verloren",
+          "Das globale Modellfeld existiert nicht mehr",
+          "Die übrigen Einstellungen überstehen die Migration",
+          "Ein kaputtes data.json-Feld reisst den Plugin-Start nicht mit",
+        ], "keine data.json vorhanden");
+      }
 
-    // Ab hier gegen den ECHTEN Stand messen, nicht gegen die Migrations-Fixtur.
-    if (vorwert) {
-      writeFileSync(dataPfad, vorwert);
-      await pluginNeuLaden(cdp);
+      // Ab hier gegen den ECHTEN Stand messen, nicht gegen die Migrations-Fixtur.
+      if (vorwert) {
+        writeFileSync(dataPfad, vorwert);
+        await pluginNeuLaden(cdp);
+      }
+      await abschnittEinstellungen(cdp);
+      await abschnittDeklarativ(cdp);
+      await abschnittDrittanbieter(cdp);
+      await abschnittPanel(cdp);
+      await abschnittWelle8(cdp);
+      await abschnittWelle14(cdp);
+      await abschnittWelle15(cdp, dataPfad);
+      await abschnittWelle20(cdp);
+      await abschnittModelle(cdp);
+      await abschnittSchreiben(cdp);
     }
-    await abschnittEinstellungen(cdp);
-    await abschnittDeklarativ(cdp);
-    await abschnittDrittanbieter(cdp);
-    await abschnittPanel(cdp);
-    await abschnittWelle8(cdp);
-    await abschnittWelle14(cdp);
-    await abschnittWelle15(cdp, dataPfad);
-    await abschnittWelle20(cdp);
-    await abschnittModelle(cdp);
   } finally {
     // Zurueckschreiben und das Ergebnis MESSEN statt darauf vertrauen; nach einem Abbruch räumt das Modul auf.
     await zustand.schliesse();

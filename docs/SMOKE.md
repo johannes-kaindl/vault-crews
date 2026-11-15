@@ -72,11 +72,22 @@ Rettungskopie daneben und byte-Vergleich im Protokoll):
 
 Mit `SMOKE_SHOT_DIR=<Ordner>` legt V-g die Zeile als `modelle-letzter-lauf-breit.png` und `-schmal.png` zur Sichtprüfung ab.
 
+**Schreiben** (Schritt 1 „Crew schreibt“; `npm run smoke:gui -- --vault vault-crews --port <port> --nur-schreiben [--ohne-modell] [--messung <n>] [--modell <id>]`, im Gesamtlauf ist der Abschnitt der letzte). Der Wegwerf-Vault ist ein Klon (`scripts/clone-vault.sh`), in dem nur dieses Plugin aktiviert ist. Die Punkte mit Stub fahren gegen den zentralen LLM-Stub mit festen Antworten (kein Modell), die mit Modell gegen LM Studio (`--modell`, Standard `google/gemma-4-e4b`; geladen vor dem Lauf, entladen danach):
+
+- **Verschieben zieht Links nach**: `Inbox/a.md` und `Dritte.md` mit `[[a]]` und `[[Inbox/a]]`; nach dem Lauf lösen beide Verweise auf `Ziel/a.md` auf, nach „Rückgängig“ wieder auf `Inbox/a.md`. Einmal mit fester Antwort, einmal mit dem Modell (wählt es `none`, ist der Punkt „nichts gemessen“, bis zu dreimal wiederholt). Gegenprobe: bei ausgeschaltetem „Automatically update internal links“ bleibt der Verweis, wie er war (die Zusage der Doku „wie in den Einstellungen“).
+- **Rückgängig bei gelöschtem altem Ordner**: die Rücknahme scheitert oder gelingt in sich stimmig (keine Notiz geht verloren, der Lauf bleibt rückgängig-fähig, ein zweiter Versuch nach Neuanlage des Ordners gelingt).
+- **`notes.create`**: ein Titel mit führendem Punkt und einer mit Sonderzeichen gehen durch die Namensrichtlinie (nichts bleibt unsichtbar auf der Platte liegen); ein Titel nur aus Emoji wird vom Schema abgelehnt (`invalid_output`).
+- **`text.append` mit `heading`**: der Text steht unter der Überschrift und vor der nächsten, „Rückgängig“ stellt das Original her; eine nicht vorhandene Überschrift schreibt nichts.
+- **`per_note` mit `values: { tags: { from: tags } }` und `add_to: [tags]`**: bestehende Tags bleiben, die neuen stehen im MetadataCache (`getTags()`-Zähler und `frontmatter.tags`).
+- **Statusleiste** (Schalter `showStatusBar`, echter Klick auf den Schalter in den Einstellungen): an zeigt während eines Laufs den Zähler `⚙ i/n`, aus hängt den Eintrag ab, wieder an legt ihn neu an.
+- **Beispiel-Crew „Eingangsordner einsortieren“** (`sort-inbox`) mit acht Notizen und dem lokalen Modell: Lauf endet `ok` oder `partial`, jede verschobene Notiz liegt in einem der Zielordner, der vorhandene Tag bleibt. Dazu die **Messung**: dieselbe Crew zehnmal auf demselben Satz von acht Notizen mit bekanntem Soll-Ziel; die Zahlen stehen in `docs/internal/decisions.md`, bei `SMOKE_MESS_DIR` zusätzlich als JSON.
+
 ### Durchläufe
 
 | Datum | Obsidian | Ergebnis | Gegenprobe |
 |---|---|---|---|
 | 2026-08-17 | 1.13.7 | 13/13 | 12/13 bei ausgebautem `delete defaultModel`; 12/13 bei ausgebautem `Array.isArray`-Guard — je genau der betroffene Punkt. Der Sichtbarkeits-Guard brach bei verdecktem Fenster mit Exit 2 ab, ohne einen einzigen Prüfpunkt rot zu melden |
+| 2026-11-16 | 1.15.1 | Abschnitt „Schreiben“ (`--nur-schreiben`): 12 grün · 0 rot · 0 nichts gemessen · 1 übersprungen (die Messreihe, eigener Lauf mit `--nur-messung --messung 10`: 1/1 grün, Zahlen in `docs/internal/decisions.md`) | Die ersten Läufe waren 3 grün · 6 rot: bei ausgeschaltetem Linknachzug wartete ein Lauf auf den Dialog „Update links“, und alle Punkte dahinter liefen gegen diesen hängenden Lauf; der Treiber klickt den Dialog jetzt selbst und misst ihn als eigenen Punkt |
 
 Der erste Lauf fand drei Befunde: zwei waren Mängel des Treibers (das Schlüsselfeld ist
 `type="password"`, der Drittanbieter-Hinweis ist ein Icon statt Fließtext), einer war echt
@@ -114,6 +125,8 @@ Der Build wird per `OBSIDIAN_PLUGIN_DIR=<Vault>/.obsidian/plugins/vault-crews np
    Schlüssel eintragen, lokalen Endpunkt ausschalten, eine Crew laufen lassen. Danach
    `run.md` gegenlesen — dort darf **kein** Schlüssel stehen.
    Seit 0.14.0 zusätzlich `data.json` ansehen: dort steht eine `secretId`, kein `apiKey` (der Schlüssel liegt im Schlüsselbund von Obsidian). Der Treiber misst beides (Abschnitt „Welle 15“).
+
+8. **Schreibende Crews** (Handteil zum Abschnitt „Schreiben“): die Beispiel-Crew „Sort inbox“ („Eingangsordner einsortieren“) in einem Wegwerf-Vault laufen lassen, in dem `Inbox`, `Projects` und `Archive` existieren und ein paar Notizen mit Tags liegen. Danach ansehen, was der Treiber nicht beurteilt: stehen die Tags und Ordner in einem Sinn, den du so gewählt hättest; zeigt der Dialog „Rückgängig“ die Züge (`a → b`) lesbar; und, **bei ausgeschaltetem „Automatically update internal links“**, ob der Dialog „Update links“ mitten im Lauf überrascht (der Lauf wartet auf den Klick). Ein Modell, das trotz `thinking: off` denkt, braucht für den Schritt `tag` ein höheres `max_tokens` als die mitgelieferte Persona (Messung in `docs/internal/decisions.md`).
 
 ## Was der Treiber an der Brücke gelernt hat
 
