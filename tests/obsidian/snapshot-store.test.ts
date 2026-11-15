@@ -67,7 +67,7 @@ describe('AdapterSnapshotStore', () => {
 		expect(m!.entries[0]!.postHash).toBe(fnv1a('neu\n'));
 	});
 
-	/** Lokalzeit wie formatRunId: YYYY-MM-DD-HHMM-<team>; createdAt = derselbe Zeitpunkt. */
+	/** Lokalzeit wie formatRunId: YYYY-MM-DD-HHMMSS-<team>; createdAt = derselbe Zeitpunkt. */
 	const runAt = (y: number, mo: number, d: number, h = 9, mi = 0): { id: string; at: number } => {
 		const at = new Date(y, mo - 1, d, h, mi).getTime();
 		const pad = (n: number): string => String(n).padStart(2, '0');

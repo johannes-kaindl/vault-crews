@@ -604,6 +604,20 @@ describe('executeRun — preflight refusals', () => {
     expect(h.snapshot.finalized).toEqual([]);
   });
 
+  it('eine Verweigerung in derselben Sekunde überschreibt den fertigen Lauf derselben Crew nicht', async () => {
+    const h = await harness();
+    const done = await executeRun(h.teamPath, h.deps);
+    expect(done.status).toBe('ok');
+    const runMdBefore = await h.vault.read(`_crews/runs/${done.runId}/run.md`);
+    const stateBefore = await h.vault.read(`_crews/runs/${done.runId}/state.json`);
+    const refused = await executeRun(h.teamPath, { ...h.deps, settings: baseSettings({ endpoints: [] }) }); // Uhr steht
+    expect(refused.status).toBe('refused');
+    expect(refused.runId).toBe(`${done.runId}-2`);
+    expect(await h.vault.read(`_crews/runs/${done.runId}/run.md`)).toBe(runMdBefore);
+    expect(await h.vault.read(`_crews/runs/${done.runId}/state.json`)).toBe(stateBefore);
+    expect(await h.vault.read(`_crews/runs/${refused.runId}/run.md`)).toContain('status: refused');
+  });
+
   it('Grund des Managers (endpointHint) steht im Protokoll der Verweigerung', async () => {
     const h = await harness({ settings: { endpoints: [], endpointHint: 'secret-missing' } });
     const result = await executeRun(h.teamPath, h.deps);

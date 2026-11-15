@@ -748,11 +748,23 @@ describe('executeActions — Zählung nach Notizen (max_writes)', () => {
     expect(r.outcomes.map((o) => o.result)).toEqual(['applied']);
   });
 
-  it('lehnt den zweiten note.create auf denselben Pfad in Phase 1 ab', async () => {
+  it('lehnt den zweiten note.create auf denselben Pfad in Phase 1 ab, ohne den Schritt zu reißen', async () => {
     const vault = await seed({});
     const a = { type: 'note.create' as const, path: '10_Aufgaben/x.md', content: 'a' };
-    const r = await executeActions([a, { ...a, content: 'b' }], ctxOf([], { writtenPaths: new Set() }), vault);
-    expect(r.outcomes.map((o) => [o.result, o.code])).toEqual([['applied', undefined], ['rejected', 'duplicate']]);
+    // Drei Aktionen: zählten die Duplikate für die Schwelle, wären 2 von 3 abgelehnt und der Schritt gescheitert.
+    const r = await executeActions([a, { ...a, content: 'b' }, { ...a, content: 'c' }], ctxOf([], { writtenPaths: new Set() }), vault);
+    expect(r.outcomes.map((o) => [o.result, o.code])).toEqual([['applied', undefined], ['rejected', 'duplicate'], ['rejected', 'duplicate']]);
+    expect(r.taskFailed).toBe(false);
+    expect(await vault.read('10_Aufgaben/x.md')).toBe('a');
+  });
+
+  it('vergleicht writtenPaths gefaltet: Angebot.md im Lauf geschrieben, angebot.md in der Aktion ist dieselbe Notiz', async () => {
+    const vault = await seed({ '10_Aufgaben/angebot.md': TASK_MD });
+    const ctx = ctxOf([source('10_Aufgaben/angebot.md', TASK_MD)], {
+      team: makeTeam({ maxWrites: 1 }), writtenPaths: new Set(['10_Aufgaben/Angebot.md']),
+    });
+    const r = await executeActions([{ type: 'note.append', path: '10_Aufgaben/angebot.md', heading: null, content: 'y' }], ctx, vault);
+    expect(r.outcomes.map((o) => o.result)).toEqual(['applied']);
     expect(r.taskFailed).toBe(false);
   });
 

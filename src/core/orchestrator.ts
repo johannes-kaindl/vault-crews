@@ -102,6 +102,8 @@ class RunFsm {
 	private backend: BackendId = 'unknown';
 	private stopped = false;   // ein Task hat den Lauf abgebrochen (on_error abort / actions-Fail)
 	private aborted = false;   // Watchdog / User-Abbruch
+	/** `acquireLock` hat die endgültige Lauf-Id gewählt; davor ist `state.runId` nur die Vorab-Id (Zeitstempel + Crew). */
+	private runIdFinal = false;
 
 	constructor(private readonly teamPath: string, private readonly deps: RunDeps) {
 		const now = deps.clock.now();
@@ -237,6 +239,7 @@ class RunFsm {
 		// `runs/<runId>/state.json` aus ihr) und bevor Snapshot oder Ereignisse sie lesen. Die Sperre schützt die Wahl vor
 		// einem Wettlauf; den Lauf-Ordner legt erst `openRun` an.
 		this.state.runId = await this.freeRunId(this.state.runId);
+		this.runIdFinal = true;
 		if (locked) {
 			await this.deps.vault.modify(path, this.lockContent());
 		} else {
@@ -496,6 +499,12 @@ class RunFsm {
 	// ── Terminierung ────────────────────────────────────────────────────────
 
 	private async finishRefused(refusal: Refusal): Promise<RunResult> {
+		// Eine Verweigerung vor `acquireLock` trägt noch die Vorab-Id; ohne eigene Wahl überschriebe `persist()` den fertigen
+		// Lauf derselben Crew aus derselben Sekunde.
+		if (!this.runIdFinal) {
+			try { this.state.runId = await this.freeRunId(this.state.runId); } catch { /* best effort: Verweigerung bleibt sichtbar */ }
+			this.runIdFinal = true;
+		}
 		this.state.status = 'refused';
 		this.state.errorKind = refusal.kind;
 		this.state.endedAt = this.deps.clock.now();
