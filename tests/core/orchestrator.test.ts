@@ -163,6 +163,41 @@ class AbortMidStreamLlm implements LlmClient {
   }
 }
 
+describe('executeRun — eindeutige Lauf-Id', () => {
+  it('gibt zwei Läufen derselben Crew in derselben Sekunde verschiedene Lauf-Ids', async () => {
+    const h = await harness({ llm: new ScriptLlmClient([{ content: TRIAGE_OK }, { content: TRIAGE_OK }]) });
+    const first = await executeRun(h.teamPath, h.deps);
+    const second = await executeRun(h.teamPath, h.deps); // Uhr steht
+    expect(first.runId).toMatch(/^\d{4}-\d{2}-\d{2}-\d{6}-task-triage$/);
+    expect(second.runId).toBe(`${first.runId}-2`);
+    expect(await h.vault.exists(`_crews/runs/${second.runId}/state.json`)).toBe(true);
+  });
+
+  it('zählt weiter hoch (-3), wenn auch -2 belegt ist', async () => {
+    const h = await harness({ llm: new ScriptLlmClient([{ content: TRIAGE_OK }, { content: TRIAGE_OK }, { content: TRIAGE_OK }]) });
+    const ids: string[] = [];
+    for (let i = 0; i < 3; i++) ids.push((await executeRun(h.teamPath, h.deps)).runId);
+    expect(ids[1]).toBe(`${ids[0]}-2`);
+    expect(ids[2]).toBe(`${ids[0]}-3`);
+  });
+
+  it('die Sperrdatei trägt die endgültige Lauf-Id, auch wenn die Vorab-Id belegt war', async () => {
+    const h = await harness();
+    // Lauf-Ordner der Vorab-Id ist belegt (state.json), die Sperre liegt noch nicht.
+    const pre = await executeRun(h.teamPath, { ...h.deps, llm: new ScriptLlmClient([{ content: TRIAGE_OK }]) });
+    const lockSeen: string[] = [];
+    const origCreate = h.vault.create.bind(h.vault);
+    const origModify = h.vault.modify.bind(h.vault);
+    h.vault.create = async (path: string, content: string) => { if (path.endsWith('run-lock.json')) lockSeen.push(content); return origCreate(path, content); };
+    h.vault.modify = async (path: string, content: string) => { if (path.endsWith('run-lock.json')) lockSeen.push(content); return origModify(path, content); };
+    const second = await executeRun(h.teamPath, { ...h.deps, llm: new ScriptLlmClient([{ content: TRIAGE_OK }]) });
+    expect(second.runId).toBe(`${pre.runId}-2`);
+    const active = lockSeen.map((c) => JSON.parse(c) as { active: boolean; runId: string }).filter((l) => l.active);
+    expect(active.length).toBeGreaterThan(0);
+    expect(active.every((l) => l.runId === second.runId)).toBe(true);
+  });
+});
+
 describe('executeRun — ok (happy triage path)', () => {
   it('runs collector→llm→actions, commits once, patches the note, emits ordered events', async () => {
     const h = await harness();
@@ -172,13 +207,13 @@ describe('executeRun — ok (happy triage path)', () => {
     expect(result.errorKind).toBeNull();
     expect(result.undoable).toBe(true);
     expect(result.writes).toBe(1);
-    expect(result.runId).toMatch(/^\d{4}-\d{2}-\d{2}-\d{4}-task-triage$/);
+    expect(result.runId).toMatch(/^\d{4}-\d{2}-\d{2}-\d{6}-task-triage$/);
   });
 
-  it('Run-Id trägt den LOKALEN Tag und die lokale Uhrzeit (YYYY-MM-DD-HHmm-<team>)', async () => {
+  it('Run-Id trägt den LOKALEN Tag und die lokale Uhrzeit (YYYY-MM-DD-HHmmss-<team>)', async () => {
     const h = await harness({ clock: new FakeClock(new Date(2026, 9, 3, 0, 5).getTime()) });
     const result = await executeRun(h.teamPath, h.deps);
-    expect(result.runId).toBe('2026-10-03-0005-task-triage');
+    expect(result.runId).toBe('2026-10-03-000500-task-triage');
 
     // Snapshot: der geänderte Pfad wurde vor dem Write erfasst + der Lauf finalisiert.
     expect(h.snapshot.finalized).toEqual([result.runId]);

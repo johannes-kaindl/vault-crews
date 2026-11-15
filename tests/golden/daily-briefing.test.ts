@@ -154,7 +154,7 @@ describe('Golden-Run: ausgelieferte Daily-Briefing-Crew, end-to-end', () => {
 		expect(result.errorTask).toBeNull();
 		expect(result.writes).toBe(1);
 		expect(result.undoable).toBe(true);
-		expect(result.runId).toMatch(/^\d{4}-\d{2}-\d{2}-\d{4}-daily-briefing$/);
+		expect(result.runId).toMatch(/^\d{4}-\d{2}-\d{2}-\d{6}-daily-briefing$/);
 		expect(llm.calls).toHaveLength(1); // kein Repair nötig — Modell liefert gültiges briefing-v1 auf Anhieb
 		// runStarted…runFinished-Rahmen, genau ein taskStarted/taskFinished-Paar pro Task.
 		expect(reporter.events.filter((e) => e.type !== 'token').map((e) => e.type)).toEqual([

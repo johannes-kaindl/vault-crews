@@ -229,8 +229,13 @@ class RunFsm {
 
 	private async acquireLock(): Promise<Refusal | null> {
 		const path = this.lockPath();
-		if (await this.deps.vault.exists(path)) {
-			if (await this.isLockHeld(path)) return { kind: 'io', message: 'Ein anderer Lauf ist aktiv (Run-Lock)' };
+		const locked = await this.deps.vault.exists(path);
+		if (locked && await this.isLockHeld(path)) return { kind: 'io', message: 'Ein anderer Lauf ist aktiv (Run-Lock)' };
+		// Die endgültige Lauf-Id steht fest, bevor die Sperrdatei sie trägt (die Wiederherstellung nach einem Absturz liest
+		// `runs/<runId>/state.json` aus ihr) und bevor Snapshot oder Ereignisse sie lesen. Die Sperre schützt die Wahl vor
+		// einem Wettlauf; den Lauf-Ordner legt erst `openRun` an.
+		this.state.runId = await this.freeRunId(this.state.runId);
+		if (locked) {
 			await this.deps.vault.modify(path, this.lockContent());
 		} else {
 			// `vault.create` legt keinen Ordner an: in einem Vault, in dem die Crews von Hand angelegt wurden, fehlt
@@ -240,6 +245,14 @@ class RunFsm {
 			await this.deps.vault.create(path, this.lockContent());
 		}
 		return null;
+	}
+
+	/** Zählt `-2`, `-3`, … an, bis kein Lauf mit dieser Id existiert. Geprüft wird `state.json` (die erste `persist()`
+	 *  schreibt sie), nicht der Ordner: ein Ordner ist im VaultPort-Fake und im Adapter nicht gleich sichtbar. */
+	private async freeRunId(base: string): Promise<string> {
+		let id = base;
+		for (let n = 2; await this.deps.vault.exists(`${this.deps.settings.crewRoot}/runs/${id}/state.json`); n++) id = `${base}-${n}`;
+		return id;
 	}
 
 	/** letzter Preflight-Schritt: Lauf im Vault sichtbar machen (run.md status running). */
@@ -682,7 +695,7 @@ function slugFromPath(path: string): string {
 function formatRunId(nowMs: number, teamId: string): string {
 	const d = new Date(nowMs);
 	const p = localParts(d);
-	return `${localDate(d)}-${p.hour}${p.minute}-${teamId}`;
+	return `${localDate(d)}-${p.hour}${p.minute}${p.second}-${teamId}`;
 }
 
 function mergeSlugTables(inputs: Artifact[]): Record<string, SlugTableData> {
