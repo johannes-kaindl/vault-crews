@@ -120,6 +120,47 @@ describe('tasknotes.query', () => {
 	});
 });
 
+describe('Artifact.truncated (Kappung sichtbar)', () => {
+	it('vault.read meldet die Einzelkappung mit gezeigter und voller Länge, Artifact.json bleibt unverändert', async () => {
+		const full = `---\ntitle: x\n---\n${'y'.repeat(40_000)}`;
+		await vault.create('10_Aufgaben/gross.md', full);
+		await vault.create('10_Aufgaben/klein.md', 'kurz');
+		const a = await runCollector(def('vault.read', { paths: ['10_Aufgaben/gross.md', '10_Aufgaben/klein.md'] }), deps);
+		expect(a.truncated).toEqual({ '10_Aufgaben/gross.md': { shown: 32_768, total: full.length } });
+		expect(a.json).toEqual({ files: a.files });
+		expect(Object.keys(a.json as object)).toEqual(['files']);
+	});
+
+	it('ohne Kappung bleibt truncated ungesetzt', async () => {
+		const a = await runCollector(def('vault.read', { paths: ['10_Aufgaben/steuer.md'] }), deps);
+		expect(a.truncated).toBeUndefined();
+	});
+
+	it('vault.read: Notizen nach erreichter Gesamtkappung (262144) bleiben als Datei, mit shown 0 und voller Länge', async () => {
+		const paths: string[] = [];
+		for (let i = 0; i < 12; i++) {
+			const p = `10_Aufgaben/big-${i}.md`;
+			await vault.create(p, 'z'.repeat(32_768));
+			paths.push(p);
+		}
+		const a = await runCollector(def('vault.read', { paths }), deps);
+		expect(a.files).toHaveLength(12);
+		// 8 × 32 768 = 262 144: die Notizen 0 bis 7 passen genau, ab der neunten bleibt nichts
+		for (let i = 0; i < 8; i++) expect(a.truncated?.[`10_Aufgaben/big-${i}.md`]).toBeUndefined();
+		for (let i = 8; i < 12; i++) expect(a.truncated?.[`10_Aufgaben/big-${i}.md`]).toEqual({ shown: 0, total: 32_768 });
+		expect(a.files[11]?.content).toBe('\n[gekürzt]');
+	});
+
+	it('tasknotes.query mit include_content meldet beide Kappungen', async () => {
+		const full = `---\ntitle: zzz\n---\n${'y'.repeat(40_000)}`;
+		await vault.create('10_Aufgaben/zzz-gross.md', full);
+		const a = await runCollector(def('tasknotes.query', { folder: '10_Aufgaben', include_content: true, sort: 'title' }), deps);
+		expect(a.truncated?.['10_Aufgaben/zzz-gross.md']).toEqual({ shown: 32_768, total: full.length });
+		const noContent = await runCollector(def('tasknotes.query', { folder: '10_Aufgaben' }), deps);
+		expect(noContent.truncated).toBeUndefined();
+	});
+});
+
 describe('collectorSource', () => {
 	it('nennt den Ordner von vault.list und tasknotes.query', () => {
 		expect(collectorSource(def('vault.list', { folder: 'Notizen' }))).toBe('Notizen');

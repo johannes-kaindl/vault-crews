@@ -11,7 +11,7 @@ const AGENT: AgentDef = {
 };
 const TASK: LlmTaskDef = {
 	id: 'analyse', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'],
-	instruction: 'Bewerte jede Aufgabe.', output: { family: 'frontmatter.set', allowedKeys: '*' }, onError: 'abort',
+	instruction: 'Bewerte jede Aufgabe.', output: { family: 'frontmatter.set', allowedKeys: '*' }, onError: 'abort', perNote: false,
 };
 const SCHEMA: Pick<SchemaDef, 'id' | 'outputFormat' | 'promptContract' | 'outputExample'> = {
 	id: 'triage-v1',

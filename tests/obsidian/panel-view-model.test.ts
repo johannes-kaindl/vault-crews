@@ -6,7 +6,7 @@ import { DE, EN, registerI18n } from "../../src/i18n/strings";
 import type { CrewModelRow } from "../../src/core/model-resolution";
 import { setLang } from "../../src/vendor/kit/i18n";
 import {
-  buildPanelViewModel, markAborting, reduceRun, runNoticeText, MAX_LIVE_CHARS,
+  buildPanelViewModel, buildStatusLineVM, markAborting, reduceRun, runNoticeText, MAX_LIVE_CHARS,
   type RunState, type TeamInfo, type RunSummary, type PanelInputs,
 } from "../../src/obsidian/panel-view-model";
 import type { RunEvent } from "../../src/core/ports";
@@ -196,10 +196,20 @@ describe("buildPanelViewModel — crews body", () => {
     expect(s.kind === "running" && s.thinkText).toBe("Quellen ");
   });
 
+  it("noteStarted merkt Note 3 of 7, die Statuszeile zeigt sie; ein neuer Task löscht sie wieder", () => {
+    let s: RunState = reduceRun({ kind: "idle" }, { type: "runStarted", runId: "r", teamId: "t" });
+    s = reduceRun(s, { type: "taskStarted", taskId: "tag", index: 2, total: 3 });
+    expect(buildStatusLineVM(s)?.text).toBe("▶ 2/3 · tag");
+    s = reduceRun(s, { type: "noteStarted", taskId: "tag", index: 3, total: 7, path: "n/c.md" });
+    expect(buildStatusLineVM(s)?.text).toBe("▶ 2/3 · tag · Note 3 of 7");
+    s = reduceRun(s, { type: "taskStarted", taskId: "apply", index: 3, total: 3 });
+    expect(buildStatusLineVM(s)?.text).toBe("▶ 3/3 · apply");
+  });
+
   it("task lines use the status-indicator vocabulary: icon + state class + status text per status", () => {
     const statuses = ["waiting", "running", "ok", "failed", "skipped", "stale"] as const;
     const running: RunState = {
-      kind: "running", runId: "r", teamId: "t", total: 6, index: 1, currentTaskId: null,
+      kind: "running", runId: "r", teamId: "t", total: 6, index: 1, currentTaskId: null, note: null,
       lines: statuses.map((status, i) => ({ taskId: `t${i}`, status })),
       tokenCount: 0, thinkCount: 0, thinkChars: 0, streamText: "", thinkText: "", writes: [], aborting: false,
     };

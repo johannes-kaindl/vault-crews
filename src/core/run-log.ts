@@ -1,4 +1,4 @@
-import type { ActionOutcome, ErrorKind, RunState, TaskRecord } from './types';
+import type { ActionOutcome, ErrorKind, NoteRecord, RunState, TaskRecord } from './types';
 
 export const ERROR_KINDS: readonly ErrorKind[] = [
   'endpoint_unreachable', 'endpoint_error', 'model_missing', 'timeout', 'stalled',
@@ -43,6 +43,20 @@ function outcomeLine(o: ActionOutcome): string {
   return o.reason === null ? base : `${base} — ${firstLine(o.reason)}`;
 }
 
+const NOTE_PREFIX: Record<NoteRecord['status'], string> = { ok: '✓', failed: '✗', skipped: '↷' };
+
+/** Zeichenzahlen mit festem Tausenderpunkt-Leerzeichen („32 768“), unabhängig von der Sprache des Rechners. */
+function groupDigits(n: number): string {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+}
+
+function noteLine(n: NoteRecord): string {
+  const parts = [`- ${NOTE_PREFIX[n.status]} ${n.path}`];
+  if (n.reason !== null) parts.push(firstLine(n.reason));
+  if (n.truncated !== null) parts.push(`gekürzt gelesen (${groupDigits(n.truncated.shown)} von ${groupDigits(n.truncated.total)} Zeichen)`);
+  return parts.join(' — ');
+}
+
 function taskSection(rec: TaskRecord): string[] {
   const lines: string[] = [`## ${rec.taskId}`, '', `- Status: ${rec.status}`, `- Dauer: ${((rec.endedAt - rec.startedAt) / 1000).toFixed(1)} s`];
   if (rec.model !== null) lines.push(`- Modell: ${rec.model}`);
@@ -58,6 +72,7 @@ function taskSection(rec: TaskRecord): string[] {
   if (rec.artifactJson !== null && rec.artifactJson !== undefined) {
     lines.push('', '```json', JSON.stringify(rec.artifactJson, null, 2), '```');
   }
+  if (rec.notes !== undefined && rec.notes.length > 0) lines.push('', ...rec.notes.map(noteLine));
   if (rec.outcomes.length > 0) lines.push('', ...rec.outcomes.map(outcomeLine));
   return lines;
 }

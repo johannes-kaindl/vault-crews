@@ -199,7 +199,9 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 					}
 					const onError = raw.on_error === 'skip' ? 'skip' : 'abort';
 					if (raw.on_error !== undefined && raw.on_error !== 'skip' && raw.on_error !== 'abort') err(`${label}.on_error`, `'${show(raw.on_error)}' (erwartet abort|skip)`);
-					const def: LlmTaskDef = { id, kind: 'llm', agent, inputs, instruction: instruction ?? '', output: output ?? { family: 'frontmatter.set', allowedKeys: '*' }, onError };
+					if (raw.per_note !== undefined && typeof raw.per_note !== 'boolean') err(`${label}.per_note`, `'${show(raw.per_note)}' (erwartet true|false)`);
+					const perNote = raw.per_note === true;
+					const def: LlmTaskDef = { id, kind: 'llm', agent, inputs, instruction: instruction ?? '', output: output ?? { family: 'frontmatter.set', allowedKeys: '*' }, onError, perNote };
 					tasks.push(def);
 					break;
 				}

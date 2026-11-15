@@ -27,7 +27,7 @@ import type {
 	LlmClient, LlmMessage, LlmParams, LlmStreamResult, MetadataPort, RequestPort, RunReporter, SnapshotStore, VaultPort,
 } from './ports';
 import type {
-	Action, ActionsTaskDef, AgentDef, Artifact, CollectorTaskDef, ErrorKind, LlmTaskDef,
+	Action, ActionsTaskDef, AgentDef, Artifact, CollectedFile, CollectorTaskDef, ErrorKind, LlmTaskDef, NoteRecord,
 	RunLimits, RunResult, RunState, RunStatus, SlugTableData, TaskDef, TaskRecord, TeamDef,
 } from './types';
 
@@ -62,11 +62,35 @@ export interface RunDeps {
 type TaskStatus = TaskRecord['status'];
 interface Refusal { kind: ErrorKind; message: string; }
 
+/** Obergrenze der Notizen, die ein `per_note`-Schritt verarbeitet; weitere stehen als `skipped` im Protokoll. */
+export const PER_NOTE_MAX = 20;
+/** Die Gesamtgrenze der Collector-Eingabe in Zeichen (`TOTAL_CAP` in collectors.ts), nur für die Meldung. */
+const TOTAL_CAP_CHARS = 262_144;
+/** Name der Einstellung, die `limits.wallClockMs` setzt (EN-Name in Klammern), für die Meldung bei Ablauf der Wanduhr. */
+const WALL_CLOCK_SETTING = 'Zeitlimit (Minuten)';
 const BUDGET_RESERVE = 0.15;
 const CONTEXT_FALLBACK = 8192;
 /** Die Aufforderung am Ende der Reparatur-Nachricht (Kit `askUntilValid`, `instruction`): der Ausgangs-Prompt mit dem Format steht davor in der History. */
 const REPAIR_INSTRUCTION = 'Antworte erneut, exakt in dem im System-Prompt geforderten Format.';
 type ValidatedOutput = { ok: true; json: unknown; actions: Action[] };
+
+/** Was für jeden Modellaufruf eines `llm`-Tasks feststeht (Agent, Modell, gesendete Parameter, Budget). */
+interface LlmCallContext {
+	task: LlmTaskDef; rec: TaskRecord; agent: AgentDef;
+	model: string; sentModel: string; wire: LlmParams['params']; thinkingLevel: ThinkingLevel; family: FamilyId | null;
+	check: { family: FamilyId | null; thinking: ThinkingLevel; backend: BackendId };
+	sentMax: number; budget: number;
+}
+/** Was ein einzelner Aufruf sieht: seine Eingaben, den Namen für Rohantwort-Dateien und, in `per_note`, den Pfad der Notiz. */
+interface NoteCall {
+	inputs: Artifact[];
+	/** Basis des Dateinamens der Rohantworten (`artifacts/<label>-<n>.txt`); bei `per_note` mit Notiz-Index. */
+	label: string;
+	/** Pfad der gerade bearbeiteten Notiz; null außerhalb von `per_note` (für Prüfung und Schema der Tasks 5 und 7). */
+	notePath: string | null;
+}
+interface CallFailure { ok: false; kind: ErrorKind; message: string; aborted: boolean; promptHash: string | null; }
+type CallResult = { ok: true; value: ValidatedOutput; promptHash: string | null } | CallFailure;
 
 export function executeRun(teamPath: string, deps: RunDeps): Promise<RunResult> {
 	return new RunFsm(teamPath, deps).run();
@@ -337,30 +361,171 @@ class RunFsm {
 		if (agent === undefined) return this.failLlm(task, rec, 'crew_invalid', `Agent nicht geladen: ${task.agent}`);
 		rec.model = resolveTaskModel(agent.model, this.activeEndpoint ?? { url: '' }, this.availableModels);
 
-		const schema = buildSchema(task.output);
-		const sources = inputs.flatMap((a) => a.files);
-		const slugTables = mergeSlugTables(inputs);
-		const target = this.resolveTarget(task);
 		const ctxLen = this.modelCtx.get(rec.model) ?? CONTEXT_FALLBACK;
 		const { family, sentModel } = this.deps.request.describe(rec.model);
 		const { params: wire, thinkingLevel } = buildCrewParams({
 			family, backend: this.backend, agent, settings: this.deps.settings.request, model: sentModel,
 		});
-		const params: LlmParams = { model: rec.model, sentModel, params: wire, thinkingLevel, thinkChannel: family === 'gemma4', restoreContent: schema.outputFormat === 'json' ? 'json' : 'text' };
 		const check = { family, thinking: thinkingLevel, backend: this.backend };
 		// Das Profil kann das Budget für eine Denkstufe anheben: die Kontextrechnung nimmt, was gesendet wird.
 		const sentMax = typeof wire.max_tokens === 'number' ? wire.max_tokens : agent.maxTokens;
 		const budget = Math.max(1, ctxLen - sentMax - Math.floor(ctxLen * BUDGET_RESERVE));
+		const call: LlmCallContext = { task, rec, agent, model: rec.model, sentModel, wire, thinkingLevel, family, check, sentMax, budget };
+
+		if (task.perNote) return this.runPerNote(call, inputs);
+
+		const result = await this.callModel(call, { inputs, label: task.id, notePath: null });
+		if (result.promptHash !== null) rec.promptHash = result.promptHash;
+		if (!result.ok) return this.failCall(task, rec, result);
+
+		// Zusatz-Vertrag: llm-Artifact.json = { output, actions }; files/slugTables geerbt.
+		const artifact: Artifact = {
+			taskId: task.id, json: { output: result.value.json, actions: result.value.actions },
+			files: inputs.flatMap((a) => a.files), slugTables: mergeSlugTables(inputs),
+		};
+		this.artifacts.set(task.id, artifact);
+		rec.artifactJson = artifact.json;
+		return 'ok';
+	}
+
+	/** Ein Modellaufruf je Notiz der Eingaben (höchstens `PER_NOTE_MAX`). Jeder Aufruf sieht Kopien der Eingabe-Artefakte, die nur
+	 *  diese Notiz tragen; die Aktionen aller Notizen bilden das Artefakt des Schritts. */
+	private async runPerNote(call: LlmCallContext, inputs: Artifact[]): Promise<TaskStatus> {
+		const { task, rec } = call;
+		const unique: string[] = [];
+		for (const f of inputs.flatMap((a) => a.files)) if (!unique.includes(f.path)) unique.push(f.path);
+		if (unique.length === 0) {
+			rec.skipReason = 'Keine Notizen als Eingabe — Task nicht gestartet';
+			return 'skipped';
+		}
+		const processed = unique.slice(0, PER_NOTE_MAX);
+		// Der Plan rechnet zwei Aufrufe je Modellschritt (Aufruf + Reparatur); jede weitere Notiz bringt zwei dazu.
+		this.limits = { ...this.limits, maxLlmCalls: this.limits.maxLlmCalls + (processed.length - 1) * 2 };
+
+		const notes: NoteRecord[] = [];
+		rec.notes = notes;
+		const outputs: unknown[] = [];
+		const actions: Action[] = [];
+		const hashes: string[] = [];
+		let lastError: { kind: ErrorKind; message: string } | null = null;
+		let status: TaskStatus = 'ok';
+		const skipRest = (from: number, reason: string): void => {
+			for (const p of unique.slice(from)) notes.push({ path: p, status: 'skipped', reason, truncated: null });
+		};
+
+		for (let i = 0; i < processed.length; i++) {
+			const path = processed[i] ?? '';
+			if (this.deps.abort.aborted) {
+				this.abortRun(task.id, 'Lauf vom Benutzer abgebrochen');
+				rec.error = { kind: 'aborted', message: 'Lauf vom Benutzer abgebrochen' };
+				skipRest(i, 'Lauf abgebrochen');
+				status = 'failed';
+				break;
+			}
+			if (this.deps.clock.now() - this.state.startedAt > this.limits.wallClockMs) {
+				status = this.failTask(task.id, rec, 'timeout', `Wanduhr-Limit überschritten (Einstellung „${WALL_CLOCK_SETTING}“)`);
+				skipRest(i, 'Wanduhr-Limit überschritten');
+				break;
+			}
+			this.deps.reporter.emit({ type: 'noteStarted', taskId: task.id, index: i + 1, total: processed.length, path });
+
+			const noteInputs = inputs.map((a) => artifactForNote(a, path));
+			const cut = noteInputs.map((a) => a.truncated?.[path]).find((c) => c !== undefined) ?? null;
+			const record: NoteRecord = { path, status: 'ok', reason: null, truncated: cut };
+			notes.push(record);
+
+			let failure: CallFailure | null = null;
+			if (cut !== null && cut.shown === 0) {
+				failure = { ok: false, kind: 'context_overflow', message: `Notiz nicht gelesen: die Gesamtgrenze der Collector-Eingabe (${TOTAL_CAP_CHARS} Zeichen) war schon erreicht`, aborted: false, promptHash: null };
+			} else {
+				const result = await this.callModel(call, { inputs: noteInputs, label: `${task.id}-n${i + 1}`, notePath: path });
+				if (result.promptHash !== null) hashes.push(result.promptHash);
+				if (result.ok) {
+					outputs.push(result.value.json);
+					actions.push(...result.value.actions);
+				} else {
+					failure = result;
+				}
+			}
+			if (failure === null) continue;
+
+			if (failure.aborted) {
+				this.abortRun(task.id, failure.message);
+				rec.error = { kind: 'aborted', message: failure.message };
+				record.status = 'failed';
+				record.reason = failure.message;
+				skipRest(i + 1, 'Lauf abgebrochen');
+				status = 'failed';
+				break;
+			}
+			record.status = 'failed';
+			record.reason = failure.message;
+			lastError = { kind: failure.kind, message: failure.message };
+			if (task.onError === 'abort') {
+				status = this.failLlm(task, rec, failure.kind, failure.message);
+				skipRest(i + 1, 'Schritt abgebrochen (on_error: abort)');
+				break;
+			}
+		}
+		if (status === 'ok') skipRest(processed.length, `Obergrenze von ${PER_NOTE_MAX} Notizen je Schritt`);
+		if (hashes.length > 0) rec.promptHash = fnv1a(hashes.join('\n'));
+		if (status !== 'ok') return status;
+
+		if (!notes.some((n) => n.status === 'ok')) {
+			// Alle Notizen sind mit on_error: skip gescheitert: nichts zu schreiben, der Schritt zählt als übersprungen (Lauf partial).
+			rec.error = lastError;
+			return 'skipped';
+		}
+		const files: CollectedFile[] = [];
+		for (const f of inputs.flatMap((a) => a.files)) if (!files.some((g) => g.path === f.path)) files.push(f);
+		const artifact: Artifact = { taskId: task.id, json: { output: outputs, actions }, files, slugTables: mergeSlugTables(inputs) };
+		this.artifacts.set(task.id, artifact);
+		rec.artifactJson = artifact.json;
+		return 'ok';
+	}
+
+	/** Wandelt einen gescheiterten Aufruf eines Einzelschritts in den Task-Status (Abbruch durch den Nutzer oder `failLlm`). */
+	private failCall(task: LlmTaskDef, rec: TaskRecord, f: CallFailure): TaskStatus {
+		if (f.aborted) {
+			this.abortRun(task.id, f.message);
+			rec.error = { kind: 'aborted', message: f.message };
+			return 'failed';
+		}
+		return this.failLlm(task, rec, f.kind, f.message);
+	}
+
+	/** Ein Modellaufruf samt Prüfung und höchstens einer Reparatur-Runde für die Eingaben `call.inputs`: der Teil von `runLlmTask`
+	 *  ab „Primärer Call“ bis zum geprüften Ergebnis. Wirft nie; ein Fehler kommt als `CallFailure` zurück. */
+	private async callModel(ctx: LlmCallContext, call: NoteCall): Promise<CallResult> {
+		const { task, rec, agent } = ctx;
+		const schema = buildSchema(task.output);
+		const sources = call.inputs.flatMap((a) => a.files);
+		const slugTables = mergeSlugTables(call.inputs);
+		const target = this.resolveTarget(task);
+		const params: LlmParams = {
+			model: ctx.model, sentModel: ctx.sentModel, params: ctx.wire, thinkingLevel: ctx.thinkingLevel,
+			thinkChannel: ctx.family === 'gemma4', restoreContent: schema.outputFormat === 'json' ? 'json' : 'text',
+		};
+		const check = ctx.check;
+		const perNote = call.notePath !== null;
+		let promptHash: string | null = null;
+		const fail = (kind: ErrorKind, message: string): CallFailure => ({ ok: false, kind, message, aborted: false, promptHash });
+		const abortedFailure = (): CallFailure => ({ ok: false, kind: 'aborted', message: 'Stream abgebrochen', aborted: true, promptHash });
 
 		// Primärer Call mit genau einem reaktiven Overflow-Retry (Material halbieren).
 		let result: LlmStreamResult;
 		let usedMessages: LlmMessage[] = [];   // der Ausgangs-Prompt, der durchging (nach einem Overflow die verkleinerte Fassung)
 		let overflowRetried = false;
 		for (;;) {
-			const b = overflowRetried ? Math.max(1, Math.floor(budget / 2)) : budget;
+			const b = overflowRetried ? Math.max(1, Math.floor(ctx.budget / 2)) : ctx.budget;
 			try {
-				const prompt = buildPrompt(agent, task, inputs, schema, b);
-				rec.promptHash = prompt.promptHash;
+				const prompt = buildPrompt(agent, task, call.inputs, schema, b);
+				promptHash = prompt.promptHash;
+				// Eine einzelne Notiz, die nur gekürzt in den Prompt passt, wird nicht bearbeitet: das Modell sähe eine leere Notiz und
+				// meldete „nichts zu tun“, das Protokoll sagte `ok`.
+				if (perNote && prompt.truncated) {
+					return fail('context_overflow', `Notiz passt allein nicht ins Kontextbudget (${b} Tokens): ${call.notePath ?? ''}`);
+				}
 				usedMessages = prompt.messages;
 				result = await this.stream(prompt.messages, params, task.id, check);
 			} catch (e) {
@@ -368,13 +533,13 @@ class RunFsm {
 					overflowRetried = true;
 					continue;
 				}
-				return this.failLlm(task, rec, llmErrorKind(e), errMsg(e));
+				return fail(llmErrorKind(e), errMsg(e));
 			}
 			break;
 		}
 		rec.thinkTokens += result.thinkTokens;
 		if (params.thinkingLevel === 'off' && result.reasoned) this.state.alwaysOnThinker = true;
-		if (result.finishReason === 'aborted') { this.abortRun(task.id, 'Stream abgebrochen'); rec.error = { kind: 'aborted', message: 'Stream abgebrochen' }; return 'failed'; }
+		if (result.finishReason === 'aborted') return abortedFailure();
 
 		// Prüfen, bei Bedarf EINE Reparatur-Runde (Kit `askUntilValid`, maxRetries 1): der Reparatur-Call trägt die History — den
 		// Ausgangs-Prompt, der tatsächlich durchging (nach einem Overflow die verkleinerte Fassung), die schlechte Antwort und den Grund.
@@ -388,7 +553,7 @@ class RunFsm {
 			asks += 1;
 			if (pending !== null) { const first = pending; pending = null; return first; }
 			// Eine zweite Frage heißt: die erste Antwort war ungültig. Ihren Rohtext vor dem Call sichern (Absturz mitten in der Reparatur).
-			await this.writeArtifact(task.id, asks - 1, rawByAsk[asks - 2] ?? '');
+			await this.writeArtifact(call.label, asks - 1, rawByAsk[asks - 2] ?? '');
 			const repair = await this.stream(messages, params, task.id, check);
 			rec.thinkTokens += repair.thinkTokens;
 			if (params.thinkingLevel === 'off' && repair.reasoned) this.state.alwaysOnThinker = true;
@@ -413,22 +578,16 @@ class RunFsm {
 				stopOnTruncated: true,
 			});
 		} catch (e) {
-			if (e instanceof StreamAborted) { this.abortRun(task.id, 'Stream abgebrochen'); rec.error = { kind: 'aborted', message: 'Stream abgebrochen' }; return 'failed'; }
-			return this.failLlm(task, rec, llmErrorKind(e), errMsg(e));
+			if (e instanceof StreamAborted) return abortedFailure();
+			return fail(llmErrorKind(e), errMsg(e));
 		}
 		if (!outcome.ok) {
 			// Der Rohtext der letzten (ungültigen) Antwort bleibt lesbar, nie als Schreibvorgang registriert.
-			await this.writeArtifact(task.id, outcome.attempts, outcome.raw);
-			if (outcome.truncated) return this.failLlm(task, rec, 'output_truncated', truncatedMsg(sentMax));
-			return this.failLlm(task, rec, 'invalid_output', lastErrors.join('; '));
+			await this.writeArtifact(call.label, outcome.attempts, outcome.raw);
+			if (outcome.truncated) return fail('output_truncated', truncatedMsg(ctx.sentMax));
+			return fail('invalid_output', lastErrors.join('; '));
 		}
-		const validated = outcome.value;
-
-		// Zusatz-Vertrag: llm-Artifact.json = { output, actions }; files/slugTables geerbt.
-		const artifact: Artifact = { taskId: task.id, json: { output: validated.json, actions: validated.actions }, files: sources, slugTables };
-		this.artifacts.set(task.id, artifact);
-		rec.artifactJson = artifact.json;
-		return 'ok';
+		return { ok: true, value: outcome.value, promptHash };
 	}
 
 	private async runActionsTask(task: ActionsTaskDef, rec: TaskRecord): Promise<TaskStatus> {
@@ -532,7 +691,7 @@ class RunFsm {
 		if (this.aborted) return 'aborted';
 		if (this.stopped) return 'failed';
 		const degraded = this.state.tasks.some(
-			(t) => t.status === 'skipped' || t.outcomes.some((o) => o.result !== 'applied'),
+			(t) => t.status === 'skipped' || t.outcomes.some((o) => o.result !== 'applied') || (t.notes?.some((n) => n.status !== 'ok') ?? false),
 		);
 		return degraded ? 'partial' : 'ok';
 	}
@@ -712,6 +871,13 @@ function formatRunId(nowMs: number, teamId: string): string {
 	const d = new Date(nowMs);
 	const p = localParts(d);
 	return `${localDate(d)}-${p.hour}${p.minute}${p.second}-${teamId}`;
+}
+
+/** Kopie eines Eingabe-Artefakts, die nur die Notiz `path` trägt (`files` und, wo vorhanden, `json.files`). */
+function artifactForNote(a: Artifact, path: string): Artifact {
+	const files = a.files.filter((f) => f.path === path);
+	const json = isRecord(a.json) && Array.isArray(a.json.files) ? { ...a.json, files } : a.json;
+	return { ...a, files, json };
 }
 
 function mergeSlugTables(inputs: Artifact[]): Record<string, SlugTableData> {

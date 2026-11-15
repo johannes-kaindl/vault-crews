@@ -5,6 +5,7 @@ import { LlmCallError } from '../../src/core/ports';
 import type { LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo, RunEvent } from '../../src/core/ports';
 import type { RunLimits } from '../../src/core/types';
 import { expandTarget } from '../../src/core/paths';
+import { fnv1a } from '../../src/core/collectors';
 import { InMemoryVaultPort, FixtureMetadataPort } from '../helpers/in-memory-vault';
 import { FakeClock } from '../helpers/fake-clock';
 import { RecorderReporter } from '../helpers/recorder-reporter';
@@ -1098,5 +1099,200 @@ describe('executeRun — Modell je llm-Task im Ergebnis', () => {
     const result = await executeRun(h.teamPath, h.deps);
     expect(result.status).toBe('refused');
     expect(result.models).toEqual([]);
+  });
+});
+
+// ── per_note: ein Modellaufruf je Notiz ──────────────────────────────────────
+
+const PN_NOTE = '---\npriority: niedrig\n---\nInhalt\n';
+const INVALID: ScriptedCall = { content: 'kein JSON, nur Prosa' };
+
+function okFor(path: string): ScriptedCall {
+  return { content: JSON.stringify({ items: [{ path, set: { priority: 'mittel' } }] }) };
+}
+
+function perNoteTeam(paths: string[], o: { onError?: 'abort' | 'skip'; maxWrites?: number } = {}): TeamFm {
+  return triageTeamFm({
+    limits: { max_writes: o.maxWrites ?? 10 },
+    write_scope: ['n/**/*.md'],
+    tasks: [
+      { id: 'collect', kind: 'collector', collector: 'vault.read', params: { paths } },
+      { id: 'tag', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'Bewerte die Notiz.', output_schema: 'triage-v1', per_note: true, on_error: o.onError ?? 'abort' },
+      { id: 'apply', kind: 'actions', inputs: ['tag'], allowed_actions: ['frontmatter.patch'], allowed_keys: ['priority'] },
+    ],
+  });
+}
+
+function pnFiles(paths: string[], body = PN_NOTE): Record<string, string> {
+  return Object.fromEntries(paths.map((p) => [p, body]));
+}
+
+interface PnState {
+  tasks: { taskId: string; status: string; promptHash: string | null; error: { kind: string; message: string } | null; skipReason?: string; artifactJson?: unknown;
+    notes?: { path: string; status: string; reason: string | null; truncated: { shown: number; total: number } | null }[] }[];
+}
+async function stateOf(h: Harness, runId: string): Promise<PnState> {
+  return JSON.parse(await h.vault.read(`_crews/runs/${runId}/state.json`)) as PnState;
+}
+async function tagRecord(h: Harness, runId: string): Promise<PnState['tasks'][number]> {
+  const rec = (await stateOf(h, runId)).tasks.find((t) => t.taskId === 'tag');
+  if (rec === undefined) throw new Error('Task tag fehlt im Zustand');
+  return rec;
+}
+
+describe('executeRun — per_note', () => {
+  const NOTES = ['n/a.md', 'n/b.md', 'n/c.md'];
+
+  it('ruft das Modell je Notiz einmal, jeder Prompt enthält genau eine Notiz', async () => {
+    const llm = new ScriptLlmClient(NOTES.map(okFor));
+    const h = await harness({ teamFm: perNoteTeam(NOTES), files: pnFiles(NOTES), llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(llm.calls).toHaveLength(3);
+    expect(llm.calls.map((c) => (c.messages[1]?.content.match(/"path":"n\/[abc]\.md"/g) ?? []).length)).toEqual([1, 1, 1]);
+    expect(r.status).toBe('ok');
+    const started = h.reporter.events.filter((e): e is Extract<RunEvent, { type: 'noteStarted' }> => e.type === 'noteStarted');
+    expect(started.map((e) => [e.taskId, e.index, e.total, e.path])).toEqual([
+      ['tag', 1, 3, 'n/a.md'], ['tag', 2, 3, 'n/b.md'], ['tag', 3, 3, 'n/c.md'],
+    ]);
+    // Die Aktionen aller Notizen bilden das Artefakt: der Aktions-Schritt schreibt alle drei.
+    for (const p of NOTES) expect(await h.vault.read(p)).toContain('mittel');
+    const rec = await tagRecord(h, r.runId);
+    expect(rec.notes?.map((n) => [n.path, n.status])).toEqual(NOTES.map((p) => [p, 'ok']));
+    expect(rec.artifactJson).toMatchObject({ output: [expect.anything(), expect.anything(), expect.anything()] });
+    expect(rec.promptHash).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  it('der Prompt-Hash des Schritts ist fnv1a über die Hashes der Einzelaufrufe', async () => {
+    // Mit einer Notiz ist der Einzelaufruf derselbe Prompt wie ohne per_note: dessen Hash ist der Einzelhash.
+    const plainTeam = perNoteTeam(['n/a.md']);
+    (plainTeam.tasks as Record<string, unknown>[])[1] = { ...(plainTeam.tasks as Record<string, unknown>[])[1], per_note: false };
+    const plain = await harness({ teamFm: plainTeam, files: pnFiles(['n/a.md']), llm: new ScriptLlmClient([okFor('n/a.md')]) });
+    const rp = await runToCompletion(executeRun(plain.teamPath, plain.deps), plain.clock);
+    const single = (await tagRecord(plain, rp.runId)).promptHash ?? '';
+    expect(single).toMatch(/^[0-9a-f]{8}$/);
+    const h = await harness({ teamFm: perNoteTeam(['n/a.md']), files: pnFiles(['n/a.md']), llm: new ScriptLlmClient([okFor('n/a.md')]) });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect((await tagRecord(h, r.runId)).promptHash).toBe(fnv1a(single));
+  });
+
+  it('legt die Rohantworten je Notiz in eigene Dateien', async () => {
+    const llm = new ScriptLlmClient([INVALID, INVALID, INVALID, INVALID]);
+    const h = await harness({ teamFm: perNoteTeam(['n/a.md', 'n/b.md'], { onError: 'skip' }), files: pnFiles(['n/a.md', 'n/b.md']), llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    for (const f of ['tag-n1-1.txt', 'tag-n1-2.txt', 'tag-n2-1.txt', 'tag-n2-2.txt']) {
+      expect(await h.vault.exists(`_crews/runs/${r.runId}/artifacts/${f}`), f).toBe(true);
+    }
+  });
+
+  it('überspringt mit on_error: skip die eine Notiz und endet als partial', async () => {
+    const llm = new ScriptLlmClient([INVALID, INVALID, okFor('n/b.md')]);
+    const h = await harness({ teamFm: perNoteTeam(['n/a.md', 'n/b.md'], { onError: 'skip' }), files: pnFiles(['n/a.md', 'n/b.md']), llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('partial');
+    const rec = await tagRecord(h, r.runId);
+    expect(rec.status).toBe('ok');
+    expect(rec.notes?.map((n) => n.status)).toEqual(['failed', 'ok']);
+    expect(rec.notes?.[0]?.reason).toBeTruthy();
+    expect(await h.vault.read('n/b.md')).toContain('mittel');
+    expect(await h.vault.read('n/a.md')).not.toContain('mittel');
+  });
+
+  it('verarbeitet höchstens 20 Notizen und nennt die übrigen', async () => {
+    const paths = Array.from({ length: 21 }, (_, i) => `n/${String(i).padStart(2, '0')}.md`);
+    const llm = new ScriptLlmClient(paths.slice(0, 20).map(okFor));
+    const h = await harness({
+      teamFm: perNoteTeam(paths, { maxWrites: 20 }), files: pnFiles(paths), llm,
+      settings: { limits: { ...LIMITS, maxWrites: 25 } },
+    });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(llm.calls).toHaveLength(20);
+    expect((await tagRecord(h, r.runId)).notes?.[20]).toMatchObject({ path: 'n/20.md', status: 'skipped' });
+    expect(r.status).toBe('partial');
+    expect(r.writes).toBe(20);
+  });
+
+  it('on_error: abort bricht bei der ersten gescheiterten Notiz den Lauf ab', async () => {
+    const llm = new ScriptLlmClient([INVALID, INVALID, okFor('n/b.md')]);
+    const h = await harness({ teamFm: perNoteTeam(['n/a.md', 'n/b.md']), files: pnFiles(['n/a.md', 'n/b.md']), llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('failed');
+    expect(r.errorTask).toBe('tag');
+    expect(r.errorKind).toBe('invalid_output');
+    expect(llm.calls).toHaveLength(2);
+    const rec = await tagRecord(h, r.runId);
+    expect(rec.status).toBe('failed');
+    expect(rec.notes?.map((n) => n.status)).toEqual(['failed', 'skipped']);
+  });
+
+  it('vermerkt eine über 32 768 Zeichen gekürzte Notiz im NoteRecord', async () => {
+    const big = `${PN_NOTE}${'y'.repeat(40_000)}`;
+    const llm = new ScriptLlmClient([okFor('n/a.md')], 200_000);
+    const h = await harness({ teamFm: perNoteTeam(['n/a.md']), files: { 'n/a.md': big }, llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('ok');
+    expect((await tagRecord(h, r.runId)).notes?.[0]?.truncated).toEqual({ shown: 32_768, total: big.length });
+    const runMd = await h.vault.read(`_crews/runs/${r.runId}/run.md`);
+    expect(runMd).toContain('n/a.md');
+    expect(runMd).toContain(`gekürzt gelesen (32 768 von ${String(big.length).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} Zeichen)`);
+  });
+
+  it('schickt eine Notiz, die allein nicht ins Kontextbudget passt, nicht an das Modell (on_error: abort)', async () => {
+    const llm = new ScriptLlmClient([okFor('n/a.md')]); // Kontext 8192: 30 000 Zeichen passen nicht
+    const h = await harness({ teamFm: perNoteTeam(['n/a.md']), files: { 'n/a.md': `${PN_NOTE}${'y'.repeat(30_000)}` }, llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(llm.calls).toHaveLength(0);
+    expect(r.status).toBe('failed');
+    expect(r.errorKind).toBe('context_overflow');
+    const rec = await tagRecord(h, r.runId);
+    expect(rec.notes?.[0]).toMatchObject({ path: 'n/a.md', status: 'failed' });
+    expect(rec.notes?.[0]?.reason).toMatch(/budget/i);
+  });
+
+  it('enden alle Notizen als failed mit on_error: skip, ist der Schritt skipped und der Lauf partial', async () => {
+    const llm = new ScriptLlmClient([okFor('n/a.md')]);
+    const h = await harness({ teamFm: perNoteTeam(['n/a.md'], { onError: 'skip' }), files: { 'n/a.md': `${PN_NOTE}${'y'.repeat(30_000)}` }, llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(llm.calls).toHaveLength(0);
+    expect(r.status).toBe('partial');
+    const state = await stateOf(h, r.runId);
+    expect(state.tasks.find((t) => t.taskId === 'tag')?.status).toBe('skipped');
+    expect(state.tasks.find((t) => t.taskId === 'apply')?.status).toBe('skipped');
+    expect(r.writes).toBe(0);
+  });
+
+  it('eine wegen der Gesamtkappung nicht gelesene Notiz (shown 0) ist ein Fehler dieser Notiz', async () => {
+    const paths = Array.from({ length: 9 }, (_, i) => `n/${i}.md`);
+    const llm = new ScriptLlmClient(paths.slice(0, 8).map(okFor), 200_000);
+    const h = await harness({ teamFm: perNoteTeam(paths, { onError: 'skip' }), files: pnFiles(paths, 'z'.repeat(32_768)), llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(llm.calls).toHaveLength(8);
+    const rec = await tagRecord(h, r.runId);
+    expect(rec.notes?.[8]).toMatchObject({ path: 'n/8.md', status: 'failed', truncated: { shown: 0, total: 32_768 } });
+    expect(rec.notes?.[8]?.reason).toMatch(/262144|Gesamt/);
+    expect(r.status).toBe('partial');
+  });
+
+  it('läuft die Wanduhr mitten im Schritt ab, endet der Lauf als failed und die Meldung nennt die Einstellung', async () => {
+    const clock = new FakeClock(START_MS);
+    const llm = new ClockAdvancingLlm(clock, 700_000, okFor('n/a.md').content);
+    const h = await harness({ teamFm: perNoteTeam(['n/a.md', 'n/b.md']), files: pnFiles(['n/a.md', 'n/b.md']), llm, clock });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('failed');
+    expect(r.errorKind).toBe('timeout');
+    expect(r.errorTask).toBe('tag');
+    const rec = await tagRecord(h, r.runId);
+    expect(rec.status).toBe('failed');
+    expect(rec.error?.kind).toBe('timeout');
+    expect(rec.error?.message).toMatch(/Zeitlimit \(Minuten\)/);
+    expect(rec.notes?.map((n) => n.status)).toEqual(['ok', 'skipped']);
+  });
+
+  it('ohne per_note bleibt es bei einem Aufruf und ohne notes im Protokoll', async () => {
+    const llm = new ScriptLlmClient([{ content: TRIAGE_OK }]);
+    const h = await harness({ llm });
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(llm.calls).toHaveLength(1);
+    expect(h.reporter.events.some((e) => e.type === 'noteStarted')).toBe(false);
+    expect((await stateOf(h, r.runId)).tasks.every((t) => t.notes === undefined)).toBe(true);
   });
 });

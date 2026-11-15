@@ -23,12 +23,24 @@ export function fnv1a(s: string): string {
 }
 
 /** Kürzt Notiz-Inhalt auf die Per-File- und Total-Caps. Geteilt von vault.read und
- *  tasknotes.query#include_content. Gibt gekürzten Text + neue Laufsumme zurück. */
-function capContent(full: string, runningTotal: number): { content: string; total: number } {
+ *  tasknotes.query#include_content. Gibt gekürzten Text, neue Laufsumme und, falls gekürzt wurde,
+ *  die gezeigte und die volle Zeichenzahl zurück (`shown` ohne Marker; 0 = wegen der Gesamtkappung nichts mehr gezeigt). */
+function capContent(full: string, runningTotal: number): { content: string; total: number; cut: { shown: number; total: number } | null } {
+	let body = full;
 	let content = full;
-	if (content.length > PER_FILE_CAP) content = content.slice(0, PER_FILE_CAP) + TRUNCATION_MARKER;
-	if (runningTotal + content.length > TOTAL_CAP) content = content.slice(0, Math.max(0, TOTAL_CAP - runningTotal)) + TRUNCATION_MARKER;
-	return { content, total: runningTotal + content.length };
+	if (content.length > PER_FILE_CAP) {
+		body = content.slice(0, PER_FILE_CAP);
+		content = body + TRUNCATION_MARKER;
+	}
+	if (runningTotal + content.length > TOTAL_CAP) {
+		const room = Math.max(0, TOTAL_CAP - runningTotal);
+		content = content.slice(0, room) + TRUNCATION_MARKER;
+		body = body.slice(0, room);
+	}
+	return {
+		content, total: runningTotal + content.length,
+		cut: body.length < full.length ? { shown: body.length, total: full.length } : null,
+	};
 }
 
 /** Woher ein Collector liest — fuer die Meldung „0 Treffer in <Quelle>“. */
@@ -64,8 +76,14 @@ export async function runCollector(def: CollectorTaskDef, deps: CollectorDeps): 
 	}
 }
 
-function artifact(taskId: string, files: CollectedFile[], slugTables: Record<string, SlugTableData> = {}): Artifact {
-	return { taskId, json: { files }, files, slugTables };
+function artifact(
+	taskId: string, files: CollectedFile[], slugTables: Record<string, SlugTableData> = {},
+	truncated: Record<string, { shown: number; total: number }> = {},
+): Artifact {
+	return {
+		taskId, json: { files }, files, slugTables,
+		...(Object.keys(truncated).length > 0 ? { truncated } : {}),
+	};
 }
 
 async function vaultList(def: CollectorTaskDef, deps: CollectorDeps): Promise<Artifact> {
@@ -85,6 +103,7 @@ async function vaultList(def: CollectorTaskDef, deps: CollectorDeps): Promise<Ar
 async function vaultRead(def: CollectorTaskDef, deps: CollectorDeps): Promise<Artifact> {
 	const wanted = Array.isArray(def.params.paths) ? def.params.paths.filter((p): p is string => typeof p === 'string') : [];
 	const files: CollectedFile[] = [];
+	const truncated: Record<string, { shown: number; total: number }> = {};
 	let total = 0;
 	for (const raw of wanted) {
 		const path = normalizeVaultPath(raw);
@@ -92,15 +111,16 @@ async function vaultRead(def: CollectorTaskDef, deps: CollectorDeps): Promise<Ar
 		const full = await deps.vault.read(path);
 		const capped = capContent(full, total);
 		total = capped.total;
+		if (capped.cut !== null) truncated[path] = capped.cut;
 		files.push({
 			path,
 			contentHash: fnv1a(full),
 			frontmatter: await deps.meta.getFrontmatter(path),
 			content: capped.content,
 		});
-		if (total >= TOTAL_CAP) break;
+		// Nach erreichter Gesamtkappung bleiben die übrigen Notizen als Dateien ohne Inhalt (`shown: 0`) im Artefakt, statt still zu fehlen.
 	}
-	return artifact(def.id, files);
+	return artifact(def.id, files, {}, truncated);
 }
 
 async function tasknotesQuery(def: CollectorTaskDef, deps: CollectorDeps): Promise<Artifact> {
@@ -164,6 +184,7 @@ async function tasknotesQuery(def: CollectorTaskDef, deps: CollectorDeps): Promi
 	// 5. Projektion + Slug-Normalisierung; optional Inhalt (include_content).
 	const includeContent = def.params.include_content === true;
 	const files: CollectedFile[] = [];
+	const truncated: Record<string, { shown: number; total: number }> = {};
 	let contentTotal = 0;
 	for (const e of limited) {
 		const projected: Record<string, unknown> = {};
@@ -176,10 +197,11 @@ async function tasknotesQuery(def: CollectorTaskDef, deps: CollectorDeps): Promi
 			const capped = capContent(e.raw, contentTotal);
 			content = capped.content;
 			contentTotal = capped.total;
+			if (capped.cut !== null) truncated[e.path] = capped.cut;
 		}
 		files.push({ path: e.path, contentHash: fnv1a(e.raw), frontmatter: projected, content });
 	}
-	return artifact(def.id, files, slugTables);
+	return artifact(def.id, files, slugTables, truncated);
 }
 
 function normalizeFm(fm: Record<string, unknown> | null): Record<string, unknown> {

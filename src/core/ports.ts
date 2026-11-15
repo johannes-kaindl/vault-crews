@@ -135,6 +135,8 @@ export interface SnapshotStore {
 export type RunEvent =
 	| { type: 'runStarted'; runId: string; teamId: string }
 	| { type: 'taskStarted'; taskId: string; index: number; total: number }
+	/** Ein `per_note`-Schritt beginnt die Notiz `index` von `total` (1-basiert, `total` = Zahl der tatsächlich verarbeiteten Notizen). */
+	| { type: 'noteStarted'; taskId: string; index: number; total: number; path: string }
 	| { type: 'token'; taskId: string; isThink: boolean; text: string }
 	/** Der bisher gestreamte Antworttext war Denken (Gemma 4 ohne Öffner): die Anzeige der Antwort wird geleert. */
 	| { type: 'contentReset'; taskId: string }

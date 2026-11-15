@@ -37,6 +37,8 @@ export interface LlmTaskDef {
 	instruction: string;
 	output: OutputSpec;
 	onError: 'abort' | 'skip';
+	/** Crew-Datei `per_note`: ein Modellaufruf je Notiz der Eingaben statt eines Aufrufs für alle (Standard false). */
+	perNote: boolean;
 }
 export interface ActionsTaskDef {
 	id: string;
@@ -74,6 +76,9 @@ export interface Artifact {
 	json: unknown;
 	files: CollectedFile[];
 	slugTables: Record<string, SlugTableData>;
+	/** Pfad → gezeigte und volle Zeichenzahl, wo der Collector den Inhalt gekürzt hat (Einzelkappung oder Gesamtkappung); `shown: 0`
+	 *  heißt: wegen der Gesamtkappung gar nicht gelesen. Fehlt, wenn nichts gekürzt wurde. Nicht Teil von `json` und damit nicht im Prompt. */
+	truncated?: Record<string, { shown: number; total: number }>;
 }
 
 export type FmScalar = string | number | null;
@@ -102,6 +107,16 @@ export type ErrorKind =
 	| 'invalid_output' | 'output_truncated' | 'context_overflow' | 'crew_invalid'
 	| 'write_limit' | 'consistency' | 'aborted' | 'io';
 
+/** Ergebnis einer Notiz in einem `per_note`-Schritt (`TaskRecord.notes`). */
+export interface NoteRecord {
+	path: string;
+	status: 'ok' | 'failed' | 'skipped';
+	/** Warum die Notiz nicht `ok` ist (Klartext, steht in run.md). */
+	reason: string | null;
+	/** Gezeigte und volle Zeichenzahl, wenn der Collector den Inhalt gekürzt hat. */
+	truncated: { shown: number; total: number } | null;
+}
+
 export interface TaskRecord {
 	taskId: string;
 	kind: TaskDef['kind'];
@@ -118,6 +133,8 @@ export interface TaskRecord {
 	skipReason?: string;
 	outcomes: ActionOutcome[];
 	error: { kind: ErrorKind; message: string } | null;
+	/** Nur `per_note`-Schritte: eine Zeile je Notiz der Eingaben, in Reihenfolge. */
+	notes?: NoteRecord[];
 }
 export interface RunState {
 	runId: string;

@@ -47,6 +47,8 @@ export interface RunningState {
   total: number;
   index: number;
   currentTaskId: string | null;
+  /** Nur in einem `per_note`-Schritt: die laufende Notiz (1-basiert) und ihre Zahl; sonst null. */
+  note: { index: number; total: number } | null;
   lines: TaskLine[];
   tokenCount: number;
   /** Geschätzte Denk-Token (Zeichen / 3,5, wie der Client sie für das Ergebnis schätzt) — nicht die Zahl der Stücke: ein Modell,
@@ -98,7 +100,7 @@ export function reduceRun(state: RunState, e: RunEvent): RunState {
     case "runStarted":
       return {
         kind: "running", runId: e.runId, teamId: e.teamId,
-        total: 0, index: 0, currentTaskId: null, lines: [],
+        total: 0, index: 0, currentTaskId: null, note: null, lines: [],
         tokenCount: 0, thinkCount: 0, thinkChars: 0, streamText: "", thinkText: "", writes: [], aborting: false,
       };
     case "taskStarted":
@@ -106,6 +108,7 @@ export function reduceRun(state: RunState, e: RunEvent): RunState {
         state.total = e.total;
         state.index = e.index;
         state.currentTaskId = e.taskId;
+        state.note = null;
         state.tokenCount = 0;
         state.thinkCount = 0;
         state.thinkChars = 0;
@@ -114,6 +117,16 @@ export function reduceRun(state: RunState, e: RunEvent): RunState {
         const existing = state.lines.find((l) => l.taskId === e.taskId);
         if (existing) existing.status = "running";
         else state.lines.push({ taskId: e.taskId, status: "running" });
+      }
+      return state;
+    case "noteStarted":
+      if (state.kind === "running") {
+        state.note = { index: e.index, total: e.total };
+        state.tokenCount = 0;
+        state.thinkCount = 0;
+        state.thinkChars = 0;
+        state.streamText = "";
+        state.thinkText = "";
       }
       return state;
     case "token":
@@ -358,7 +371,9 @@ function buildStatusLine(s: RunningState): StatusLineVM {
     ? t("panel.statusLine.aborting")
     : s.currentTaskId === null
       ? t("panel.statusLine.starting")
-      : t("panel.statusLine.running", s.index, s.total, s.currentTaskId);
+      : s.note !== null
+        ? t("panel.statusLine.runningNote", s.index, s.total, s.currentTaskId, s.note.index, s.note.total)
+        : t("panel.statusLine.running", s.index, s.total, s.currentTaskId);
   return { text, abortLabel: t("panel.cancel"), aborting: s.aborting };
 }
 

@@ -361,3 +361,33 @@ describe('output: block (schema families)', () => {
 		expect(r.errors.join('\n')).toMatch(/allowed_keys.*Nicht-String|Nicht-String-Einträge/);
 	});
 });
+
+describe('per_note (ein Modellaufruf je Notiz)', () => {
+	function llmTask(extra: Record<string, unknown>): Record<string, unknown>[] {
+		return [
+			{ id: 'collect', kind: 'collector', collector: 'tasknotes.query', params: { folder: '10_Aufgaben' } },
+			{ id: 'l', kind: 'llm', agent: 'triage-analyst', inputs: ['collect'], instruction: 'x', output_schema: 'triage-v1', ...extra },
+		];
+	}
+
+	it('Standard ist false', () => {
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks: llmTask({}) }), OPTS);
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		expect(r.value.tasks[1]).toMatchObject({ kind: 'llm', perNote: false });
+	});
+
+	it('per_note: true wird gelesen', () => {
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks: llmTask({ per_note: true }) }), OPTS);
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		expect(r.value.tasks[1]).toMatchObject({ kind: 'llm', perNote: true });
+	});
+
+	it.each([['ja'], [1], ['true'], [null]])('lehnt per_note: %j ab', (value) => {
+		const r = parseTeamDef(TEAM_PATH, teamFm({ tasks: llmTask({ per_note: value }) }), OPTS);
+		expect(r.ok).toBe(false);
+		if (r.ok) return;
+		expect(r.errors.join('\n')).toMatch(/per_note.*true\|false/);
+	});
+});
