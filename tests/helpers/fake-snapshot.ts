@@ -1,5 +1,5 @@
 /** Test-Double des SnapshotStore auf In-Memory-Maps — spiegelt AdapterSnapshotStore
- *  (first-write-wins, finalize trägt postHashes nach), ohne Adapter-I/O. `log`/`finalized`
+ *  (first-write-wins, captureMove, finalize trägt postHashes nach), ohne Adapter-I/O. `log`/`finalized`
  *  erlauben Assertions über die Snapshot-Aktivität eines Laufs. */
 import { fnv1a } from '../../src/core/collectors';
 import type { SnapshotManifest, SnapshotStore } from '../../src/core/ports';
@@ -22,6 +22,16 @@ export class FakeSnapshotStore implements SnapshotStore {
 			this.blobs.set(`${runId}/${blob}`, preContent);
 		}
 		m.entries.push({ path, existedBefore, preHash, postHash: null, blob });
+		this.manifests.set(runId, m);
+	}
+
+	async captureMove(runId: string, teamId: string, createdAt: number, from: string, to: string): Promise<void> {
+		this.log.push(`captureMove:${from}->${to}`);
+		const m = this.manifests.get(runId) ?? { runId, teamId, createdAt, entries: [] };
+		if (m.entries.some((e) => e.path === to && e.movedFrom !== undefined)) return;
+		const prior = m.entries.find((e) => e.path === from);
+		if (prior !== undefined) { prior.path = to; prior.movedFrom ??= from; }
+		else m.entries.push({ path: to, movedFrom: from, existedBefore: true, preHash: null, postHash: null, blob: null });
 		this.manifests.set(runId, m);
 	}
 

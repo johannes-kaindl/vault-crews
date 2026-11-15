@@ -153,9 +153,12 @@ export const EN: Record<string, string> = {
   "undo.field.files": "Files",
   "undo.warnDiscard": "Changed notes revert to their pre-run state and notes the run created are moved to trash — later unsaved edits are discarded.",
   "undo.warnConflict": "{0} file(s) were changed after the run — roll back anyway?",
+  "undo.field.moves": "Moved back",
+  "undo.warnSkipped": "{0} moved note(s) stay where they are, because the note is no longer at the new path or the old path is taken again: {1}",
   "undo.confirmButton": "Undo",
   "undo.logMarker": "> [!warning] This run was undone.",
   "notice.undo.ok": "Undo complete — restored {0} file(s) to the state before the run.",
+  "notice.undo.okSkipped": "Undo complete — restored {0} file(s); {1} moved note(s) were left where they are.",
   "notice.undo.failed": "Undo failed — no changes were made.",
 
   // --- Run-panel vocabulary (Spec §6.2, Task 17) ---------------------------
@@ -438,9 +441,12 @@ export const DE: Record<string, string> = {
   "undo.field.files": "Dateien",
   "undo.warnDiscard": "Geänderte Notizen werden auf den Stand vor dem Lauf zurückgesetzt und vom Lauf erzeugte Notizen in den Papierkorb verschoben — spätere ungespeicherte Änderungen gehen verloren.",
   "undo.warnConflict": "{0} Datei(en) wurden nach dem Lauf geändert — trotzdem zurückrollen?",
+  "undo.field.moves": "Zurückverschoben",
+  "undo.warnSkipped": "{0} verschobene Notiz(en) bleiben, wo sie sind, weil die Notiz nicht mehr am neuen Pfad liegt oder der alte Pfad wieder belegt ist: {1}",
   "undo.confirmButton": "Rückgängig machen",
   "undo.logMarker": "> [!warning] Dieser Lauf wurde rückgängig gemacht.",
   "notice.undo.ok": "Rückgängig gemacht — {0} Datei(en) auf den Stand vor dem Lauf zurückgesetzt.",
+  "notice.undo.okSkipped": "Rückgängig gemacht — {0} Datei(en) zurückgesetzt; {1} verschobene Notiz(en) blieben, wo sie sind.",
   "notice.undo.failed": "Rückgängig fehlgeschlagen — nichts geändert.",
 
   // --- Run-Panel-Vokabular (Spec §6.2, Task 17) ----------------------------

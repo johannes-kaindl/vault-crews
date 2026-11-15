@@ -640,10 +640,10 @@ class RunFsm {
 				const pre = existed ? await this.deps.vault.read(path) : null;
 				await this.deps.snapshot.capture(this.state.runId, this.state.teamId, this.state.startedAt, path, existed, pre);
 			},
-			// Verschiebung: bis das Undo Züge kennt, sichert der Haken das Pre-Image des alten Pfads (die Notiz ist danach dort weg).
-			preMove: async (from) => {
-				const pre = await this.deps.vault.read(from);
-				await this.deps.snapshot.capture(this.state.runId, this.state.teamId, this.state.startedAt, from, true, pre);
+			// Verschiebung: den Zug write-ahead erfassen, BEVOR rename läuft (Throw → Aktion failed, Notiz bleibt). Ein früher gesicherter
+			// Vorab-Inhalt der Quelle wandert mit auf den neuen Pfad; finalize trägt den Hash am neuen Pfad aus dem Schreibregister nach.
+			preMove: async (from, to) => {
+				await this.deps.snapshot.captureMove(this.state.runId, this.state.teamId, this.state.startedAt, from, to);
 			},
 		};
 		const { outcomes, writes, moves, taskFailed } = await executeActions(actions, ctx, this.deps.vault);

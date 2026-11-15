@@ -33,6 +33,20 @@ export class AdapterSnapshotStore implements SnapshotStore {
 		await this.adapter.write(this.manifestPath(runId), JSON.stringify(manifest, null, 2));
 	}
 
+	async captureMove(runId: string, teamId: string, createdAt: number, from: string, to: string): Promise<void> {
+		const manifest = (await this.load(runId)) ?? { runId, teamId, createdAt, entries: [] };
+		if (manifest.entries.some((e) => e.path === to && e.movedFrom !== undefined)) return; // first-write-wins
+		const prior = manifest.entries.find((e) => e.path === from);
+		if (prior !== undefined) {
+			prior.path = to;
+			prior.movedFrom ??= from;
+		} else {
+			manifest.entries.push({ path: to, movedFrom: from, existedBefore: true, preHash: null, postHash: null, blob: null });
+		}
+		await this.ensureDir(this.runDir(runId));
+		await this.adapter.write(this.manifestPath(runId), JSON.stringify(manifest, null, 2));
+	}
+
 	async finalize(runId: string, postHashes: Record<string, string>, keepLast: number, now: number): Promise<void> {
 		const manifest = await this.load(runId);
 		if (manifest !== null) {

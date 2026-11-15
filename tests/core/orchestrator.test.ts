@@ -1654,8 +1654,10 @@ describe('executeRun — note.file und note.move', () => {
     expect(await h.vault.read('40_Projekte/Meyer/a.md')).toBe(IN_NOTE);
     const state = JSON.parse(await h.vault.read(`_crews/runs/${r.runId}/state.json`)) as { writeRegister: string[] };
     expect(state.writeRegister).toEqual(['40_Projekte/Meyer/a.md']);
-    // Das Pre-Image des alten Pfads ist gesichert, bevor verschoben wurde.
-    expect(h.snapshot.paths(r.runId)).toContain(SRC);
+    // Der Zug ist erfasst, bevor verschoben wurde: ein Eintrag am NEUEN Pfad mit movedFrom und dem Hash nach dem Lauf, kein Eintrag am alten Pfad.
+    expect(h.snapshot.log.indexOf(`captureMove:${SRC}->40_Projekte/Meyer/a.md`)).toBeGreaterThan(-1);
+    const entries = h.snapshot.manifests.get(r.runId)?.entries ?? [];
+    expect(entries).toEqual([{ path: '40_Projekte/Meyer/a.md', movedFrom: SRC, existedBefore: true, preHash: null, postHash: fnv1a(IN_NOTE), blob: null }]);
   });
 
   it('feste Ziele stehen vor den Laufzeitzielen, ohne Doppelte; eine Liste ohne Hinweis hat nur die Ordnerzeile', async () => {
@@ -1716,6 +1718,11 @@ describe('executeRun — note.file und note.move', () => {
     const moved = await h.vault.read('40_Projekte/Meyer/a.md');
     expect(moved).toContain('- erledigt');
     expect(await h.vault.exists(SRC)).toBe(false);
+    // Schreiben und Verschieben derselben Notiz ergibt einen Eintrag: Vorab-Inhalt aus dem Schreiben, neuer Pfad, Hash nach dem Lauf.
+    const entries = h.snapshot.manifests.get(r.runId)?.entries ?? [];
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ path: '40_Projekte/Meyer/a.md', movedFrom: SRC, existedBefore: true, preHash: fnv1a(IN_NOTE), postHash: fnv1a(moved) });
+    expect(h.snapshot.blobs.get(`${r.runId}/${entries[0]?.blob}`)).toBe(IN_NOTE);
   });
 });
 

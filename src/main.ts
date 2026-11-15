@@ -930,7 +930,10 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     const currentContents: Record<string, string | null> = {};
     const blobs: Record<string, string> = {};
     for (const e of manifest.entries) {
-      currentContents[e.path] = (await this.vault.exists(e.path)) ? await this.vault.read(e.path) : null;
+      // Bei einer verschobenen Notiz zählt auch der alte Pfad: ist er wieder belegt, bewegt das Undo nichts.
+      for (const path of e.movedFrom !== undefined ? [e.path, e.movedFrom] : [e.path]) {
+        currentContents[path] = (await this.vault.exists(path)) ? await this.vault.read(path) : null;
+      }
       if (e.blob !== null) blobs[e.blob] = await this.snapshot.readBlob(runId, e.blob);
     }
     const plan = buildUndoPlan(manifest, currentContents, blobs);
@@ -942,7 +945,10 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       t("undo.warnDiscard"),
     ];
     // Note nach dem Lauf manuell editiert? Explizit warnen (nie STILL überschreiben).
-    if (plan.conflicts.length > 0) lines.push(t("undo.warnConflict", plan.conflicts.length));
+    if (plan.moves.length > 0) lines.push(`${t("undo.field.moves")}: ${plan.moves.map((m) => `${m.from} → ${m.to}`).join(", ")}`);
+    if (plan.skipped.length > 0) lines.push(t("undo.warnSkipped", plan.skipped.length, plan.skipped.join(", ")));
+    const otherConflicts = plan.conflicts.length - plan.skipped.length;
+    if (otherConflicts > 0) lines.push(t("undo.warnConflict", otherConflicts));
     const confirmed = await confirmAction(this.app, {
       title: t("undo.title"),
       message: lines,
@@ -955,11 +961,12 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     if (confirmed) await this.performUndo(runId, recent.teamId, plan);
   }
 
-  /** Snapshot-Undo (Design-Spec §8): geänderte Existenz-Notes aus dem Pre-Image
-   *  zurückschreiben, vom Lauf erzeugte Notes in den Papierkorb. Danach Snapshot
-   *  verwerfen + run.md markieren. Kein git. */
+  /** Snapshot-Undo (Design-Spec §8): verschobene Notes zurück an den alten Pfad (zuerst, damit ein
+   *  Vorab-Inhalt dort landet), geänderte Existenz-Notes aus dem Pre-Image zurückschreiben, vom Lauf
+   *  erzeugte Notes in den Papierkorb. Danach Snapshot verwerfen + run.md markieren. Kein git. */
   private async performUndo(runId: string, teamId: string, plan: UndoPlan): Promise<void> {
     try {
+      for (const m of plan.moves) await this.vault.rename(m.from, m.to);
       for (const r of plan.restores) {
         if (await this.vault.exists(r.path)) await this.vault.modify(r.path, r.content);
         else await this.vault.create(r.path, r.content);
@@ -975,7 +982,10 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     const info = this.lastRuns[teamId];
     if (info !== undefined) { info.undoable = false; void this.saveSettings(); }
     await this.markRunUndone(runId);
-    new Notice(t("notice.undo.ok", plan.restores.length + plan.deletes.length));
+    // Ein Eintrag zählt einmal: ein Zug samt Zurückschreiben des Vorab-Inhalts sind eine Datei.
+    const movedBack = new Set(plan.moves.map((m) => m.to));
+    const restored = plan.moves.length + plan.restores.filter((r) => !movedBack.has(r.path)).length + plan.deletes.length;
+    new Notice(plan.skipped.length > 0 ? t("notice.undo.okSkipped", restored, plan.skipped.length) : t("notice.undo.ok", restored));
   }
 
   /** run.md des rückgängig gemachten Laufs mit einem Hinweis versehen (best effort). */

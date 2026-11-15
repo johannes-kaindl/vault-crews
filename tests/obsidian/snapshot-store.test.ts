@@ -126,4 +126,43 @@ describe('AdapterSnapshotStore', () => {
 	it('load liefert null für unbekannten Lauf', async () => {
 		expect(await store.load('unbekannt')).toBeNull();
 	});
+
+	describe('captureMove', () => {
+		it('allein: Nur-Zug-Eintrag mit neuem Pfad, movedFrom, ohne Blob', async () => {
+			await store.captureMove('R1', 'team', 100, 'Inbox/a.md', 'Ziel/a.md');
+			const m = await store.load('R1');
+			expect(m!.entries).toEqual([{ path: 'Ziel/a.md', movedFrom: 'Inbox/a.md', existedBefore: true, preHash: null, postHash: null, blob: null }]);
+		});
+
+		it('nach capture auf den alten Pfad: derselbe Eintrag behält den Vorab-Inhalt, bekommt den neuen Pfad und movedFrom', async () => {
+			await store.capture('R1', 'team', 100, 'Inbox/a.md', true, 'alt\n');
+			await store.captureMove('R1', 'team', 100, 'Inbox/a.md', 'Ziel/a.md');
+			const m = await store.load('R1');
+			expect(m!.entries).toHaveLength(1);
+			expect(m!.entries[0]).toMatchObject({ path: 'Ziel/a.md', movedFrom: 'Inbox/a.md', existedBefore: true, preHash: fnv1a('alt\n') });
+			expect(await store.readBlob('R1', m!.entries[0]!.blob!)).toBe('alt\n');
+		});
+
+		it('finalize trägt den postHash am neuen Pfad nach', async () => {
+			await store.captureMove('R1', 'team', 100, 'Inbox/a.md', 'Ziel/a.md');
+			await store.finalize('R1', { 'Ziel/a.md': fnv1a('X') }, 15, Date.now());
+			expect((await store.load('R1'))!.entries[0]!.postHash).toBe(fnv1a('X'));
+		});
+
+		it('ein zweiter Aufruf für dasselbe Paar ändert nichts (first-write-wins)', async () => {
+			await store.captureMove('R1', 'team', 100, 'Inbox/a.md', 'Ziel/a.md');
+			await store.captureMove('R1', 'team', 100, 'Inbox/a.md', 'Ziel/a.md');
+			expect((await store.load('R1'))!.entries).toHaveLength(1);
+		});
+	});
+
+	it('ein Manifest ohne movedFrom (Altbestand) lädt unverändert', async () => {
+		const { app, adapter } = fakeApp();
+		const old = { runId: 'R0', teamId: 'team', createdAt: 1, entries: [{ path: 'a.md', existedBefore: true, preHash: fnv1a('x'), postHash: fnv1a('y'), blob: '0.snapshot' }] };
+		adapter.dirs.add('.obsidian/plugins/vault-crews/undo/R0');
+		adapter.files.set('.obsidian/plugins/vault-crews/undo/R0/manifest.json', JSON.stringify(old));
+		const m = await new AdapterSnapshotStore(app).load('R0');
+		expect(m).toEqual(old);
+		expect(m!.entries[0]).not.toHaveProperty('movedFrom');
+	});
 });

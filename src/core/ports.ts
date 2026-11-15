@@ -119,7 +119,10 @@ export interface JsonTransport {
 //    Obsidian-Adapter-API. buildUndoPlan (undo-plan.ts) rechnet damit; AdapterSnapshotStore
 //    (obsidian/) implementiert den Store. ──────────────────────────────────────────────
 export interface SnapshotEntry {
+	/** Pfad nach dem Lauf; bei einer verschobenen Notiz der NEUE Pfad (`movedFrom` trägt den alten). */
 	path: string;
+	/** Alter Pfad einer im Lauf verschobenen Notiz (`note.move`). Fehlt bei allen anderen Einträgen und in Manifesten vor dem Verschieben. */
+	movedFrom?: string;
 	existedBefore: boolean;
 	preHash: string | null;   // fnv1a des Pre-Image (null gdw. !existedBefore)
 	postHash: string | null;  // fnv1a des Post-Run-Inhalts (finalize; null nach Crash)
@@ -135,6 +138,11 @@ export interface SnapshotStore {
 	/** Pre-Image erfassen; first-write-wins (no-op, wenn Pfad im Lauf schon erfasst).
 	 *  Persistiert Blob + Manifest write-ahead. */
 	capture(runId: string, teamId: string, createdAt: number, path: string, existedBefore: boolean, preContent: string | null): Promise<void>;
+	/** Verschiebung erfassen, BEVOR `rename` läuft (write-ahead). Gibt es schon einen Eintrag für `from` (die Notiz wurde vorher im Lauf geändert),
+	 *  bekommt er `path = to` und `movedFrom = from` und behält sein Pre-Image; sonst entsteht ein Nur-Zug-Eintrag ohne Blob.
+	 *  Ein Eintrag mit `movedFrom` und `existedBefore: false` kann nicht entstehen: die Quelle eines `note.move` liegt im Sammelmaterial,
+	 *  existierte also vor dem Lauf. Wiederholung desselben Paars ist ein No-op. */
+	captureMove(runId: string, teamId: string, createdAt: number, from: string, to: string): Promise<void>;
 	/** Post-Run-Hashes nachtragen + Retention nach Kit-GFS (keepLast = Tiefe für den laufenden Tag) prunen. */
 	finalize(runId: string, postHashes: Record<string, string>, keepLast: number, now: number): Promise<void>;
 	load(runId: string): Promise<SnapshotManifest | null>;

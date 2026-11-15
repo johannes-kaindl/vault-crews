@@ -5,7 +5,7 @@
 // der Orchestrator (`executeRun`) wird gemockt, damit `runCrew` einen kontrollierbaren,
 // nie auflösenden Lauf startet und der Mutex isoliert beobachtbar wird.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { makeFakeApp, Notice, Plugin, requestUrl, TFile } from "../__mocks__/obsidian";
+import { makeFakeApp, Modal, Notice, Plugin, requestUrl, TFile } from "../__mocks__/obsidian";
 import type { App, PluginManifest } from "obsidian";
 import { setLang, t } from "../../src/vendor/kit/i18n";
 import * as strings from "../../src/i18n/strings";
@@ -13,6 +13,10 @@ import { VIEW_TYPE_CREWS } from "../../src/obsidian/panel";
 import { executeRun } from "../../src/core/orchestrator";
 import type { RunResult } from "../../src/core/types";
 import type { LlmClient } from "../../src/core/ports";
+import { InMemoryVaultPort } from "../helpers/in-memory-vault";
+import { FakeSnapshotStore } from "../helpers/fake-snapshot";
+import { fnv1a } from "../../src/core/collectors";
+import type { UndoPlan } from "../../src/core/undo-plan";
 import VaultCrewsPlugin from "../../src/main";
 import { LLM_CONNECTION_STRINGS_EN, managerErrorText } from "../../src/vendor/kit-obsidian/llm-connection-strings";
 
@@ -680,5 +684,79 @@ describe("VaultCrewsPlugin — Modell des letzten Laufs", () => {
     expect(plugin.getTeams()[0]?.lastRun?.models).toEqual([{ taskId: "analyse", model: "gross-27b" }]);
     (plugin as unknown as { teamCache: unknown[] }).teamCache = [{ ...team, id: "u" }];
     expect(plugin.getTeams()[0]?.lastRun?.models).toBeUndefined();
+  });
+});
+
+describe("Rückgängig für verschobene Notizen", () => {
+  const RUN = "r-undo";
+  interface UndoPlugin {
+    vault: InMemoryVaultPort;
+    snapshot: FakeSnapshotStore;
+    lastRuns: Record<string, unknown>;
+    startUndo(): Promise<void>;
+    performUndo(runId: string, teamId: string, plan: UndoPlan): Promise<void>;
+  }
+  async function undoPlugin(): Promise<UndoPlugin> {
+    const plugin = makePlugin();
+    await plugin.onload();
+    const p = plugin as unknown as UndoPlugin;
+    p.vault = new InMemoryVaultPort();
+    p.snapshot = new FakeSnapshotStore();
+    p.lastRuns = { team: { status: "ok", when: 1, runId: RUN, undoable: true } };
+    return p;
+  }
+  const plan = (over: Partial<UndoPlan>): UndoPlan => ({ moves: [], restores: [], deletes: [], conflicts: [], skipped: [], ...over });
+
+  it("performUndo: rename läuft vor modify, danach liegt der Vorab-Inhalt am alten Pfad", async () => {
+    const p = await undoPlugin();
+    await p.vault.create("Ziel/a.md", "NEU");
+    await p.vault.mkdir("Inbox");
+    const order: string[] = [];
+    const rename = p.vault.rename.bind(p.vault);
+    const modify = p.vault.modify.bind(p.vault);
+    p.vault.rename = async (from, to) => { order.push(`rename:${from}->${to}`); await rename(from, to); };
+    p.vault.modify = async (path, content) => { order.push(`modify:${path}`); await modify(path, content); };
+
+    await p.performUndo(RUN, "team", plan({ moves: [{ from: "Ziel/a.md", to: "Inbox/a.md" }], restores: [{ path: "Inbox/a.md", content: "ALT" }] }));
+
+    expect(order).toEqual(["rename:Ziel/a.md->Inbox/a.md", "modify:Inbox/a.md"]);
+    expect(await p.vault.exists("Ziel/a.md")).toBe(false);
+    expect(await p.vault.read("Inbox/a.md")).toBe("ALT");
+    expect(String(Notice.instances.at(-1)?.message)).toBe("Undo complete — restored 1 file(s) to the state before the run.");
+  });
+
+  it("performUndo: die Notice nennt die Zahl der übersprungenen Einträge", async () => {
+    const p = await undoPlugin();
+    await p.performUndo(RUN, "team", plan({ skipped: ["Ziel/a.md", "Ziel/b.md"], conflicts: ["Ziel/a.md", "Ziel/b.md"] }));
+    expect(String(Notice.instances.at(-1)?.message)).toBe("Undo complete — restored 0 file(s); 2 moved note(s) were left where they are.");
+  });
+
+  it("performUndo: scheitert rename, meldet die Notice den Fehler und der Snapshot bleibt", async () => {
+    const p = await undoPlugin();
+    await p.snapshot.captureMove(RUN, "team", 0, "Inbox/a.md", "Ziel/a.md");
+    await p.performUndo(RUN, "team", plan({ moves: [{ from: "Ziel/a.md", to: "Inbox/a.md" }] }));
+    expect(String(Notice.instances.at(-1)?.message)).toBe("Undo failed — no changes were made.");
+    expect(await p.snapshot.load(RUN)).not.toBeNull();
+  });
+
+  it("Dialog: nennt die Rückverschiebungen und die übersprungenen Notizen", async () => {
+    const p = await undoPlugin();
+    await p.snapshot.captureMove(RUN, "team", 0, "Inbox/a.md", "Ziel/a.md");
+    await p.snapshot.captureMove(RUN, "team", 0, "Inbox/b.md", "Ziel/b.md");
+    await p.snapshot.finalize(RUN, { "Ziel/a.md": fnv1a("A"), "Ziel/b.md": fnv1a("B") }, 15, 0);
+    await p.vault.create("Ziel/a.md", "A");
+    await p.vault.create("Ziel/b.md", "B");
+    await p.vault.create("Inbox/b.md", "fremd"); // alter Pfad wieder belegt
+
+    const done = p.startUndo();
+    await vi.waitFor(() => expect(Modal.__last).toBeTruthy());
+    const modal = Modal.__last as unknown as { contentEl: { children: { tagName: string; textContent: string }[] } };
+    const text = modal.contentEl.children.filter((c) => c.tagName === "P").map((c) => c.textContent);
+    expect(text).toContain("Moved back: Ziel/a.md → Inbox/a.md");
+    expect(text.some((l) => l.startsWith("1 moved note(s) stay where they are") && l.endsWith("Ziel/b.md"))).toBe(true);
+    // Der übersprungene Eintrag zählt nicht zusätzlich als „nach dem Lauf geändert“.
+    expect(text.some((l) => l.includes("changed after the run"))).toBe(false);
+    (modal as unknown as { onClose(): void }).onClose();
+    await done;
   });
 });

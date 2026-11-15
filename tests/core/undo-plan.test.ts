@@ -49,4 +49,54 @@ describe('buildUndoPlan', () => {
 		expect(plan.conflicts).toEqual(['a.md']);
 		expect(plan.restores).toEqual([{ path: 'a.md', content: pre }]);
 	});
+
+	describe('verschobene Notizen (movedFrom)', () => {
+		it('schiebt eine nur verschobene Notiz zurück und schreibt keinen Inhalt', () => {
+			const m = manifest([{ path: 'Ziel/a.md', movedFrom: 'Inbox/a.md', existedBefore: true, preHash: null, postHash: fnv1a('X'), blob: null }]);
+			const p = buildUndoPlan(m, { 'Ziel/a.md': 'X', 'Inbox/a.md': null }, {});
+			expect(p).toMatchObject({ moves: [{ from: 'Ziel/a.md', to: 'Inbox/a.md' }], restores: [], deletes: [], conflicts: [], skipped: [] });
+		});
+
+		it('schiebt zurück und stellt den Vorab-Inhalt am alten Pfad her', () => {
+			const m = manifest([{ path: 'Ziel/a.md', movedFrom: 'Inbox/a.md', existedBefore: true, preHash: fnv1a('ALT'), postHash: fnv1a('NEU'), blob: 'b1' }]);
+			const p = buildUndoPlan(m, { 'Ziel/a.md': 'NEU', 'Inbox/a.md': null }, { b1: 'ALT' });
+			expect(p.moves).toEqual([{ from: 'Ziel/a.md', to: 'Inbox/a.md' }]);
+			expect(p.restores).toEqual([{ path: 'Inbox/a.md', content: 'ALT' }]);
+			expect(p.deletes).toEqual([]);
+		});
+
+		it.each([
+			['die Notiz liegt nicht mehr am neuen Pfad', { 'Ziel/a.md': null, 'Inbox/a.md': null }],
+			['der alte Pfad ist wieder belegt', { 'Ziel/a.md': 'X', 'Inbox/a.md': 'fremd' }],
+		])('bewegt nichts, wenn %s', (_name, current) => {
+			const m = manifest([{ path: 'Ziel/a.md', movedFrom: 'Inbox/a.md', existedBefore: true, preHash: null, postHash: fnv1a('X'), blob: null }]);
+			const p = buildUndoPlan(m, current, {});
+			expect(p.moves).toEqual([]);
+			expect(p.restores).toEqual([]);
+			expect(p.deletes).toEqual([]);
+			expect(p.skipped).toEqual(['Ziel/a.md']);
+			expect(p.conflicts).toContain('Ziel/a.md');
+		});
+
+		it('überspringt auch einen Eintrag mit Vorab-Inhalt, wenn der alte Pfad belegt ist (kein Überschreiben)', () => {
+			const m = manifest([{ path: 'Ziel/a.md', movedFrom: 'Inbox/a.md', existedBefore: true, preHash: fnv1a('ALT'), postHash: fnv1a('NEU'), blob: 'b1' }]);
+			const p = buildUndoPlan(m, { 'Ziel/a.md': 'NEU', 'Inbox/a.md': 'fremd' }, { b1: 'ALT' });
+			expect(p.restores).toEqual([]);
+			expect(p.moves).toEqual([]);
+			expect(p.skipped).toEqual(['Ziel/a.md']);
+		});
+
+		it('rename scheiterte nach captureMove: Notiz noch am alten Pfad, Eintrag ohne postHash, nichts wird bewegt', () => {
+			const m = manifest([{ path: 'Ziel/a.md', movedFrom: 'Inbox/a.md', existedBefore: true, preHash: null, postHash: null, blob: null }]);
+			const p = buildUndoPlan(m, { 'Ziel/a.md': null, 'Inbox/a.md': 'X' }, {});
+			expect(p).toMatchObject({ moves: [], restores: [], deletes: [], skipped: ['Ziel/a.md'], conflicts: ['Ziel/a.md'] });
+		});
+
+		it('ein Eintrag ohne movedFrom hat nie einen Zug und ist nie übersprungen', () => {
+			const m = manifest([{ path: 'a.md', existedBefore: true, preHash: fnv1a('alt'), postHash: fnv1a('neu'), blob: 'b' }]);
+			const p = buildUndoPlan(m, { 'a.md': 'neu' }, { b: 'alt' });
+			expect(p.moves).toEqual([]);
+			expect(p.skipped).toEqual([]);
+		});
+	});
 });
