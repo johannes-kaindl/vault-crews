@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.27.0] — 2026-11-16
+
 ### Added
 
 - **`text.append` output family**: the model writes text that is appended to the target note (`note.append`), under an optional `heading` (written without `#`). `max_chars` defaults to 4000 and may be at most 16000 (the same upper bound as `section.write`). Appending is not repeatable: a second run appends again.
