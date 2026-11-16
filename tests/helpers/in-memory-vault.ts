@@ -20,7 +20,7 @@ export class InMemoryVaultPort implements VaultPort {
 	readonly files = new Map<string, string>();
 	/** Pfade, die trash() in den Papierkorb verschoben hat (Undo-Tests prüfen darauf). */
 	readonly trashed: string[] = [];
-	/** Antwort von `linksFollowMoves()`: Obsidians Einstellung „Interne Links automatisch aktualisieren“ (Standard an). */
+	/** Antwort von `linksFollowMoves()`: Obsidians Einstellung „Interne Links automatisch aktualisieren“ (Obsidians Standard ist aus; das Test-Double steht auf an, damit Läufe mit `note.move` ohne Zutun laufen). */
 	linksFollow = true;
 
 	linksFollowMoves(): boolean { return this.linksFollow; }

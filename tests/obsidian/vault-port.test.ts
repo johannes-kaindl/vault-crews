@@ -331,15 +331,19 @@ describe("ObsidianVaultPort — linksFollowMoves", () => {
     expect(getConfig).toHaveBeenCalledWith("alwaysUpdateLinks");
   });
 
-  it("true, undefined und jeder andere Wert heißen true (Obsidians Standard ist an)", () => {
+  it("nur ein echtes true heißt true (die Einstellung ist in Obsidian standardmäßig aus)", () => {
     expect(withConfig(vi.fn().mockReturnValue(true)).linksFollowMoves()).toBe(true);
-    expect(withConfig(vi.fn().mockReturnValue(undefined)).linksFollowMoves()).toBe(true);
-    expect(withConfig(vi.fn().mockReturnValue(null)).linksFollowMoves()).toBe(true);
-    expect(withConfig(vi.fn().mockReturnValue("false")).linksFollowMoves()).toBe(true);
   });
 
-  it("fehlt getConfig oder wirft es, gilt true: eine fehlerhafte Lesung verhindert keinen Lauf", () => {
-    expect(withConfig(undefined).linksFollowMoves()).toBe(true);
-    expect(withConfig(() => { throw new Error("kaputt"); }).linksFollowMoves()).toBe(true);
+  it("jeder Nicht-Boolean heißt false: undefined, null, Text", () => {
+    expect(withConfig(vi.fn().mockReturnValue(undefined)).linksFollowMoves()).toBe(false);
+    expect(withConfig(vi.fn().mockReturnValue(null)).linksFollowMoves()).toBe(false);
+    expect(withConfig(vi.fn().mockReturnValue("true")).linksFollowMoves()).toBe(false);
+    expect(withConfig(vi.fn().mockReturnValue(1)).linksFollowMoves()).toBe(false);
+  });
+
+  it("fehlt getConfig oder wirft es, ist die Einstellung nicht lesbar und gilt als aus: die Crew wird verweigert", () => {
+    expect(withConfig(undefined).linksFollowMoves()).toBe(false);
+    expect(withConfig(() => { throw new Error("kaputt"); }).linksFollowMoves()).toBe(false);
   });
 });

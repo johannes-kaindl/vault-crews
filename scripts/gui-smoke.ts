@@ -110,6 +110,7 @@ const P_V_H = "Modelle V-h — vor dem ersten Lauf fehlt die Zeile „zuletzt be
 const P_SW_LINKS_STUB = "Schreiben — Verschieben zieht Links nach (deterministische Antwort): beide Links lösen auf Ziel/a.md auf, Rückgängig stellt sie her";
 const P_SW_LINKS = "Schreiben — Verschieben zieht Links nach (lokales Modell): beide Links lösen auf Ziel/a.md auf, Rückgängig stellt sie her";
 const P_SW_LINKS_AUS = "Schreiben — Gegenprobe: bei ausgeschaltetem „Automatically update internal links“ wird die Crew mit note.move vorab verweigert (refused, kein Dialog „Update links“, kein hängender Lauf); mit der Einstellung an läuft sie durch";
+const P_SW_LINKS_NIE = "Schreiben — Gegenprobe: Einstellung „Automatically update internal links“ nie berührt (Schlüssel fehlt, Obsidian fällt auf seinen Standard zurück) wird die Crew mit note.move vorab verweigert";
 const P_SW_UNDO_ORDNER = "Schreiben — Rückgängig bei gelöschtem alten Ordner: keine Notiz geht verloren, der Lauf bleibt rückgängig-fähig oder die Rücknahme gelingt";
 const P_SW_TITEL_PUNKT = "Schreiben — notes.create: Titel mit führendem Punkt und Sonderzeichen gehen durch die Namensrichtlinie, nichts bleibt unsichtbar liegen";
 const P_SW_TITEL_EMOJI = "Schreiben — notes.create: ein Titel nur aus Emoji wird abgelehnt (invalid_output), es entsteht keine Notiz";
@@ -120,7 +121,7 @@ const P_SW_STATUS_AUS = "Schreiben — Statusleiste aus: der Eintrag ist abgehä
 const P_SW_EINGANG = "Schreiben — Beispiel-Crew „Eingangsordner einsortieren“ mit acht Notizen und lokalem Modell";
 const P_SW_MESSUNG = "Schreiben — Messung: dieselbe Crew mehrfach auf acht Notizen mit bekanntem Soll-Ziel (Zahlen in docs/internal/decisions.md)";
 const P_SW_ENDE = "Schreiben — Abschnitt lief bis zum Ende";
-const SCHREIB_PUNKTE = [P_SW_LINKS_STUB, P_SW_LINKS, P_SW_LINKS_AUS, P_SW_UNDO_ORDNER, P_SW_TITEL_PUNKT, P_SW_TITEL_EMOJI, P_SW_APPEND_HEADING, P_SW_PERNOTE_TAGS, P_SW_STATUS_AN, P_SW_STATUS_AUS, P_SW_EINGANG, P_SW_MESSUNG, P_SW_ENDE] as const;
+const SCHREIB_PUNKTE = [P_SW_LINKS_STUB, P_SW_LINKS, P_SW_LINKS_AUS, P_SW_LINKS_NIE, P_SW_UNDO_ORDNER, P_SW_TITEL_PUNKT, P_SW_TITEL_EMOJI, P_SW_APPEND_HEADING, P_SW_PERNOTE_TAGS, P_SW_STATUS_AN, P_SW_STATUS_AUS, P_SW_EINGANG, P_SW_MESSUNG, P_SW_ENDE] as const;
 
 const PUNKTE = [
   "Alte Endpunkt-Liste wird zu genau einem Eintrag",
@@ -2640,6 +2641,35 @@ async function swLinksAus(cdp: Cdp): Promise<void> {
   }
 }
 
+/** Gegenprobe: die Einstellung wurde nie berührt, der Schlüssel `alwaysUpdateLinks` fehlt in der Konfiguration (ein frischer Vault). Obsidian fällt dann auf seinen Standard
+ *  zurück (gemessen im Bundle von 1.15.1: aus); das Plugin verweigert die Crew mit `note.move`. Der Schlüssel wird im Arbeitsspeicher entfernt (`app.vault.config`), nicht auf der Platte;
+ *  liefert `getConfig` danach noch `true`, ist der Fall so nicht herstellbar: nichts gemessen. */
+async function swLinksNie(cdp: Cdp): Promise<void> {
+  const alt = await cdp.evaluate<unknown>(`return app.vault.getConfig("alwaysUpdateLinks");`);
+  const id = "zz-sw-links-stub";
+  try {
+    await swLinksVorbereiten(cdp);
+    const problem = await swCrew(cdp, id, SW_LINKS_TEAM("Lege die Notiz ab."));
+    if (problem) { unmeasured(P_SW_LINKS_NIE, `Crew ungültig: ${problem}`); return; }
+    const stand = await cdp.evaluate<{ hatte: boolean; nachher: unknown }>(`
+      const cfg = app.vault.config; const hatte = Boolean(cfg) && Object.prototype.hasOwnProperty.call(cfg, "alwaysUpdateLinks");
+      if (cfg) delete cfg.alwaysUpdateLinks;
+      return { hatte, nachher: app.vault.getConfig("alwaysUpdateLinks") };`);
+    if (stand.nachher === true) { unmeasured(P_SW_LINKS_NIE, "der Schlüssel ließ sich nicht entfernen (getConfig liefert weiter true)"); return; }
+    const lauf = await swLauf(cdp, id, 30_000);
+    if (!lauf.info) { unmeasured(P_SW_LINKS_NIE, `kein Lauf-Ergebnis nach 30 s (der Lauf hängt?): ${swKurz(lauf.notice, 200)}`); return; }
+    const dialog = await cdp.evaluate<string>(`const m = [...document.querySelectorAll(".modal-container .modal")].find((x) => /Update links/i.test(x.innerText)); return m ? m.innerText.replace(/\\s+/g, " ") : "";`);
+    const unberuehrt = await cdp.evaluate<boolean>(`return Boolean(app.vault.getAbstractFileByPath("Inbox/a.md")) && !app.vault.getAbstractFileByPath("Ziel/a.md");`);
+    const verweigert = lauf.info.status === "refused" && lauf.info.errorKind === "links_not_followed" && lauf.info.writes === 0;
+    record(P_SW_LINKS_NIE, verweigert && dialog === "" && unberuehrt && /off by default|standardmäßig aus/.test(lauf.notice),
+      `Schlüssel vorher vorhanden ${String(stand.hatte)} (Wert ${String(alt)}), getConfig nach dem Entfernen ${String(stand.nachher)} · Lauf ${lauf.info.status}/${String(lauf.info.errorKind)}, ${lauf.info.writes} Schreibvorgänge · `
+      + `Dialog „${swKurz(dialog, 80)}" · Notiz unberührt ${String(unberuehrt)} · Notice „${swKurz(lauf.notice, 220)}"`);
+  } finally {
+    await cdp.evaluate(`app.vault.setConfig("alwaysUpdateLinks", ${JSON.stringify(alt === undefined ? true : alt)}); return true;`).catch(() => undefined);
+    await swSchliesseDialoge(cdp);
+  }
+}
+
 /** b) Rückgängig, wenn der alte Ordner inzwischen gelöscht ist. */
 async function swUndoOrdnerGeloescht(cdp: Cdp): Promise<void> {
   const id = "zz-sw-links-stub";
@@ -3028,6 +3058,7 @@ async function abschnittSchreiben(cdp: Cdp): Promise<void> {
     stub.setzeAntwort(() => "```json\n{\"items\":[{\"path\":\"Inbox/a.md\",\"to\":\"Ziel\"}]}\n```");
     await einProbe(P_SW_LINKS_STUB, () => swLinks(cdp, P_SW_LINKS_STUB, stub));
     await einProbe(P_SW_LINKS_AUS, () => swLinksAus(cdp));
+    await einProbe(P_SW_LINKS_NIE, () => swLinksNie(cdp));
     await einProbe(P_SW_UNDO_ORDNER, () => swUndoOrdnerGeloescht(cdp));
     stub.setzeAntwort(undefined);
     await einProbe(P_SW_TITEL_PUNKT, () => swTitel(cdp, stub));

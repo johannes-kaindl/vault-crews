@@ -17,9 +17,9 @@ export interface VaultPort {
 	/** Verschiebt oder benennt eine Datei um (`fileManager.renameFile`: Obsidian zieht Links nach). Wirft, wenn die Quelle fehlt oder der Zielpfad belegt ist;
 	 *  der Zielordner muss existieren (er wird nicht angelegt). */
 	rename(from: string, to: string): Promise<void>;
-	/** Zieht Obsidian beim Verschieben Links nach, ohne zu fragen („Interne Links automatisch aktualisieren“ an)? Ist die Einstellung aus, zeigt Obsidian beim
+	/** Zieht Obsidian beim Verschieben Links nach, ohne zu fragen („Interne Links automatisch aktualisieren“ an; in Obsidian standardmäßig aus)? Ist die Einstellung aus (Obsidians Standard), zeigt Obsidian beim
 	 *  `rename` einen Dialog „Update links“, und der Lauf wartet auf den Klick; der Orchestrator verweigert eine Crew mit `note.move` deshalb vorab. Eine Lesung,
-	 *  die nicht gelingt, gilt als „an“ (Obsidians Standard): sie darf keinen Lauf verhindern, der sonst liefe. */
+	 *  die nicht gelingt, gilt als „aus“: die Gegenrichtung erzeugte den Dialog und den hängenden Lauf. */
 	linksFollowMoves(): boolean;
 	/** Datei in den Obsidian-Papierkorb verschieben (fileManager.trashFile) — nie Hard-Delete. */
 	trash(path: string): Promise<void>;

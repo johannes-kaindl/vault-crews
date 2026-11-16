@@ -78,7 +78,7 @@ interface HarnessOpts {
   settings?: Partial<Settings>;
   request?: FakeRequestPort;
   seedLock?: string;
-  /** Obsidians Einstellung „Interne Links automatisch aktualisieren“ (Standard an). */
+  /** Obsidians Einstellung „Interne Links automatisch aktualisieren“ (das Test-Double steht auf an). */
   linksFollowMoves?: boolean;
 }
 
@@ -1648,6 +1648,16 @@ describe('executeRun — note.file und note.move', () => {
     expect(await h.vault.exists(SRC)).toBe(true);
     expect(h.snapshot.log).toEqual([]);
     expect(backbone(h.reporter)).toEqual(['runFinished']);
+  });
+
+  it('Preflight: wirft der Port beim Lesen der Einstellung, gilt sie als aus und die Crew wird verweigert', async () => {
+    const llm = new ScriptLlmClient([answer('40_Projekte/Meyer')]);
+    const h = await harness({ teamFm: fileTeam({ destinations_from: '40_Projekte' }, SCOPE), files: FILES, llm });
+    h.vault.linksFollowMoves = () => { throw new Error('nicht lesbar'); };
+    const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+    expect(r.status).toBe('refused');
+    expect(r.errorKind).toBe('links_not_followed');
+    expect(llm.calls).toHaveLength(0);
   });
 
   it('Preflight: dieselbe Crew läuft, wenn Obsidian die Links nachzieht; eine Crew ohne note.move läuft auch bei ausgeschalteter Einstellung', async () => {

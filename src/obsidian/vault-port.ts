@@ -91,15 +91,16 @@ export class ObsidianVaultPort implements VaultPort {
 
   /** Liest Obsidians Einstellung „Interne Links automatisch aktualisieren“ (`alwaysUpdateLinks`). Aus: `renameFile` fragt per Dialog, der Lauf wartet.
    *  `Vault#getConfig` steht NICHT in der dokumentierten Obsidian-API (in den Typen fehlt es); dieser Zugriff gehört deshalb nur hierher, in den Adapter.
-   *  Defensiv: fehlt die Funktion, wirft sie oder liefert sie etwas anderes als `false`, gilt „an“ (Obsidians Standard), damit eine Lesung, die nicht
-   *  gelingt, nie einen Lauf verhindert, der sonst liefe. */
+   *  Obsidians Standard ist AUS (gemessen im Bundle von 1.15.1: `alwaysUpdateLinks: false`, `getConfig` fällt darauf zurück). Nur ein echtes `true` heißt „an“;
+   *  fehlt die Funktion, wirft sie oder liefert sie einen Nicht-Boolean, ist die Einstellung nicht lesbar und gilt als „aus“ (die Crew wird verweigert),
+   *  weil die Gegenrichtung den Dialog und den hängenden Lauf erzeugt. */
   linksFollowMoves(): boolean {
     try {
       const vault = this.app.vault as unknown as { getConfig?: (key: string) => unknown };
-      if (typeof vault.getConfig !== "function") return true;
-      return vault.getConfig("alwaysUpdateLinks") !== false;
+      if (typeof vault.getConfig !== "function") return false;
+      return vault.getConfig("alwaysUpdateLinks") === true;
     } catch {
-      return true;
+      return false;
     }
   }
 
