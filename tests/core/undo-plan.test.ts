@@ -92,6 +92,47 @@ describe('buildUndoPlan', () => {
 			expect(p).toMatchObject({ moves: [], restores: [], deletes: [], skipped: ['Ziel/a.md'], conflicts: ['Ziel/a.md'] });
 		});
 
+		describe('Vorab-Abbild bleibt erreichbar, wenn die Notiz nicht am neuen Pfad liegt', () => {
+			const entry = (postHash: string | null) => manifest([{ path: 'Ziel/a.md', movedFrom: 'Inbox/a.md', existedBefore: true, preHash: fnv1a('ALT'), postHash, blob: 'b1' }]);
+
+			it('rename scheiterte nach captureMove: der Blob geht ohne Zug an den alten Pfad (postHash null)', () => {
+				const p = buildUndoPlan(entry(null), { 'Ziel/a.md': null, 'Inbox/a.md': 'ALT+Crew' }, { b1: 'ALT' });
+				expect(p.moves).toEqual([]);
+				expect(p.restores).toEqual([{ path: 'Inbox/a.md', content: 'ALT' }]);
+				expect(p.skipped).toEqual([]);
+				expect(p.unrestored).toEqual([]);
+			});
+
+			it('erster Rücknahmeversuch zog die Notiz zurück, der Restore fehlte: zweiter Versuch schreibt den Blob (postHash passt)', () => {
+				const p = buildUndoPlan(entry(fnv1a('NEU')), { 'Ziel/a.md': null, 'Inbox/a.md': 'NEU' }, { b1: 'ALT' });
+				expect(p.moves).toEqual([]);
+				expect(p.restores).toEqual([{ path: 'Inbox/a.md', content: 'ALT' }]);
+				expect(p.skipped).toEqual([]);
+				expect(p.conflicts).toEqual([]);
+			});
+
+			it('fremd belegter alter Pfad (anderer Hash) bleibt unberührt, der Eintrag trägt den Blob weiter', () => {
+				const p = buildUndoPlan(entry(fnv1a('NEU')), { 'Ziel/a.md': null, 'Inbox/a.md': 'fremd' }, { b1: 'ALT' });
+				expect(p.moves).toEqual([]);
+				expect(p.restores).toEqual([]);
+				expect(p.skipped).toEqual(['Ziel/a.md']);
+				expect(p.conflicts).toEqual(['Ziel/a.md']);
+				expect(p.unrestored).toEqual(['Ziel/a.md']);
+			});
+
+			it('beide Pfade leer: nichts zu schreiben, der Blob bleibt unwiederhergestellt', () => {
+				const p = buildUndoPlan(entry(null), { 'Ziel/a.md': null, 'Inbox/a.md': null }, { b1: 'ALT' });
+				expect(p.restores).toEqual([]);
+				expect(p.skipped).toEqual(['Ziel/a.md']);
+				expect(p.unrestored).toEqual(['Ziel/a.md']);
+			});
+
+			it('Eintrag ohne Blob gilt nie als unwiederhergestellt', () => {
+				const m = manifest([{ path: 'Ziel/a.md', movedFrom: 'Inbox/a.md', existedBefore: true, preHash: null, postHash: null, blob: null }]);
+				expect(buildUndoPlan(m, { 'Ziel/a.md': null, 'Inbox/a.md': 'X' }, {}).unrestored).toEqual([]);
+			});
+		});
+
 		it('ein Eintrag ohne movedFrom hat nie einen Zug und ist nie übersprungen', () => {
 			const m = manifest([{ path: 'a.md', existedBefore: true, preHash: fnv1a('alt'), postHash: fnv1a('neu'), blob: 'b' }]);
 			const p = buildUndoPlan(m, { 'a.md': 'neu' }, { b: 'alt' });

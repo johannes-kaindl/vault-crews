@@ -11,6 +11,7 @@ export interface UndoPlan {
 	restores: { path: string; content: string }[]; // existedBefore=true → Pre-Image zurückschreiben
 	deletes: string[];                              // existedBefore=false → in Papierkorb
 	conflicts: string[];                            // Warn-Overlay (Teilmenge von restores/deletes)
+	unrestored: string[];                           // Teilmenge von skipped: Eintrag trägt ein Vorab-Abbild (Blob), das nicht zurückgeschrieben wird
 }
 
 /**
@@ -20,9 +21,12 @@ export interface UndoPlan {
  * die Note wurde seit dem Lauf editiert/entfernt. postHash===null (Crash) → nie conflict.
  *
  * Ein Eintrag mit `movedFrom` (path = neuer Pfad) erzeugt einen Zug zurück und, nur bei `blob !== null`, das Zurückschreiben
- * des Vorab-Inhalts am alten Pfad. Ist `current[path] === null` (die Notiz liegt nicht am neuen Pfad; auch der Fall, dass `rename`
- * nach `captureMove` scheiterte) oder `current[movedFrom] !== null` (der alte Pfad ist wieder belegt), kommt der Eintrag ohne Zug und
- * ohne Zurückschreiben in `skipped` und `conflicts`, auch wenn `postHash` zu `current` passt: nie eine fremde Datei überschreiben.
+ * des Vorab-Inhalts am alten Pfad. Liegt die Notiz nicht am neuen Pfad (`current[path] === null`), gilt: Liegt sie schon am alten Pfad
+ * (`rename` scheiterte nach `captureMove`, oder ein erster Rücknahmeversuch zog sie zurück und scheiterte am Restore), trägt der
+ * Eintrag einen Blob und ist `postHash` null oder gleich dem Hash des Inhalts am alten Pfad, wird der Blob ohne Zug dort
+ * zurückgeschrieben. Jeder andere Fall ohne Notiz am neuen Pfad oder mit belegtem alten Pfad kommt ohne Zug und ohne Zurückschreiben
+ * in `skipped` und `conflicts`: nie eine fremde Datei überschreiben. Trägt ein solcher Eintrag einen Blob, steht er zusätzlich
+ * in `unrestored`; der Aufrufer verwirft den Snapshot dann nicht.
  * Ein Eintrag mit `movedFrom` und `existedBefore: false` kann nicht entstehen (die Quelle eines `note.move` lag vor dem Lauf im
  * Sammelmaterial); er bekäme hier nur den Zug zurück und kein Löschen.
  */
@@ -36,14 +40,21 @@ export function buildUndoPlan(
 	const conflicts: string[] = [];
 	const moves: { from: string; to: string }[] = [];
 	const skipped: string[] = [];
+	const unrestored: string[] = [];
 	const at = (path: string): string | null => (path in currentContents ? currentContents[path] ?? null : null);
 
 	for (const e of manifest.entries) {
 		const current = at(e.path);
 		if (e.movedFrom !== undefined) {
-			if (current === null || at(e.movedFrom) !== null) {
+			const old = at(e.movedFrom);
+			if (current === null && old !== null && e.blob !== null && (e.postHash === null || fnv1a(old) === e.postHash)) {
+				restores.push({ path: e.movedFrom, content: blobs[e.blob] ?? '' });
+				continue;
+			}
+			if (current === null || old !== null) {
 				skipped.push(e.path);
 				conflicts.push(e.path);
+				if (e.blob !== null) unrestored.push(e.path);
 				continue;
 			}
 			if (e.postHash !== null && fnv1a(current) !== e.postHash) conflicts.push(e.path);
@@ -62,5 +73,5 @@ export function buildUndoPlan(
 			deletes.push(e.path);
 		}
 	}
-	return { moves, restores, deletes, conflicts, skipped };
+	return { moves, restores, deletes, conflicts, skipped, unrestored };
 }

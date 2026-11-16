@@ -705,7 +705,7 @@ describe("Rückgängig für verschobene Notizen", () => {
     p.lastRuns = { team: { status: "ok", when: 1, runId: RUN, undoable: true } };
     return p;
   }
-  const plan = (over: Partial<UndoPlan>): UndoPlan => ({ moves: [], restores: [], deletes: [], conflicts: [], skipped: [], ...over });
+  const plan = (over: Partial<UndoPlan>): UndoPlan => ({ moves: [], restores: [], deletes: [], conflicts: [], skipped: [], unrestored: [], ...over });
 
   it("performUndo: rename läuft vor modify, danach liegt der Vorab-Inhalt am alten Pfad", async () => {
     const p = await undoPlugin();
@@ -739,6 +739,60 @@ describe("Rückgängig für verschobene Notizen", () => {
     expect(await p.snapshot.load(RUN)).not.toBeNull();
   });
 
+  it("performUndo: bleibt ein Eintrag mit Vorab-Abbild unwiederhergestellt, bleiben Snapshot und rückgängig-Flag", async () => {
+    const p = await undoPlugin();
+    await p.snapshot.captureMove(RUN, "team", 0, "Inbox/a.md", "Ziel/a.md");
+    await p.performUndo(RUN, "team", plan({ skipped: ["Ziel/a.md"], conflicts: ["Ziel/a.md"], unrestored: ["Ziel/a.md"] }));
+    expect(await p.snapshot.load(RUN)).not.toBeNull();
+    expect((p.lastRuns.team as { undoable: boolean }).undoable).toBe(true);
+    expect(String(Notice.instances.at(-1)?.message)).toBe("Undo partly done — restored 0 file(s); 1 note(s) could not be restored, the run stays undoable.");
+  });
+
+  /** Manifest mit einem Eintrag, dessen rename nach captureMove scheiterte (oder dessen Zug ein erster Versuch schon ausführte). */
+  async function movedEntry(p: UndoPlugin, postHash: string | null): Promise<void> {
+    p.snapshot.manifests.set(RUN, { runId: RUN, teamId: "team", createdAt: 0, entries: [{ path: "Ziel/a.md", movedFrom: "Inbox/a.md", existedBefore: true, preHash: fnv1a("ALT"), postHash, blob: "0.snapshot" }] });
+    p.snapshot.blobs.set(`${RUN}/0.snapshot`, "ALT");
+  }
+  async function confirmUndo(p: UndoPlugin): Promise<void> {
+    (Modal as unknown as { __last: unknown }).__last = undefined;
+    const done = p.startUndo();
+    await vi.waitFor(() => expect(Modal.__last).toBeTruthy());
+    const modal = Modal.__last as unknown as { contentEl: { children: { className: string; children: { __component: { clickCB?: () => void } }[] }[] } };
+    const box = modal.contentEl.children.find((c) => c.className === "modal-button-container");
+    box?.children[1]?.__component.clickCB?.();
+    await done;
+  }
+
+  it("Rückgängig: rename scheiterte nach captureMove, die Änderung der Crew am alten Pfad weicht dem Vorab-Abbild", async () => {
+    const p = await undoPlugin();
+    await movedEntry(p, null);
+    await p.vault.create("Inbox/a.md", "ALT\nvon der Crew angehängt");
+    await confirmUndo(p);
+    expect(await p.vault.read("Inbox/a.md")).toBe("ALT");
+    expect(await p.snapshot.load(RUN)).toBeNull();
+    expect(String(Notice.instances.at(-1)?.message)).toBe("Undo complete — restored 1 file(s) to the state before the run.");
+  });
+
+  it("Rückgängig: Notiz schon zurückgeschoben, der Restore fehlte — der zweite Versuch stellt den Blob her", async () => {
+    const p = await undoPlugin();
+    await movedEntry(p, fnv1a("NEU"));
+    await p.vault.create("Inbox/a.md", "NEU");
+    await confirmUndo(p);
+    expect(await p.vault.read("Inbox/a.md")).toBe("ALT");
+    expect(await p.snapshot.load(RUN)).toBeNull();
+  });
+
+  it("Rückgängig: fremd belegter alter Pfad bleibt unberührt, der Lauf bleibt rückgängig-fähig", async () => {
+    const p = await undoPlugin();
+    await movedEntry(p, fnv1a("NEU"));
+    await p.vault.create("Inbox/a.md", "fremd");
+    await confirmUndo(p);
+    expect(await p.vault.read("Inbox/a.md")).toBe("fremd");
+    expect(await p.snapshot.load(RUN)).not.toBeNull();
+    expect((p.lastRuns.team as { undoable: boolean }).undoable).toBe(true);
+    expect(String(Notice.instances.at(-1)?.message)).toBe("Undo partly done — restored 0 file(s); 1 note(s) could not be restored, the run stays undoable.");
+  });
+
   it("Dialog: nennt die Rückverschiebungen und die übersprungenen Notizen", async () => {
     const p = await undoPlugin();
     await p.snapshot.captureMove(RUN, "team", 0, "Inbox/a.md", "Ziel/a.md");
@@ -748,6 +802,7 @@ describe("Rückgängig für verschobene Notizen", () => {
     await p.vault.create("Ziel/b.md", "B");
     await p.vault.create("Inbox/b.md", "fremd"); // alter Pfad wieder belegt
 
+    (Modal as unknown as { __last: unknown }).__last = undefined;
     const done = p.startUndo();
     await vi.waitFor(() => expect(Modal.__last).toBeTruthy());
     const modal = Modal.__last as unknown as { contentEl: { children: { tagName: string; textContent: string }[] } };

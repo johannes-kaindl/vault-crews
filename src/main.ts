@@ -978,13 +978,18 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       new Notice(t("notice.undo.failed"));
       return;
     }
+    // Ein Eintrag zählt einmal: ein Zug samt Zurückschreiben des Vorab-Inhalts sind eine Datei.
+    const movedBack = new Set(plan.moves.map((m) => m.to));
+    const restored = plan.moves.length + plan.restores.filter((r) => !movedBack.has(r.path)).length + plan.deletes.length;
+    // Ein übersprungener Eintrag mit Vorab-Abbild ist nicht zurückgesetzt: Snapshot und Rückgängig-Fähigkeit bleiben.
+    if (plan.unrestored.length > 0) {
+      new Notice(t("notice.undo.partial", restored, plan.unrestored.length));
+      return;
+    }
     await this.snapshot.discard(runId);
     const info = this.lastRuns[teamId];
     if (info !== undefined) { info.undoable = false; void this.saveSettings(); }
     await this.markRunUndone(runId);
-    // Ein Eintrag zählt einmal: ein Zug samt Zurückschreiben des Vorab-Inhalts sind eine Datei.
-    const movedBack = new Set(plan.moves.map((m) => m.to));
-    const restored = plan.moves.length + plan.restores.filter((r) => !movedBack.has(r.path)).length + plan.deletes.length;
     new Notice(plan.skipped.length > 0 ? t("notice.undo.okSkipped", restored, plan.skipped.length) : t("notice.undo.ok", restored));
   }
 
