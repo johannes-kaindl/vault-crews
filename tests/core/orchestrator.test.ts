@@ -934,6 +934,26 @@ describe('executeRun — raw-output artifacts on validation failure (V1 §2.4/§
     expect(h.snapshot.finalized).toEqual([]); // writes 0 → finalize nie aufgerufen
   });
 
+  it('Rohantworten werden geschwärzt: ein Schlüssel aus der Schlüsselliste landet nicht auf der Platte (mit und ohne per_note)', async () => {
+    const KEY = 'sk-geheim-1234567890';
+    const settings = { endpoints: [{ url: 'http://gw:1', apiKey: KEY, model: 'test-model' }] };
+    const single = await harness({ llm: new ScriptLlmClient([{ content: `kaputt ${KEY}` }, { content: `Bearer ${KEY} immer noch kaputt` }]), settings });
+    const r1 = await runToCompletion(executeRun(single.teamPath, single.deps), single.clock);
+    for (const f of ['analyse-1.txt', 'analyse-2.txt']) {
+      const text = await single.vault.read(`_crews/runs/${r1.runId}/artifacts/${f}`);
+      expect(text, f).toContain('••••');
+      expect(text, f).not.toContain(KEY);
+    }
+    const bad = { content: `{"nope": "${KEY}"}` };
+    const multi = await harness({ teamFm: perNoteTeam(['n/a.md'], { onError: 'skip' }), files: pnFiles(['n/a.md']), llm: new ScriptLlmClient([bad, bad]), settings });
+    const r2 = await runToCompletion(executeRun(multi.teamPath, multi.deps), multi.clock);
+    for (const f of ['tag-n1-1.txt', 'tag-n1-2.txt']) {
+      const text = await multi.vault.read(`_crews/runs/${r2.runId}/artifacts/${f}`);
+      expect(text, f).toContain('••••');
+      expect(text, f).not.toContain(KEY);
+    }
+  });
+
   it('primary invalid, repair valid → only the primary raw output is saved (no -2 artifact)', async () => {
     const llm = new ScriptLlmClient([{ content: 'kaputt' }, { content: TRIAGE_OK }]);
     const h = await harness({ llm });

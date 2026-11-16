@@ -920,9 +920,17 @@ class RunFsm {
 	 *  writeRegister, zählt nicht gegen max_writes — der runDir-Verzeichnis-Pathspec
 	 *  (git-plan.ts) staged artifacts/ trotzdem automatisch für den Commit. */
 	private async writeArtifact(taskId: string, attempt: number, content: string): Promise<void> {
+		// Die Rohantwort stammt aus dem Netzweg (ein Gateway kann den Schlüssel spiegeln): dieselbe Schwärzung wie in `persist()`,
+		// dieselbe Schlüsselliste, fail-closed. Lässt sie sich nicht schwärzen, wird nichts geschrieben, der Lauf endet wie dort.
+		let redacted: string;
+		try {
+			redacted = redactKeysInValue(content, this.deps.settings.endpoints.map((e) => e.apiKey));
+		} catch (e) {
+			throw new RedactionFailed(errMsg(e));
+		}
 		const dir = `${this.runDir()}/artifacts`;
 		try { await this.deps.vault.mkdir(dir); } catch { /* existiert bereits */ }
-		await this.writeFile(`${dir}/${taskId}-${attempt}.txt`, content);
+		await this.writeFile(`${dir}/${taskId}-${attempt}.txt`, redacted);
 	}
 }
 
