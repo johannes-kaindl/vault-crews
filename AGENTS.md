@@ -42,6 +42,7 @@ Obsidian-Plugin **Vault Crews** (`vault-crews`): autonome lokale LLM-Agenten-Tea
 - Bevor du den Settings-Tab (`getSettingDefinitions`, Walker-Fallback) änderst: `.claude/rules/settings-tab.md`.
 - Vor Änderungen an Schichten, Laufstart, Abbruch oder Crash-Recovery und für die eingefrorene V1-Spezifikation: `docs/internal/architecture.md`.
 - Bevor du eine Altentscheidung übernimmst (Vendoring, Statusklassen-Naht, `json_schema`): `docs/internal/decisions.md`.
+- Bevor du `note.move`, das Rückgängig mit Verschieben, `per_note`, `notes.create`/`note.file` oder die Vorabprüfung `alwaysUpdateLinks` (Obsidians Standard ist AUS, `getConfig` nur im Adapter) änderst: `docs/internal/decisions.md` § Schreibfähigkeiten.
 - Vor einem GUI-Smoke oder dem manuellen Release-Smoke: `docs/SMOKE.md`; Obsidian-Instanz, Lock, Treiber und Staging-Vaults stehen als Pfadregeln im Dach unter `../.claude/rules/`.
 
 ## Memory
