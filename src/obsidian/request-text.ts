@@ -36,6 +36,7 @@ const NOTE_KEY: Record<NonNullable<FieldExplain["note"]>, string> = {
   "raised-to-thinking-floor": "request.note.raisedToThinkingFloor",
   "below-thinking-floor": "request.note.belowThinkingFloor",
   "off-not-possible": "request.note.offNotPossible",
+  "override-below-backend-min": "request.note.overrideBelowBackendMin",
 };
 
 /** Beschreibung je Feld: Zustand (gesendet / nicht gesendet und warum), Anmerkung, top_p-Hinweis. */

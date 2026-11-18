@@ -27,6 +27,10 @@ import { baseName } from '../../src/vendor/kit/rel-path';
 import { errorMessage } from '../../src/vendor/kit/error-message';
 import { resolveEndpointSource } from '../../src/vendor/kit/endpoint-source';
 import type { ApiEndpoint, LlmEndpointManagerApi, ResolvedEndpoint } from '../../src/vendor/kit/endpoint-source';
+import { gunzipText, gzipText } from '../../src/vendor/kit/gzip-text';
+import { recordingTransport } from '../../src/vendor/kit/recording-transport';
+import type { SseTransport } from '../../src/vendor/kit/chat-client';
+import type { TransportExchange } from '../../src/vendor/kit/recording-transport';
 
 describe('vendored parseSSE', () => {
 	it('akkumuliert content-Deltas und erkennt [DONE]', () => {
@@ -346,7 +350,7 @@ describe('vendored error_body', () => {
 	});
 });
 
-describe('vendored frontmatter (obsidian-kit 0.92.0)', () => {
+describe('vendored frontmatter (obsidian-kit 0.97.0)', () => {
 	it('serializeFrontmatter schreibt Schluessel in der angegebenen Reihenfolge', () => {
 		const out = serializeFrontmatter({ type: 'x' }, ['type']);
 		expect(out).toContain('type: x');
@@ -418,5 +422,46 @@ describe('vendored endpoint-source: der tatsaechlich benutzte Endpunkt (Welle 34
 	it('lokal und ohne Config fehlt endpointId: unbekannt bleibt unbekannt', async () => {
 		const r = await resolveEndpointSource({ manager: null, local: [], capability: 'chat' }, () => Promise.resolve(true));
 		expect(r.endpointId).toBeUndefined();
+	});
+});
+
+describe('vendored gzip-text (code-kit 0.77.0, Mitschnitt calls.jsonl.gz)', () => {
+	it('Rundreise Byte fuer Byte: U+2011, U+202F, Emoji, CRLF, leerer Text', async () => {
+		for (const text of ['a\u2011b c\u202Fd', '\u{1F600} \r\n x', '']) {
+			expect(await gunzipText(await gzipText(text))).toBe(text);
+		}
+	});
+	it('gunzipText verweigert, was kein vollstaendiger gzip-Strom ist', async () => {
+		const bytes = await gzipText('abc');
+		await expect(gunzipText(bytes.slice(0, bytes.length - 3))).rejects.toThrow();
+	});
+});
+
+describe('vendored recording-transport (obsidian-kit 0.97.0)', () => {
+	it('ruft sink genau einmal, reicht Chunks und Status durch, der Datensatz traegt keine Kopfzeilen', async () => {
+		const inner: SseTransport = {
+			postStream: async (_url, _body, _headers, onChunk) => { onChunk('data: a\n'); onChunk('data: [DONE]\n'); return 200; },
+		};
+		const seen: TransportExchange[] = [];
+		const chunks: string[] = [];
+		const body = { stream: true };
+		const status = await recordingTransport(inner, (x) => { seen.push(x); }, () => 5)
+			.postStream('http://x.test/v1', body, { Authorization: 'Bearer geheim' }, (c) => chunks.push(c), new AbortController().signal);
+		expect(status).toBe(200);
+		expect(chunks).toEqual(['data: a\n', 'data: [DONE]\n']);
+		expect(seen).toHaveLength(1);
+		expect(seen[0]).toMatchObject({ url: 'http://x.test/v1', status: 200, raw: 'data: a\ndata: [DONE]\n', startedAt: 5, endedAt: 5 });
+		expect(seen[0]?.body).toBe(body);
+		expect(JSON.stringify(seen[0])).not.toContain('geheim');
+		expect(Object.keys(seen[0] ?? {})).not.toContain('headers');
+	});
+	it('Ablehnung: dasselbe Fehlerobjekt geht weiter, sink einmal mit status null und error', async () => {
+		const boom = Object.assign(new Error('weg'), { name: 'AbortError' });
+		const inner: SseTransport = { postStream: async (_u, _b, _h, onChunk) => { onChunk('teil'); throw boom; } };
+		const seen: TransportExchange[] = [];
+		await expect(recordingTransport(inner, (x) => { seen.push(x); })
+			.postStream('u', {}, {}, () => {}, new AbortController().signal)).rejects.toBe(boom);
+		expect(seen).toHaveLength(1);
+		expect(seen[0]).toMatchObject({ status: null, raw: 'teil', error: 'AbortError: weg' });
 	});
 });

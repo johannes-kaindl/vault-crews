@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.92.0, src/obsidian/settings_walker.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.97.0, src/obsidian/settings_walker.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // obsidian-kit/src/obsidian/settings_walker.ts
 //
 // Der gemeinsame Fallback-Walker fuer zweigleisige deklarative Settings-Tabs
@@ -15,6 +15,17 @@ export interface SettingControlHost {
 }
 
 type RenderHatch = (setting: Setting) => void | (() => void);
+
+/** Der Wert eines Zahlenfelds für `save`: auf `[min, max]` geklemmt (eine Seite entfällt, wenn ihre Grenze fehlt; bei `min > max` gilt `max`). Ein leeres Feld, nur Leerraum, `NaN` oder eine unendliche Zahl
+ *  sind kein Wert: `undefined`, es wird nichts gespeichert (vorher speicherte das leere Feld `0`). Die Schrittweite `step` ist ein Eingabehinweis des Feldes, hier wird nicht auf sie gerundet. */
+function parseNumberInput(raw: string, min?: number, max?: number): number | undefined {
+  if (raw.trim() === "") return undefined;
+  let n = Number(raw);
+  if (!Number.isFinite(n)) return undefined;
+  if (min !== undefined && n < min) n = min;
+  if (max !== undefined && n > max) n = max;
+  return n;
+}
 
 // `settingBodyHost` liegt seit 0.89.0 in setting-body-host.ts (Welle 34, Paket 6); der Re-Export haelt bestehende Importe und Vendorings dicht.
 export { settingBodyHost } from "./setting-body-host";
@@ -150,14 +161,23 @@ export function renderSettingDefinitions(
           new FolderSuggest(app, t.inputEl);
         });
         break;
-      case "number":
-        setting.addText((t) =>
-          t
-            .setPlaceholder((control as { placeholder?: string }).placeholder ?? "")
+      case "number": {
+        const c = control as { placeholder?: string; min?: number; max?: number; step?: number | "any" };
+        setting.addText((t) => {
+          t.setPlaceholder(c.placeholder ?? "")
             .setValue(String(current))
-            .onChange((v) => save(Number(v))),
-        );
+            .onChange((v) => {
+              const n = parseNumberInput(v, c.min, c.max);
+              if (n !== undefined) save(n);
+            });
+          // Dieselben Grenzen wie der native Weg (1.13: `SettingNumberControl` bekommt `min`/`max`/`step` aus derselben Deklaration): das Feld ist ein Zahlenfeld mit den gesetzten Attributen.
+          t.inputEl.type = "number";
+          if (c.min !== undefined) t.inputEl.setAttribute("min", String(c.min));
+          if (c.max !== undefined) t.inputEl.setAttribute("max", String(c.max));
+          if (c.step !== undefined) t.inputEl.setAttribute("step", String(c.step));
+        });
         break;
+      }
       case "text":
       default:
         setting.addText((t) =>
