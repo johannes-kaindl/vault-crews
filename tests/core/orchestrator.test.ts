@@ -1038,6 +1038,8 @@ describe('executeRun — snapshot-finalize-failure resilience (M9)', () => {
 });
 
 describe('executeRun — Anfrage-Profil (Modus structured)', () => {
+  const runStateOf = async (h: Harness, runId: string): Promise<{ tasks: Record<string, unknown>[] }> =>
+    JSON.parse(await h.vault.read(`_crews/runs/${runId}/state.json`)) as { tasks: Record<string, unknown>[] };
   const call0 = (h: Harness): LlmParams => (h.llm as ScriptLlmClient).calls[0]!.params;
 
   it('schickt die aufgelösten Parameter: Persona-Temperatur, Budget und Draht-Modell', async () => {
@@ -1046,6 +1048,31 @@ describe('executeRun — Anfrage-Profil (Modus structured)', () => {
     });
     await executeRun(h.teamPath, h.deps);
     expect(call0(h)).toMatchObject({ model: 'test-model', sentModel: 'test-model', thinkingLevel: 'off', params: { temperature: 0.4, max_tokens: 1500 } });
+  });
+
+  it('seed der Persona: an Open WebUI im Body und im Task-Eintrag (gesendet), an LM Studio nur als nicht gesendet vermerkt', async () => {
+    const agents = { 'triage-analyst': { fm: { 'crew-kind': 'agent', name: 'A', seed: 42 }, body: 'x' } };
+    const web = await harness({ agents, request: fakeRequestPort({ family: 'qwen3.8', backend: 'openwebui' }) });
+    const rw = await executeRun(web.teamPath, web.deps);
+    expect(call0(web).params.seed).toBe(42);
+    const recW = (await runStateOf(web, rw.runId)).tasks.find((t) => t.taskId === 'analyse');
+    expect(recW).toMatchObject({ seed: 42, seedSent: true });
+    expect(await web.vault.read(`_crews/runs/${rw.runId}/run.md`)).toContain('- Seed: 42\n');
+
+    const lm = await harness({ agents, request: fakeRequestPort({ family: 'qwen3.8', backend: 'lmstudio' }) });
+    const rl = await executeRun(lm.teamPath, lm.deps);
+    expect('seed' in call0(lm).params).toBe(false);
+    const recL = (await runStateOf(lm, rl.runId)).tasks.find((t) => t.taskId === 'analyse');
+    expect(recL).toMatchObject({ seed: 42, seedSent: false });
+    expect(await lm.vault.read(`_crews/runs/${rl.runId}/run.md`)).toContain('- Seed: 42 (nicht gesendet');
+  });
+
+  it('ohne seed trägt weder der Task-Eintrag noch run.md etwas davon', async () => {
+    const h = await harness({ request: fakeRequestPort({ family: 'qwen3.8', backend: 'openwebui' }) });
+    const r = await executeRun(h.teamPath, h.deps);
+    const rec = (await runStateOf(h, r.runId)).tasks.find((t) => t.taskId === 'analyse');
+    expect(rec && 'seed' in rec).toBe(false);
+    expect(await h.vault.read(`_crews/runs/${r.runId}/run.md`)).not.toContain('Seed');
   });
 
   it('ohne Persona-Temperatur gilt der Profilwert des Modus (0.1), nicht ein Parser-Default', async () => {

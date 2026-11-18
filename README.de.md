@@ -305,11 +305,11 @@ Eine Crew ist Markdown im Vault: ein **Team** (`crew-kind: team`) als Pipeline a
 im Body). Die mitgelieferten Crews (Command „Install example crews") sind editierbare
 Beispiele — kopiere und passe sie an.
 
-### Modell-Einstellungen eines Agenten (`temperature`, `max_tokens`, `thinking`)
+### Modell-Einstellungen eines Agenten (`temperature`, `seed`, `max_tokens`, `thinking`)
 
-Eine Agent-Note kann im Frontmatter drei Modellwerte setzen; alle sind optional und gehen für diesen Agenten den **Anfrage**-Einstellungen des Plugins vor.
+Eine Agent-Note kann im Frontmatter vier Modellwerte setzen; alle sind optional und gehen für diesen Agenten den **Anfrage**-Einstellungen des Plugins vor.
 
-`temperature` wird wie angegeben gesendet; ohne sie gilt der Profilwert der Modellfamilie (0,1 für Crews). `max_tokens` ist das Token-Budget des Agenten (Standard 2048); eine Denkstufe kann es auf die Reserve der Modellfamilie anheben, damit das Denken nicht das ganze Budget aufbraucht. `thinking` ist `off`, `on` oder `auto` (Standard): `off` bittet das Modell, nicht zu denken, `on` bestellt die Stufe `medium`, `auto` folgt den **Anfrage**-Einstellungen, deren Standard „aus“ ist.
+`temperature` wird wie angegeben gesendet; ohne sie gilt der Profilwert der Modellfamilie (0,1 für Crews). `seed` ist eine ganze Zahl ab 0 (alles andere ist ein Fehler in der Agent-Note); er wird mit jeder Anfrage unverändert gesendet und im Lauf-Log gezeigt (`- Seed: 42`), aber nur manche Server beachten ihn: Open WebUI tut es, LM Studio ignoriert ihn (vom Kit gemessen), an den übrigen Servern sendet das Plugin ihn nicht. Das Lauf-Log vermerkt dann „nicht gesendet“, ein Seed ist dort also kein Versprechen für wiederholbare Antworten. `max_tokens` ist das Token-Budget des Agenten (Standard 2048); eine Denkstufe kann es auf die Reserve der Modellfamilie anheben, damit das Denken nicht das ganze Budget aufbraucht. `thinking` ist `off`, `on` oder `auto` (Standard): `off` bittet das Modell, nicht zu denken, `on` bestellt die Stufe `medium`, `auto` folgt den **Anfrage**-Einstellungen, deren Standard „aus“ ist.
 
 Das Panel zeigt, welches Modell und welche Denkstufe jeder Agent einer Crew bekommt: unter einer Crew im Tab **Crews** den Aufklapper **Modelle** öffnen. Die Anzeige ist nur lesend. Ein `model:` in der Agent-Note steht dort als Wunsch: er gilt nur, wenn der aktive Endpunkt dieses Modell führt, sonst gilt das Modell der Endpunkt-Zeile, das daneben steht. Das Panel fragt den Endpunkt nie, kann also vor dem Start nicht sagen, welches von beiden gilt. **Rückfall-Modell in den Einstellungen ändern** öffnet die Einstellungen des Plugins, in denen das Modell der Endpunkt-Zeile steht. Hat eine Crew schon gelaufen, nennt der Aufklapper zusätzlich je Agent das Modell des letzten Laufs (**Zuletzt benutzt: …**), und man sieht, welches von beiden galt; vor dem ersten Lauf fehlt diese Zeile.
 

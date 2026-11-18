@@ -393,6 +393,10 @@ class RunFsm {
 			family, backend: this.backend, agent, settings: this.deps.settings.request, model: sentModel,
 		});
 		const check = { family, thinking: thinkingLevel, backend: this.backend };
+		// Seed fürs Protokoll: der Wert, der gelten sollte (Persona vor Plugin-Überschreibung), und ob das Kit ihn auf den Draht gelegt hat.
+		const wireSeed = typeof wire.seed === 'number' ? wire.seed : undefined;
+		const loggedSeed = wireSeed ?? agent.seed;
+		if (loggedSeed !== undefined) { rec.seed = loggedSeed; rec.seedSent = wireSeed !== undefined; }
 		// Das Profil kann das Budget für eine Denkstufe anheben: die Kontextrechnung nimmt, was gesendet wird.
 		const sentMax = typeof wire.max_tokens === 'number' ? wire.max_tokens : agent.maxTokens;
 		const budget = Math.max(1, ctxLen - sentMax - Math.floor(ctxLen * BUDGET_RESERVE));

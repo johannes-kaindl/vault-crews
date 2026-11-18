@@ -99,6 +99,19 @@ describe('buildRunMd', () => {
     expect(buildRunMd(okState)).toBe(expected);
   });
 
+  it('Seed: eine Zeile neben dem Prompt-Hash, bei nicht gesendetem Seed mit dem Hinweis; ohne Seed keine Zeile, state.json trägt beide Felder', () => {
+    const mit = (extra: Partial<TaskRecord>): RunState => ({
+      ...okState, tasks: [rec({ taskId: 'analyse', kind: 'llm', promptHash: 'f00dbabe', ...extra })],
+    });
+    const lines = (st: RunState): string[] => buildRunMd(st).split('\n');
+    const gesendet = lines(mit({ seed: 42, seedSent: true }));
+    expect(gesendet[gesendet.indexOf('- Prompt-Hash: f00dbabe') + 1]).toBe('- Seed: 42');
+    expect(lines(mit({ seed: 0, seedSent: true }))).toContain('- Seed: 0');
+    expect(lines(mit({ seed: 42, seedSent: false }))).toContain('- Seed: 42 (nicht gesendet: dieses Backend nimmt keinen Seed an)');
+    expect(buildRunMd(mit({}))).not.toContain('Seed');
+    expect(JSON.parse(buildStateJson(mit({ seed: 42, seedSent: true }))).tasks[0]).toMatchObject({ seed: 42, seedSent: true });
+  });
+
   it('läuft inkrementell: running-Zustand lässt null-Felder und Undo-Zeile weg', () => {
     const md = buildRunMd({ ...okState, status: 'running', endedAt: null, tasks: [] });
     expect(md).toContain('status: running');

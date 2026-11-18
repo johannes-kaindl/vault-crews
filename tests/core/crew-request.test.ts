@@ -181,3 +181,32 @@ describe('Anzeige = Draht (Abschnitt „Request“ gegen buildCrewParams)', () =
 		expect(n).toBe(alleFamilien.length * ALLE_BACKENDS.length * STUFEN.length);
 	});
 });
+
+describe('seed der Persona (Welle 36)', () => {
+	// Gemessen am Kit (code-kit 0.77.0, sampling-profiles): seed geht nur an Open WebUI auf den Draht; LM Studio ignoriert ihn
+	// (gemessen 2026-11-18), alle anderen Backends sind `unsupported`. Das Kit ist die Wahrheit, dieser Test hält es fest.
+	const mitSeed = (backend: BackendId, seed?: number, s: RequestSettings = settings()) =>
+		buildCrewParams({ family: 'qwen3.8', backend, agent: { ...PERSONA, ...(seed !== undefined ? { seed } : {}) }, settings: s }).params;
+
+	it('an Open WebUI geht seed 42 unverändert in den Body', () => {
+		expect(mitSeed('openwebui', 42).seed).toBe(42);
+	});
+	it('seed 0 ist ein Wert und wird gesendet (nicht als „leer“ verworfen)', () => {
+		expect(mitSeed('openwebui', 0).seed).toBe(0);
+	});
+	it.each(['lmstudio', 'ollama', 'openai', 'anthropic', 'unknown'] as BackendId[])('an %s lässt das Kit seed weg (nicht gesendet)', (backend) => {
+		expect('seed' in mitSeed(backend, 42)).toBe(false);
+	});
+	it('ohne seed in der Persona kein Schlüssel seed, auch an Open WebUI', () => {
+		expect('seed' in mitSeed('openwebui')).toBe(false);
+	});
+	it('die Persona schlägt die Überschreibung des Plugins', () => {
+		const s = settings({ overrides: { [MODE]: { 'qwen3.8': { seed: 7 } } } });
+		expect(mitSeed('openwebui', 42, s).seed).toBe(42);
+		expect(mitSeed('openwebui', undefined, s).seed).toBe(7);
+	});
+	it('die übrigen Felder bleiben, wie sie ohne seed waren', () => {
+		const { seed: _seed, ...rest } = mitSeed('openwebui', 42);
+		expect(rest).toEqual(mitSeed('openwebui'));
+	});
+});

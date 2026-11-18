@@ -236,7 +236,7 @@ export const EN: Record<string, string> = {
     "Obsidian closed unexpectedly during a run of “{0}”. Finishing marks the run as aborted. What it already wrote stays in your vault, and you can undo it with “Undo last run”.",
   // Abschnitt „Anfrage" (Modus structured) — Wortlaut aus lingotuner/src/i18n/strings.ts, 2026-09-30
   "request.desc": "What a run sends with each model call: sampling values and thinking level, per model family.",
-  "request.personaHint": "Values in an agent persona (temperature, max_tokens, thinking) override the settings here for that agent.",
+  "request.personaHint": "Values in an agent persona (temperature, seed, max_tokens, thinking) override the settings here for that agent.",
   "request.title": "Request",
   "request.head": "Family: {0} ({1}) · Backend: {2} ({3})",
   "request.familySource.manager": "from the LLM Endpoint Manager",
@@ -261,6 +261,7 @@ export const EN: Record<string, string> = {
   "request.field.presence_penalty": "Presence penalty (presence_penalty)",
   "request.field.reasoning_effort": "Thinking effort (reasoning_effort)",
   "request.field.max_tokens": "Token budget (max_tokens)",
+  "request.field.seed": "Random seed (seed)",
   "request.state.sentEffective": "Sent — measured to work on this backend.",
   "request.state.sentUnproven": "Sent — effect on this backend not proven yet.",
   "request.state.notSentIgnored": "Not sent — measured to have no effect on this backend.",
@@ -524,7 +525,7 @@ export const DE: Record<string, string> = {
     "Obsidian wurde während eines Laufs von „{0}“ unerwartet beendet. Der Abschluss markiert den Lauf als abgebrochen. Was er schon geschrieben hat, bleibt im Vault, und du kannst es mit „Letzten Lauf rückgängig machen“ zurücknehmen.",
   // Abschnitt „Anfrage" (Modus structured) — Wortlaut aus lingotuner/src/i18n/strings.ts, 2026-09-30
   "request.desc": "Was ein Lauf mit jedem Modellaufruf sendet: Sampling-Werte und Denkstufe, je Modellfamilie.",
-  "request.personaHint": "Werte in einer Agenten-Persona (temperature, max_tokens, thinking) überschreiben die Einstellungen hier für diesen Agenten.",
+  "request.personaHint": "Werte in einer Agenten-Persona (temperature, seed, max_tokens, thinking) überschreiben die Einstellungen hier für diesen Agenten.",
   "request.title": "Anfrage",
   "request.head": "Familie: {0} ({1}) · Backend: {2} ({3})",
   "request.familySource.manager": "vom LLM Endpoint Manager",
@@ -549,6 +550,7 @@ export const DE: Record<string, string> = {
   "request.field.presence_penalty": "Präsenz-Strafe (presence_penalty)",
   "request.field.reasoning_effort": "Denkaufwand (reasoning_effort)",
   "request.field.max_tokens": "Token-Budget (max_tokens)",
+  "request.field.seed": "Zufallsstartwert (seed)",
   "request.state.sentEffective": "Gesendet — gemessen wirksam auf diesem Backend.",
   "request.state.sentUnproven": "Gesendet — Wirkung auf diesem Backend noch nicht belegt.",
   "request.state.notSentIgnored": "Nicht gesendet — gemessen wirkungslos auf diesem Backend.",

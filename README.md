@@ -297,11 +297,11 @@ dialog. The command **"Show crew folder in the file explorer"** takes you to the
 notes with it: copy the team file from `teams/` together with the agents it names from `agents/`.
 The command tells you if the folder is hidden by the "Hide crew folder" setting.
 
-### Model settings of an agent (`temperature`, `max_tokens`, `thinking`)
+### Model settings of an agent (`temperature`, `seed`, `max_tokens`, `thinking`)
 
-An agent note can set three model values in its frontmatter; all are optional and override the plugin's **Request** settings for that agent.
+An agent note can set four model values in its frontmatter; all are optional and override the plugin's **Request** settings for that agent.
 
-`temperature` is sent as given; without it the profile value for the model family applies (0.1 for crews). `max_tokens` is the agent's token budget (default 2048); a thinking level can raise it to the model family's reserve so thinking cannot eat the whole budget. `thinking` is `off`, `on` or `auto` (default): `off` asks the model not to think, `on` asks for the `medium` level, `auto` follows the **Request** settings, whose default is off.
+`temperature` is sent as given; without it the profile value for the model family applies (0.1 for crews). `seed` is a whole number from 0 up (anything else is an error in the agent note); it is sent unchanged with every request and shown in the run log (`- Seed: 42`), but only some servers honour it: Open WebUI does, LM Studio ignores it (measured by the kit), and for the other servers the plugin does not send it. In those cases the run log says `not sent`, so a seed is no promise of repeatable answers there. `max_tokens` is the agent's token budget (default 2048); a thinking level can raise it to the model family's reserve so thinking cannot eat the whole budget. `thinking` is `off`, `on` or `auto` (default): `off` asks the model not to think, `on` asks for the `medium` level, `auto` follows the **Request** settings, whose default is off.
 
 The panel shows which model and thinking level each agent of a crew gets: open **Models** under a crew in the **Crews** tab. It is read-only. A `model:` in the agent note is shown as a wish: it counts only if the active endpoint carries that model, otherwise the model of the endpoint row, shown next to it, is used. The panel never asks the endpoint, so it cannot say which of the two applies before a run starts. **Change the fallback model in the settings** opens the plugin's settings, where the endpoint row's model is set. Once a crew has run, the block also names the model each agent used in that last run (**Last run: …**), so you can see which of the two applied; before the first run that line is absent.
 

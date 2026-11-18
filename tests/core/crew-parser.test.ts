@@ -42,6 +42,24 @@ describe('parseAgentDef', () => {
 		expect('temperature' in r.value).toBe(false);
 	});
 
+	it('seed: ganze Zahl ab 0 landet in AgentDef.seed, ohne seed fehlt der Schlüssel', () => {
+		for (const seed of [0, 42, Number.MAX_SAFE_INTEGER]) {
+			const r = parseAgentDef(AGENT_PATH, { 'crew-kind': 'agent', name: 'A', seed }, 'x');
+			expect(r.ok).toBe(true);
+			if (r.ok) expect(r.value.seed).toBe(seed);
+		}
+		const ohne = parseAgentDef(AGENT_PATH, { 'crew-kind': 'agent', name: 'A' }, 'x');
+		expect(ohne.ok && 'seed' in ohne.value).toBe(false);
+	});
+
+	it.each([[-1], [1.5], ['x'], ['42'], [true], [null], [Number.NaN], [Number.MAX_SAFE_INTEGER + 2]])('seed %j ist ein Parser-Fehler mit Feldname', (seed) => {
+		const r = parseAgentDef(AGENT_PATH, { 'crew-kind': 'agent', name: 'A', seed }, 'x');
+		expect(r.ok).toBe(false);
+		if (r.ok) return;
+		expect(r.errors).toHaveLength(1);
+		expect(r.errors[0]).toMatch(new RegExp(`^${AGENT_PATH}: seed: `));
+	});
+
 	it('meldet fehlenden name, leeren Body und falschen kind einzeln', () => {
 		const r = parseAgentDef(AGENT_PATH, { 'crew-kind': 'nope' }, '');
 		expect(r.ok).toBe(false);

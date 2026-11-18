@@ -9,6 +9,9 @@ export interface AgentDef {
 	 *  oberste Überschreibungsebene (Persona > Plugin-Überschreibung > Profilwert). Fehlt sie,
 	 *  gilt der Profilwert des Modus (structured: 0.1). */
 	temperature?: number;
+	/** Zufallsstartwert der Persona (ganze Zahl ab 0). Gleiche Ebene wie `temperature`: Persona > Plugin-Überschreibung. Ob er auf den Draht geht,
+	 *  entscheidet das Kit je Backend (heute nur Open WebUI; LM Studio ignoriert ihn laut Kit-Messung). */
+	seed?: number;
 	/** Token-Budget des Agenten (Default 2048); das Profil kann es für Denkstufen anheben. */
 	maxTokens: number;
 	thinking: 'auto' | 'on' | 'off';
@@ -154,6 +157,10 @@ export interface TaskRecord {
 	endedAt: number;
 	model: string | null;
 	promptHash: string | null;
+	/** Nur LLM-Schritte mit einem Seed (aus der Persona oder der Plugin-Überschreibung): der Wert, der gelten sollte. */
+	seed?: number;
+	/** Zu `seed`: ob er auf den Draht ging. `false` heißt, das Backend nimmt keinen Seed an (das Kit lässt ihn weg). */
+	seedSent?: boolean;
 	thinkTokens: number;
 	artifactJson: unknown;
 	/** Nur Collector-Tasks: was gefunden wurde und wo gesucht wurde (Alt-Laeufe ohne Feld bleiben gueltig). */

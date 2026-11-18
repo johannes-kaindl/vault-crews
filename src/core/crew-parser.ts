@@ -363,6 +363,11 @@ export function parseAgentDef(path: string, fm: Record<string, unknown> | null, 
 	const model = typeof fm.model === 'string' && fm.model.trim() !== '' ? fm.model.trim() : null;
 	const temperature = typeof fm.temperature === 'number' ? fm.temperature : undefined;
 	const maxTokens = typeof fm.max_tokens === 'number' ? fm.max_tokens : 2048;
+	// Zufallsstartwert: eine ganze Zahl ab 0 (die Spanne des Kits, `RANGES.seed`). Fehlt das Feld, gibt es keinen; alles andere ist ein Fehler, kein stilles Weglassen.
+	const agentSeed = fm.seed;
+	if (agentSeed !== undefined && !(typeof agentSeed === 'number' && Number.isSafeInteger(agentSeed) && agentSeed >= 0)) {
+		err('seed', `'${show(agentSeed)}' (erwartet ganze Zahl ab 0)`);
+	}
 	const thinkingRaw = fm.thinking;
 	const thinking = thinkingRaw === 'on' || thinkingRaw === 'off' || thinkingRaw === 'auto' ? thinkingRaw : 'auto';
 	if (thinkingRaw !== undefined && thinking !== thinkingRaw) err('thinking', `'${show(thinkingRaw)}' (erwartet auto|on|off)`);
@@ -372,6 +377,7 @@ export function parseAgentDef(path: string, fm: Record<string, unknown> | null, 
 		ok: true,
 		value: {
 			id: slugFromPath(path), name: name ?? '', model, ...(temperature !== undefined ? { temperature } : {}),
+			...(typeof agentSeed === 'number' ? { seed: agentSeed } : {}),
 			maxTokens, thinking, systemPrompt,
 		},
 	};

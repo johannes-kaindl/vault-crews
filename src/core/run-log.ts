@@ -61,6 +61,7 @@ function taskSection(rec: TaskRecord): string[] {
   const lines: string[] = [`## ${rec.taskId}`, '', `- Status: ${rec.status}`, `- Dauer: ${((rec.endedAt - rec.startedAt) / 1000).toFixed(1)} s`];
   if (rec.model !== null) lines.push(`- Modell: ${rec.model}`);
   if (rec.promptHash !== null) lines.push(`- Prompt-Hash: ${rec.promptHash}`);
+  if (rec.seed !== undefined) lines.push(rec.seedSent === false ? `- Seed: ${rec.seed} (nicht gesendet: dieses Backend nimmt keinen Seed an)` : `- Seed: ${rec.seed}`);
   if (rec.thinkTokens > 0) lines.push(`- Think-Tokens: ${rec.thinkTokens}`);
   if (rec.collected !== undefined) {
     lines.push(rec.collected.count === 0

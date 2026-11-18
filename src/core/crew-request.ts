@@ -3,7 +3,7 @@
  *  `resolveRequestParams` direkt — sonst prüfte der Test das Kit statt das Plugin.
  *
  *  Reihenfolge der Quellen, von oben nach unten wirksam:
- *    1. Persona-Frontmatter (`temperature`, `max_tokens`, `thinking`) — die Persona ist der
+ *    1. Persona-Frontmatter (`temperature`, `seed`, `max_tokens`, `thinking`) — die Persona ist der
  *       bewusste Eingriff für genau diesen Agenten;
  *    2. Plugin-Überschreibung je Modus × Modellfamilie (Abschnitt „Anfrage");
  *    3. Profil-Tabelle des Kits (Modus `structured`: Temperatur 0.1, Denken aus).
@@ -38,7 +38,7 @@ export function thinkingLevelFor(agent: Pick<AgentDef, 'thinking'>, settings: Re
 export function buildCrewParams(input: {
 	family: FamilyId | null;
 	backend: BackendId;
-	agent: Pick<AgentDef, 'temperature' | 'maxTokens' | 'thinking'>;
+	agent: Pick<AgentDef, 'temperature' | 'maxTokens' | 'thinking' | 'seed'>;
 	settings: RequestSettings;
 	model?: string;
 }): { params: Record<string, number | string>; thinkingLevel: ThinkingLevel } {
@@ -49,6 +49,7 @@ export function buildCrewParams(input: {
 	const overrides: Partial<Record<FieldId, number | string>> = {
 		...fromPlugin,
 		...(input.agent.temperature !== undefined ? { temperature: input.agent.temperature } : {}),
+		...(input.agent.seed !== undefined ? { seed: input.agent.seed } : {}),
 	};
 	const { params } = resolveRequestParams({
 		family: input.family, mode: MODE, backend: input.backend, thinking: thinkingLevel,

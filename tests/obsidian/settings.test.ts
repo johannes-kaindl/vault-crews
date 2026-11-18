@@ -546,6 +546,16 @@ describe("SettingsTab — Abschnitt „Request“ (Modus structured)", () => {
     expect(joined).toContain("Last request");
   });
 
+  it("zeigt die Zeile „Zufallsstartwert (seed)“ des Kits (obsidian-kit 0.97.0), in Englisch und Deutsch", () => {
+    const texts = captureSettingTexts();
+    new SettingsTab(makeFakePlugin(), makeFakeHost()).display();
+    expect(texts.join(" | ")).toContain("Random seed (seed)");
+    setLang("de");
+    const de = captureSettingTexts();
+    new SettingsTab(makeFakePlugin(), makeFakeHost()).display();
+    expect(de.join(" | ")).toContain("Zufallsstartwert (seed)");
+  });
+
   it("zeigt die Denkstufe, wenn Familie und Backend Stufen kennen (Qwen auf LM Studio: aus, niedrig, mittel, hoch)", () => {
     const host = makeFakeHost({
       requestSectionState: () => ({
