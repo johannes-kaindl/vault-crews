@@ -32,8 +32,11 @@ import { mergeSettings } from "./vendor/kit/settings";
 import { sanitizeChoice } from "./vendor/kit/endpoint-source";
 import { registerI18n } from "./i18n/strings";
 import {
+  clampNumberSetting,
   DEFAULT_SETTINGS,
+  NUMBER_SETTING_MIN,
   SettingsTab,
+  type NumberSettingKey,
   type PluginSettings,
   type SettingsHost,
 } from "./obsidian/settings";
@@ -234,6 +237,12 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     // Dasselbe für das gestrichene `verboseLogging` (ohne Leser, Welle 22).
     delete (this.settings as unknown as Record<string, unknown>).verboseLogging;
     this.settings.choice = sanitizeChoice(this.settings.choice);
+    // Zahlenfelder wie in `setControlValue`: zu kleine Werte (auch 0 und negative aus einer handeditierten oder alten data.json)
+    // werden auf die Untergrenze gehoben, Kommazahlen abgeschnitten; NaN, Text, null oder ein fehlender Wert ergeben den Standard.
+    for (const key of Object.keys(NUMBER_SETTING_MIN) as NumberSettingKey[]) {
+      const stored = raw?.[key];
+      this.settings[key] = clampNumberSetting(key, typeof stored === "number" ? stored : undefined, DEFAULT_SETTINGS[key]);
+    }
     // Ein Boolean gilt, alles andere (alte data.json ohne den Schlüssel, Müll) fällt auf „an": ein Update schaltet keine Anzeige ab.
     this.settings.showStatusBar = statusBarEnabled(raw?.showStatusBar);
     // Die gespeicherten Anfrage-Einstellungen sind handeditierbar: was die Prüfung nicht besteht,

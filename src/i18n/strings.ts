@@ -92,7 +92,7 @@ export const EN: Record<string, string> = {
   "settings.safety.heading": "Safety",
   "settings.safety.maxWrites.name": "Max writes per run",
   "settings.safety.maxWrites.desc":
-    "Plugin-wide maximum number of files a single run may write. Teams may set a lower limit in their own file, but never a higher one.",
+    "Plugin-wide maximum number of files a single run may write. Teams may set a lower limit in their own file, but never a higher one. 0 stops all crews from writing.",
   "settings.safety.wallClockMinutes.name": "Wall-clock limit (minutes)",
   "settings.safety.wallClockMinutes.desc":
     "Plugin-wide maximum runtime for a single run. The run is aborted once this is exceeded, regardless of the team file.",
@@ -383,7 +383,7 @@ export const DE: Record<string, string> = {
   "settings.safety.heading": "Sicherheit",
   "settings.safety.maxWrites.name": "Max. Schreibvorgänge pro Lauf",
   "settings.safety.maxWrites.desc":
-    "Plugin-weites Höchstlimit für Dateien, die ein einzelner Lauf schreiben darf. Teams dürfen in ihrer eigenen Datei ein niedrigeres Limit setzen, aber nie ein höheres.",
+    "Plugin-weites Höchstlimit für Dateien, die ein einzelner Lauf schreiben darf. Teams dürfen in ihrer eigenen Datei ein niedrigeres Limit setzen, aber nie ein höheres. 0 stoppt das Schreiben aller Crews.",
   "settings.safety.wallClockMinutes.name": "Zeitlimit (Minuten)",
   "settings.safety.wallClockMinutes.desc":
     "Plugin-weite Höchstlaufzeit für einen einzelnen Lauf. Der Lauf wird abgebrochen, sobald sie überschritten ist — unabhängig von der Team-Datei.",

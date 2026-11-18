@@ -144,11 +144,11 @@ Writing your own teams and agents is plain Markdown in the vault — see
 | **Request** | (profile) | What a run sends with each model call: sampling values (temperature, top_p, top_k, …) and the thinking level, from a profile table per model family and backend. Collapsed section; shows what is sent and what has an effect on your backend, takes your own values per model family, lists the last request and any deviations seen this session. Values in an agent note override it for that agent. The row "Level picker in chat" has no effect in Vault Crews |
 | **Crew root folder** | `_crews` | Vault-relative folder holding agents, teams and run logs |
 | **Hide crew folder in the file explorer** | off | Purely cosmetic: the crew root disappears from the explorer, its notes stay in the vault |
-| **Max writes per run** | 10 | Plugin-wide cap; a team's own `max_writes` can only be lower |
-| **Wall-clock limit** | 10 minutes | Aborts a runaway run, leaving its partial writes snapshotted and undoable |
-| **Undo history depth** | 15 | How many run snapshots of the current day are kept. Older days thin out: one snapshot per day for a week, then per week (4 weeks) and per month (6 months), none after that |
-| **Call timeout** | 300 s | Hard limit per model call — generous, because just-in-time model loading takes a while |
-| **Stall timeout** | 60 s | Aborts if no new token arrives; only checked after the first data chunk, so loading is never mistaken for a stall |
+| **Max writes per run** | 10 | Plugin-wide cap; a team's own `max_writes` can only be lower. 0 stops all crews from writing |
+| **Wall-clock limit** | 10 minutes | Aborts a runaway run, leaving its partial writes snapshotted and undoable. At least 1 |
+| **Undo history depth** | 15 | At least 1. How many run snapshots of the current day are kept. Older days thin out: one snapshot per day for a week, then per week (4 weeks) and per month (6 months), none after that |
+| **Call timeout** | 300 s | Hard limit per model call — generous, because just-in-time model loading takes a while. At least 10 s |
+| **Stall timeout** | 60 s | Aborts if no new token arrives; only checked after the first data chunk, so loading is never mistaken for a stall. At least 5 s |
 
 If the **LLM Endpoint Manager** plugin is installed, the endpoint (and its API key and model) comes from there and the settings show the manager's picker instead of the list above; without it, the list above is used as before.
 

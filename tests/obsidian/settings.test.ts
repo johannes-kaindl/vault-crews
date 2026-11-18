@@ -22,11 +22,13 @@ import {
 } from "../__mocks__/obsidian";
 import type { Plugin } from "obsidian";
 import { registerI18n } from "../../src/i18n/strings";
-import { setLang } from "../../src/vendor/kit/i18n";
+import { setLang, t } from "../../src/vendor/kit/i18n";
 import {
   DEFAULT_SETTINGS,
   endpointStrings,
+  NUMBER_SETTING_MIN,
   SettingsTab,
+  type NumberSettingKey,
   type PluginSettings,
   type SettingsHost,
 } from "../../src/obsidian/settings";
@@ -418,6 +420,65 @@ describe("Crew-Ordner im Datei-Explorer ausblenden", () => {
     expect(host.settings.hideCrewFolder).toBe(true);
     expect(tab.getControlValue("hideCrewFolder")).toBe(true);
     expect(host.saveSettings).toHaveBeenCalled();
+  });
+});
+
+describe("Zahlenfelder — Untergrenzen in setControlValue (Welle 36)", () => {
+  // Grenze je Feld. maxWrites = 0 ist ein gewollter Schreibstopp (Parser und Executor kennen ihn), alle anderen
+  // Felder verlieren mit 0 ihren Sinn (Zeitlimit 0 beendete jeden Lauf vor dem ersten Schritt).
+  const FELDER: Array<{ key: NumberSettingKey; min: number; standard: number }> = [
+    { key: "wallClockMinutes", min: 1, standard: 10 },
+    { key: "callTimeoutS", min: 10, standard: 300 },
+    { key: "stallTimeoutS", min: 5, standard: 60 },
+    { key: "maxWrites", min: 0, standard: 10 },
+    { key: "undoHistoryDepth", min: 1, standard: 15 },
+  ];
+  const setze = (key: NumberSettingKey, value: unknown): { wert: unknown; host: SettingsHost } => {
+    const host = makeFakeHost();
+    const tab = new SettingsTab(makeFakePlugin(), host);
+    tab.setControlValue(key, value);
+    return { wert: host.settings[key], host };
+  };
+
+  for (const { key, min, standard } of FELDER) {
+    it(`${key}: 0 ergibt ${min}`, () => {
+      expect(setze(key, 0).wert).toBe(min);
+    });
+    it(`${key}: -5 ergibt ${min}`, () => {
+      expect(setze(key, -5).wert).toBe(min);
+    });
+    it(`${key}: ein Wert unter der Grenze (${min - 1}) ergibt ${min}, die Grenze selbst bleibt`, () => {
+      expect(setze(key, min).wert).toBe(min);
+      if (min > 0) expect(setze(key, min - 1).wert).toBe(min);
+    });
+    it(`${key}: ein Wert über der Grenze bleibt stehen, Kommazahl und Text wie bisher (abschneiden, bisherigen Wert behalten)`, () => {
+      expect(setze(key, min + 7).wert).toBe(min + 7);
+      expect(setze(key, min + 7.9).wert).toBe(min + 7);
+      expect(setze(key, Number.NaN).wert).toBe(standard);
+      expect(setze(key, "abc").wert).toBe(standard);
+      expect(setze(key, "").wert).toBe(standard);
+    });
+    it(`${key}: ein geklemmter Wert wird gespeichert`, () => {
+      const { host } = setze(key, -5);
+      expect(host.saveSettings).toHaveBeenCalled();
+    });
+  }
+
+  it("Standardwerte liegen auf oder über ihrer Grenze", () => {
+    for (const { key, min, standard } of FELDER) {
+      expect(DEFAULT_SETTINGS[key], key).toBe(standard);
+      expect(standard).toBeGreaterThanOrEqual(min);
+      expect(NUMBER_SETTING_MIN[key]).toBe(min);
+    }
+  });
+});
+
+describe("Schreibgrenze: Beschreibung nennt den Schreibstopp bei 0 (Welle 36)", () => {
+  it("steht in Englisch und Deutsch in der Beschreibung", () => {
+    setLang("en");
+    expect(t("settings.safety.maxWrites.desc")).toMatch(/0 .*(stops|blocks).*all crews/i);
+    setLang("de");
+    expect(t("settings.safety.maxWrites.desc")).toMatch(/0 .*(stoppt|sperrt).*alle(r)? Crews/i);
   });
 });
 

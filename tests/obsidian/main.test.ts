@@ -338,6 +338,49 @@ describe("VaultCrewsPlugin.loadSettings — Migration", () => {
   });
 });
 
+describe("VaultCrewsPlugin.loadSettings — Untergrenzen der Zahlenfelder (Welle 36)", () => {
+  // Beim Laden wird geklemmt wie in setControlValue; nur NaN, Text oder ein fehlender Wert ergeben den Standard.
+  const FELDER: Array<{ key: string; min: number; standard: number }> = [
+    { key: "wallClockMinutes", min: 1, standard: 10 },
+    { key: "callTimeoutS", min: 10, standard: 300 },
+    { key: "stallTimeoutS", min: 5, standard: 60 },
+    { key: "maxWrites", min: 0, standard: 10 },
+    { key: "undoHistoryDepth", min: 1, standard: 15 },
+  ];
+  const lade = async (data: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const plugin = makePlugin();
+    (plugin as unknown as { loadData(): Promise<unknown> }).loadData = () => Promise.resolve(data);
+    await plugin.loadSettings();
+    return (plugin as unknown as { settings: Record<string, unknown> }).settings;
+  };
+
+  for (const { key, min, standard } of FELDER) {
+    it(`${key}: -5 aus der data.json wird auf ${min} geklemmt`, async () => {
+      expect((await lade({ [key]: -5 }))[key]).toBe(min);
+    });
+    it(`${key}: 0 ergibt ${min}`, async () => {
+      expect((await lade({ [key]: 0 }))[key]).toBe(min);
+    });
+    it(`${key}: Text und NaN ergeben den Standard ${standard}`, async () => {
+      expect((await lade({ [key]: "abc" }))[key]).toBe(standard);
+      expect((await lade({ [key]: Number.NaN }))[key]).toBe(standard);
+      expect((await lade({ [key]: null }))[key]).toBe(standard);
+    });
+    it(`${key}: 2.7 wird wie in setControlValue abgeschnitten, dann geklemmt`, async () => {
+      expect((await lade({ [key]: 2.7 }))[key]).toBe(Math.max(min, 2));
+    });
+    it(`${key}: fehlender Wert ergibt den Standard, ein gültiger Wert bleibt`, async () => {
+      expect((await lade({}))[key]).toBe(standard);
+      expect((await lade({ [key]: min + 3 }))[key]).toBe(min + 3);
+    });
+  }
+
+  it("maxWrites 0 bleibt 0 (gewollter Schreibstopp), negative Werte werden 0", async () => {
+    expect((await lade({ maxWrites: 0 })).maxWrites).toBe(0);
+    expect((await lade({ maxWrites: -1 })).maxWrites).toBe(0);
+  });
+});
+
 describe("VaultCrewsPlugin — Statusleiste (Welle 34)", () => {
   type Handle = { shown: boolean; el: { textContent?: string } | null };
   const item = (p: VaultCrewsPlugin): Handle => (p as unknown as { statusItem: Handle }).statusItem;

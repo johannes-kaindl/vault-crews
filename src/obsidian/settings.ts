@@ -1,5 +1,6 @@
 import { PluginSettingTab, Setting, type Plugin, type SettingDefinitionItem, type SettingDefinitionRender } from "obsidian";
 import { getLang, t } from "../vendor/kit/i18n";
+import { clampInt } from "../vendor/kit/num";
 import { ENDPOINT_PRESETS, type EndpointStatus } from "../vendor/kit/endpoint_diagnostics";
 import { parseEndpointList } from "../vendor/kit/endpoint";
 import type { EndpointConfig } from "../vendor/kit/endpoint_config";
@@ -63,6 +64,26 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   stallTimeoutS: 60,
   undoHistoryDepth: 15,
 };
+
+/** Untergrenze je Zahlenfeld. `maxWrites` darf 0 sein: der Parser lässt `max_writes ≥ 0` zu und der Executor weist bei 0 jeden
+ *  Schreibvorgang ab, also ein gewollter globaler Schreibstopp. Bei den anderen Feldern machte 0 (oder darunter) den Lauf unbrauchbar:
+ *  ein Zeitlimit von 0 beendete jeden Lauf vor dem ersten Schritt. */
+export const NUMBER_SETTING_MIN = {
+  maxWrites: 0,
+  wallClockMinutes: 1,
+  callTimeoutS: 10,
+  stallTimeoutS: 5,
+  undoHistoryDepth: 1,
+} as const;
+
+export type NumberSettingKey = keyof typeof NUMBER_SETTING_MIN;
+
+/** Ganzzahl für ein Zahlenfeld: Kommazahlen werden abgeschnitten, zu kleine Werte auf die Untergrenze gehoben; NaN, Text ohne Zahl und
+ *  alles, was keine Zahl oder Zeichenkette ist, ergibt `fallback`. Die Kit-Funktion `clampInt` trägt die Semantik; hier steht nur die Grenze je Feld. */
+export function clampNumberSetting(key: NumberSettingKey, value: unknown, fallback: number): number {
+  if (typeof value !== "number" && typeof value !== "string") return fallback;
+  return clampInt(value, NUMBER_SETTING_MIN[key], Number.MAX_SAFE_INTEGER, fallback);
+}
 
 /**
  * Schmaler Vertrag statt eines main.ts-Imports (Entkopplung PROF-OBS: SettingsTab
@@ -363,10 +384,7 @@ export class SettingsTab extends PluginSettingTab {
     // Der Walker reicht bei `number` ein rohes `Number(v)` durch — bei leerem oder
     // unfertigem Feld ist das `NaN`. Auf den bisherigen Wert zurückfallen, sonst
     // überschreibt jeder Zwischenzustand beim Tippen die Einstellung.
-    const asInt = (fallback: number): number => {
-      const parsed = Number.parseInt(String(value), 10);
-      return Number.isFinite(parsed) ? parsed : fallback;
-    };
+    const asInt = (key: NumberSettingKey): number => clampNumberSetting(key, typeof value === "number" ? value : String(value), s[key]);
     switch (key) {
       case "crewRoot":
         s.crewRoot = String(value);
@@ -378,20 +396,20 @@ export class SettingsTab extends PluginSettingTab {
         s.showStatusBar = Boolean(value);
         break;
       case "maxWrites":
-        s.maxWrites = asInt(s.maxWrites);
+        s.maxWrites = asInt("maxWrites");
         break;
       case "wallClockMinutes":
-        s.wallClockMinutes = asInt(s.wallClockMinutes);
+        s.wallClockMinutes = asInt("wallClockMinutes");
         break;
       case "undoHistoryDepth":
         // Mindestens 1 aufheben (0 würde jeden Snapshot sofort wegprunen).
-        s.undoHistoryDepth = Math.max(1, asInt(s.undoHistoryDepth));
+        s.undoHistoryDepth = asInt("undoHistoryDepth");
         break;
       case "callTimeoutS":
-        s.callTimeoutS = asInt(s.callTimeoutS);
+        s.callTimeoutS = asInt("callTimeoutS");
         break;
       case "stallTimeoutS":
-        s.stallTimeoutS = asInt(s.stallTimeoutS);
+        s.stallTimeoutS = asInt("stallTimeoutS");
         break;
       default:
         return;

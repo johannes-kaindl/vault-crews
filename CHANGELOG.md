@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Number settings have lower limits.** Time limit (minimum 1 minute), call timeout (10 s), stall timeout (5 s) and undo history depth (1) no longer accept 0 or negative values, and the write limit no longer accepts negative values; a time limit of 0 used to end every run before its first step. A value below the limit is raised to it, also when it comes from a saved `data.json`; text and missing values fall back to the default. A write limit of 0 stays allowed and stops all crews from writing (the setting now says so).
+
 ## [0.27.0] — 2026-11-16
 
 ### Added

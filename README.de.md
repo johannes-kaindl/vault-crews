@@ -154,11 +154,11 @@ Eigene Teams und Agenten zu schreiben ist schlichtes Markdown im Vault — siehe
 | **Gesperrte Endpunkte** | `localhost:8080`, `127.0.0.1:8080` | Werden nie kontaktiert — der Standard hält das Plugin von einem Port fern, den andere lokale Modell-Server üblicherweise belegen. Eine Einstellung, nicht fest verdrahtet |
 | **Anfrage** (Request) | (Profil) | Was ein Lauf mit jedem Modellaufruf sendet: Sampling-Werte (temperature, top_p, top_k, …) und die Denkstufe, aus einer Profiltabelle je Modellfamilie und Backend. Eingeklappter Abschnitt; zeigt, was gesendet wird und was davon auf deinem Backend wirkt, nimmt eigene Werte je Modellfamilie an und listet die letzte Anfrage und die Abweichungen dieser Sitzung. Werte in einer Agent-Note gehen für diesen Agenten vor. Die Zeile „Level picker in chat“ hat in Vault Crews keine Wirkung |
 | **Crew-Wurzelordner** | `_crews` | Vault-relativer Ordner mit Agenten, Teams und Lauf-Protokollen |
-| **Max. Schreibvorgänge pro Lauf** | 10 | Plugin-weite Obergrenze; der `max_writes`-Wert eines Teams kann nur darunter liegen |
-| **Wanduhr-Limit** | 10 Minuten | Bricht einen davonlaufenden Lauf ab; seine Teiländerungen bleiben gesichert und rückgängig zu machen |
-| **Tiefe der Undo-Historie** | 15 | Wie viele Lauf-Snapshots aufbewahrt werden, bevor die ältesten wegfallen |
-| **Zeitlimit je Aufruf** | 300 s | Hartes Limit pro Modellaufruf — großzügig, weil das Laden eines Modells auf Zuruf dauern kann |
-| **Stillstands-Limit** | 60 s | Bricht ab, wenn kein neues Token mehr kommt; wird erst nach dem ersten Token geprüft, damit Laden nie als Stillstand missverstanden wird |
+| **Max. Schreibvorgänge pro Lauf** | 10 | Plugin-weite Obergrenze; der `max_writes`-Wert eines Teams kann nur darunter liegen. 0 stoppt das Schreiben aller Crews |
+| **Wanduhr-Limit** | 10 Minuten | Bricht einen davonlaufenden Lauf ab; seine Teiländerungen bleiben gesichert und rückgängig zu machen. Mindestens 1 |
+| **Tiefe der Undo-Historie** | 15 | Mindestens 1. Wie viele Lauf-Snapshots aufbewahrt werden, bevor die ältesten wegfallen |
+| **Zeitlimit je Aufruf** | 300 s | Hartes Limit pro Modellaufruf — großzügig, weil das Laden eines Modells auf Zuruf dauern kann. Mindestens 10 s |
+| **Stillstands-Limit** | 60 s | Bricht ab, wenn kein neues Token mehr kommt; wird erst nach dem ersten Token geprüft, damit Laden nie als Stillstand missverstanden wird. Mindestens 5 s |
 | **Ausführliches Logging** | aus | Reserviert — die Einstellung wird gespeichert, aber noch von nichts gelesen (siehe V1-Grenzen) |
 
 Änderungen an Endpunkten und Zeitlimits wirken mit dem nächsten Lauf; ein Neuladen des Plugins ist nicht nötig.
