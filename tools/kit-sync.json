@@ -50,7 +50,8 @@
         "folder-scope",
         "fold-case",
         "answer-retry",
-        "filename-policy"
+        "filename-policy",
+        "num"
       ]
     },
     {
