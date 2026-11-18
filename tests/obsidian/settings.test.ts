@@ -27,6 +27,7 @@ import {
   DEFAULT_SETTINGS,
   endpointStrings,
   NUMBER_SETTING_MIN,
+  clampNumberSetting,
   SettingsTab,
   type NumberSettingKey,
   type PluginSettings,
@@ -463,6 +464,19 @@ describe("Zahlenfelder — Untergrenzen in setControlValue (Welle 36)", () => {
       expect(host.saveSettings).toHaveBeenCalled();
     });
   }
+
+  // Über rund 24,8 Tagen (2^31 ms) feuert setTimeout sofort: die Fristen haben eine Obergrenze.
+  for (const key of ["callTimeoutS", "stallTimeoutS"] as const) {
+    it(`${key}: Obergrenze 86400 beim Setzen`, () => {
+      expect(setze(key, 86400).wert).toBe(86400);
+      expect(setze(key, 86401).wert).toBe(86400);
+      expect(setze(key, 10 ** 9).wert).toBe(86400);
+    });
+  }
+  it("Felder ohne Obergrenze bleiben ohne (wallClockMinutes, maxWrites, undoHistoryDepth)", () => {
+    expect(setze("wallClockMinutes", 100000).wert).toBe(100000);
+    expect(clampNumberSetting("maxWrites", 10 ** 6, 10)).toBe(10 ** 6);
+  });
 
   it("Standardwerte liegen auf oder über ihrer Grenze", () => {
     for (const { key, min, standard } of FELDER) {

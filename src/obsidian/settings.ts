@@ -78,11 +78,23 @@ export const NUMBER_SETTING_MIN = {
 
 export type NumberSettingKey = keyof typeof NUMBER_SETTING_MIN;
 
-/** Ganzzahl für ein Zahlenfeld: Kommazahlen werden abgeschnitten, zu kleine Werte auf die Untergrenze gehoben; NaN, Text ohne Zahl und
+/** Obergrenze der Fristen: `setTimeout` feuert ab 2^31 ms (rund 24,8 Tage) sofort, eine größere Frist wäre keine. 86400 s = ein Tag. Die anderen Felder haben keine. */
+export const NUMBER_SETTING_MAX: Partial<Record<NumberSettingKey, number>> = {
+  callTimeoutS: 86400,
+  stallTimeoutS: 86400,
+};
+
+/** Das `number`-Control eines Feldes mit seinen Grenzen: der Walker (Fallback) und der native Renderer zeigen sie im Feld und klemmen danach. */
+function numberControl(key: NumberSettingKey): { type: "number"; key: NumberSettingKey; min: number; max?: number } {
+  const max = NUMBER_SETTING_MAX[key];
+  return max === undefined ? { type: "number", key, min: NUMBER_SETTING_MIN[key] } : { type: "number", key, min: NUMBER_SETTING_MIN[key], max };
+}
+
+/** Ganzzahl für ein Zahlenfeld: Kommazahlen werden abgeschnitten, zu kleine Werte auf die Untergrenze gehoben, zu große (nur die Fristen) auf die Obergrenze gesenkt; NaN, Text ohne Zahl und
  *  alles, was keine Zahl oder Zeichenkette ist, ergibt `fallback`. Die Kit-Funktion `clampInt` trägt die Semantik; hier steht nur die Grenze je Feld. */
 export function clampNumberSetting(key: NumberSettingKey, value: unknown, fallback: number): number {
   if (typeof value !== "number" && typeof value !== "string") return fallback;
-  return clampInt(value, NUMBER_SETTING_MIN[key], Number.MAX_SAFE_INTEGER, fallback);
+  return clampInt(value, NUMBER_SETTING_MIN[key], NUMBER_SETTING_MAX[key] ?? Number.MAX_SAFE_INTEGER, fallback);
 }
 
 /**
@@ -303,17 +315,17 @@ export class SettingsTab extends PluginSettingTab {
           {
             name: t("settings.safety.maxWrites.name"),
             desc: t("settings.safety.maxWrites.desc"),
-            control: { type: "number", key: "maxWrites" },
+            control: numberControl("maxWrites"),
           },
           {
             name: t("settings.safety.wallClockMinutes.name"),
             desc: t("settings.safety.wallClockMinutes.desc"),
-            control: { type: "number", key: "wallClockMinutes" },
+            control: numberControl("wallClockMinutes"),
           },
           {
             name: t("settings.safety.undoHistoryDepth.name"),
             desc: t("settings.safety.undoHistoryDepth.desc"),
-            control: { type: "number", key: "undoHistoryDepth" },
+            control: numberControl("undoHistoryDepth"),
           },
         ],
       },
@@ -324,12 +336,12 @@ export class SettingsTab extends PluginSettingTab {
           {
             name: t("settings.advanced.callTimeoutS.name"),
             desc: t("settings.advanced.callTimeoutS.desc"),
-            control: { type: "number", key: "callTimeoutS" },
+            control: numberControl("callTimeoutS"),
           },
           {
             name: t("settings.advanced.stallTimeoutS.name"),
             desc: t("settings.advanced.stallTimeoutS.desc"),
-            control: { type: "number", key: "stallTimeoutS" },
+            control: numberControl("stallTimeoutS"),
           },
         ],
       },

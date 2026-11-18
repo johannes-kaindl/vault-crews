@@ -14,6 +14,8 @@ import { registerI18n } from "../../src/i18n/strings";
 import { setLang } from "../../src/vendor/kit/i18n";
 import {
   DEFAULT_SETTINGS,
+  NUMBER_SETTING_MIN,
+  type NumberSettingKey,
   SettingsTab,
   type PluginSettings,
   type SettingsHost,
@@ -113,6 +115,18 @@ describe("SettingsTab.getSettingDefinitions()", () => {
     expect(controls.length).toBeGreaterThan(0);
     for (const c of controls) {
       expect(tab.getControlValue(c.key), `getControlValue kennt "${c.key}" nicht`).toBeDefined();
+    }
+  });
+
+  it("Zahlenfelder tragen ihre Grenzen im Control (min aus NUMBER_SETTING_MIN, max 86400 bei den Fristen)", () => {
+    const controls = flatten(makeTab().getSettingDefinitions() as unknown as AnyItem[])
+      .map((it) => it.control)
+      .filter((c): c is { type: string; key: string; min?: number; max?: number } => c !== undefined && c.type === "number");
+    expect(controls.map((c) => c.key).sort()).toEqual(Object.keys(NUMBER_SETTING_MIN).sort());
+    for (const c of controls) {
+      expect(c.min, c.key).toBe(NUMBER_SETTING_MIN[c.key as NumberSettingKey]);
+      const max = c.key === "callTimeoutS" || c.key === "stallTimeoutS" ? 86400 : undefined;
+      expect(c.max, c.key).toBe(max);
     }
   });
 

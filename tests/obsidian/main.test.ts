@@ -375,6 +375,12 @@ describe("VaultCrewsPlugin.loadSettings — Untergrenzen der Zahlenfelder (Welle
     });
   }
 
+  it("callTimeoutS und stallTimeoutS werden beim Laden auf 86400 begrenzt (setTimeout feuert über 2^31 ms sofort)", async () => {
+    expect((await lade({ callTimeoutS: 10 ** 9 })).callTimeoutS).toBe(86400);
+    expect((await lade({ stallTimeoutS: 86401 })).stallTimeoutS).toBe(86400);
+    expect((await lade({ stallTimeoutS: 86400 })).stallTimeoutS).toBe(86400);
+  });
+
   it("maxWrites 0 bleibt 0 (gewollter Schreibstopp), negative Werte werden 0", async () => {
     expect((await lade({ maxWrites: 0 })).maxWrites).toBe(0);
     expect((await lade({ maxWrites: -1 })).maxWrites).toBe(0);
