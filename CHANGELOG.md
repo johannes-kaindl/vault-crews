@@ -6,9 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`seed` in the agent note.** A whole number from 0 up (anything else is an error in the agent note, named by field). It is an override like `temperature`: the persona wins over the setting in **Request**. The run log shows `- Seed: 42` per model step (`state.json` carries `seed` and `seedSent`). Only some servers honour it: Open WebUI does; LM Studio ignores it (measured by the library) and the other backends are not measured, so there the plugin does not send it and the run log says `not sent`.
+- **A row "Random seed (seed)" in the settings section Request** (library: obsidian-kit 0.97.0, code-kit 0.77.0). The field can be edited where the backend uses the seed (Open WebUI today) and is shown locked on LM Studio.
+
+### Changed
+
+- **`top_p` accepts values from 0.01** on Open WebUI, OpenAI, Anthropic and unknown servers (was 0.1); on LM Studio and Ollama the minimum stays 0.1, a smaller value is not sent and the row says so.
+- **The endpoint choice "Automatic" now shows (and binds) the endpoint the LLM Endpoint Manager resolves** (the first reachable, enabled one), not the first entry of its list. The model row is filled once the manager has answered, and opening the settings makes the manager probe its endpoints.
+- **Number settings show their limits in the field** (`min`, and `max` 86400 s = one day for call and stall timeout; above about 24.8 days a timer fires at once). In Obsidian before 1.13 an empty or half-typed field no longer saves 0.
+- Library update to obsidian-kit 0.97.0 and code-kit 0.77.0 (was 0.92.0 and 0.73.0). Text-field and list rows of the endpoint editor align left in a narrow window.
+
 ### Fixed
 
 - **Number settings have lower limits.** Time limit (minimum 1 minute), call timeout (10 s), stall timeout (5 s) and undo history depth (1) no longer accept 0 or negative values, and the write limit no longer accepts negative values; a time limit of 0 used to end every run before its first step. A value below the limit is raised to it, also when it comes from a saved `data.json`; text and missing values fall back to the default. A write limit of 0 stays allowed and stops all crews from writing (the setting now says so).
+- **The fixed frontmatter of `notes.create` may contain list items with commas, brackets, braces and empty entries** (`tags: ['a, b', 'x]', '']`). Such lists used to be rejected when the crew was read, because the library wrote broken YAML for them; it now quotes them, and the written note reads back unchanged.
 
 ## [0.27.0] — 2026-11-16
 
