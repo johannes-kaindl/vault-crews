@@ -47,6 +47,7 @@ import { startLlmStub, type LlmStub } from "../../tools/obsidian-cdp/llm-stub.js
 
 import {
   attachTo,
+  bereiteInstanzVor,
   Cdp,
   clearNotices,
   closeExtraLeaves,
@@ -555,6 +556,11 @@ async function main(): Promise<void> {
   // auf das VERBUNDENE Fenster. Ein `osascript … activate` holte stattdessen die reguelaere Instanz
   // nach vorn (Befund kl-w19).
   await requireVisible(cdp);
+
+  // Frisches Profil: Vertrauensdialog bestätigen, Restricted Mode aufheben, Plugin laden, Aufnahmesprache setzen. Ohne den Aufruf zeigt jedes Bild
+  // den Vertrauensdialog, und das Plugin fehlt im Renderer (Brücke README § Frisches Profil vorbereiten).
+  const vor = await bereiteInstanzVor(cdp, { pluginIds: [PLUGIN_ID], nurVault: argOf("vault", "") || REPO_NAME, sprache: "en" });
+  console.log(`Instanz: ${vor.hinweis}`);
 
   const sprache = await cdp.evaluate<string>(
     `return document.documentElement.lang || (window.localStorage && localStorage.getItem("language")) || "en";`,
