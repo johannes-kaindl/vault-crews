@@ -173,14 +173,7 @@ function parseNotesCreate(
 				} else if (oneLine(value) || (typeof value === 'number' && Number.isFinite(value))) {
 					frontmatter[key] = value;
 				} else if (Array.isArray(value) && value.every(oneLine)) {
-					// Der Kit-Serializer schreibt Listen im Flow-Stil (`[a, b]`) und quotet weder `]` noch den leeren Text: solche Elemente ergäben kaputtes YAML.
-					const bad = value.find((el) => el === '' || /[[\]{},]/.test(el));
-					if (bad !== undefined) {
-						err(f, `Listenelement '${show(bad)}' ungültig (nicht leer, ohne [ ] { } , im Element)`);
-						ok = false;
-					} else {
-						frontmatter[key] = [...value];
-					}
+					frontmatter[key] = [...value];
 				} else {
 					err(f, `'${show(value)}' (erwartet einzeiligen Text, Zahl oder Liste von einzeiligen Texten)`);
 					ok = false;

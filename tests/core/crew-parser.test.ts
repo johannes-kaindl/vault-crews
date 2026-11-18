@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { parse as parseYaml } from 'yaml';
+import { parseFrontmatter, serializeFrontmatter } from '../../src/vendor/kit/frontmatter';
 import { parseAgentDef, parseTeamDef } from '../../src/core/crew-parser';
 import { buildDenylist } from '../../src/core/paths';
 import type { RunLimits } from '../../src/core/types';
@@ -447,10 +449,24 @@ describe('output: block (schema families)', () => {
 			expect((r.value.tasks[1] as { output: unknown }).output).toEqual({ family: 'notes.create', folder: '10_Aufgaben', maxItems: 50, frontmatter: {}, linkSource: null });
 		});
 
-		it.each([['x]'], [''], ['a, b'], ['[a'], ['{a'], ['a}']])('lehnt das Listenelement %j im festen Frontmatter ab (der Kit-Serializer schriebe kaputtes YAML)', (el) => {
-			const r = parse({ ...NC, frontmatter: { tags: ['ok', el] } });
-			expect(r.ok).toBe(false);
-			expect(errs(r)).toMatch(/output\.frontmatter\.tags/);
+		it('nimmt Listenelemente mit Komma, Klammern und leere Einträge im festen Frontmatter an; die Datei liest sich unverändert zurück (obsidian-kit 0.96.0)', () => {
+			const tags = ['a, b', 'x]', '', '[a', '{a', 'a}', 'ok'];
+			const r = parse({ ...NC, frontmatter: { tags } });
+			expect(r.ok, errs(r)).toBe(true);
+			if (!r.ok) return;
+			const out = (r.value.tasks[1] as { output: { frontmatter: Record<string, string | number | string[]> } }).output;
+			expect(out.frontmatter.tags).toEqual(tags);
+			// So schreibt makeNotesCreate den Kopf der neuen Notiz: derselbe Serializer, gelesen von zwei Lesern.
+			const head = serializeFrontmatter(out.frontmatter, Object.keys(out.frontmatter));
+			expect(parseFrontmatter(head).data.tags).toEqual(tags);
+			expect(parseYaml(head.replace(/^---\n/, '').replace(/---\n?$/, '')).tags).toEqual(tags);
+		});
+
+		it('ein Wert mit Zeilenumbruch steht als "a\\nb" im Kopf und liest sich zurück (Kit-Serializer; der Parser lässt im festen Frontmatter weiter nur einzeilige Texte zu)', () => {
+			const head = serializeFrontmatter({ titel: 'a\nb', liste: ['c\nd'] }, ['titel', 'liste']);
+			expect(head).toContain('titel: "a\\nb"');
+			expect(parseFrontmatter(head).data).toEqual({ titel: 'a\nb', liste: ['c\nd'] });
+			expect(parseYaml(head.replace(/^---\n/, '').replace(/---\n?$/, ''))).toEqual({ titel: 'a\nb', liste: ['c\nd'] });
 		});
 
 		it('ein Text mit Komma als EINZELWERT bleibt erlaubt (nur Listenelemente sind betroffen)', () => {

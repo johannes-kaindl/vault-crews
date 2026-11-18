@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { parse as parseYaml } from 'yaml';
+import { parseFrontmatter } from '../../src/vendor/kit/frontmatter';
 import { BUILTIN_SCHEMAS, buildSchema, makeFrontmatterSet, makeNoteFile, makeNotesCreate, makeSectionWrite, makeTextAppend } from '../../src/core/schemas';
 import type { SchemaRuntime } from '../../src/core/schemas';
 import type { CollectedFile, OutputSpec, SlugTableData } from '../../src/core/types';
@@ -216,6 +218,14 @@ describe('makeNotesCreate', () => {
 		expect(content).toContain('[[00_Inbox/t]]');
 		expect(content).not.toContain('[[t]]');
 		expect(content.trimEnd().endsWith('Bis Freitag.')).toBe(true);
+	});
+
+	it('die angelegte Notiz liest sich zurück: Listenelemente mit Komma, Klammer und leer, Quelle als Pfadlink (obsidian-kit 0.96.0)', () => {
+		const tags = ['a, b', 'x]', '', 'ok'];
+		const [note] = created([{ title: 'A', body: 'x' }], { ...spec, frontmatter: { tags, titel: 'x, [y]' } });
+		const content = note?.content ?? '';
+		expect(parseFrontmatter(content).data).toMatchObject({ tags, titel: 'x, [y]', quelle: '[[00_Inbox/t]]' });
+		expect(parseYaml(content.split('---\n')[1] ?? '')).toMatchObject({ tags, titel: 'x, [y]', quelle: '[[00_Inbox/t]]' });
 	});
 
 	it('schreibt Frontmatter in der Reihenfolge der Crew-Datei, die Quelle zuletzt', () => {
