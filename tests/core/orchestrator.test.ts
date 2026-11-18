@@ -15,13 +15,17 @@ import { fakeRequestPort, type FakeRequestPort } from '../helpers/fake-request-p
 import { DEFAULT_REQUEST_SETTINGS } from '../../src/vendor/kit/sampling-profiles';
 
 // Schalter für den fail-closed-Wurf der Kit-Schwärzung (siehe Test „Schwärzung wirft“).
-const redactSwitch = vi.hoisted(() => ({ throwAfter: null as number | null, calls: 0 }));
+const redactSwitch = vi.hoisted(() => ({ throwAfter: null as number | null, calls: 0, throwOnString: false }));
 vi.mock('../../src/vendor/kit/redact', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../../src/vendor/kit/redact')>();
   return {
     ...orig,
     redactKeysInValue: ((...args: Parameters<typeof orig.redactKeysInValue>) => {
       redactSwitch.calls++;
+      // Nur Zeichenketten (Rohantwort, Mitschnittzeile) scheitern lassen: der Lauf-Zustand (persist) ist ein Objekt.
+      if (redactSwitch.throwOnString && typeof args[0] === 'string') {
+        throw new TypeError('redactKeysInValue: the value has no JSON form');
+      }
       if (redactSwitch.throwAfter !== null && redactSwitch.calls > redactSwitch.throwAfter) {
         throw new TypeError('redactKeysInValue: the value has no JSON form');
       }
@@ -754,6 +758,30 @@ describe('executeRun — Schwärzung wirft (fail-closed)', () => {
       }
     },
   );
+});
+
+describe('executeRun — Rohantwort der Reparatur-Runde nicht schwärzbar (fail-closed, Welle 36)', () => {
+  it('writeArtifact wirft in der Reparatur-Runde → Lauf endet failed/io (nicht als Task-Fehler), Lock frei, run.md nicht neu geschrieben, genau ein runFinished', async () => {
+    redactSwitch.throwOnString = true;
+    try {
+      const llm = new ScriptLlmClient([{ content: 'kein json' }, { content: TRIAGE_OK }]);
+      const h = await harness({ llm });
+      const result = await executeRun(h.teamPath, h.deps);
+
+      expect(result.status).toBe('failed');
+      expect(result.errorKind).toBe('io');
+      // Die Reparatur lief nicht: die Rohantwort wurde vor dem zweiten Call nicht geschrieben, also gab es keinen zweiten Call.
+      expect(llm.calls).toHaveLength(1);
+      expect(h.reporter.events.filter((e) => e.type === 'runFinished')).toHaveLength(1);
+      const runMd = await h.vault.read(`_crews/runs/${result.runId}/run.md`);
+      expect(runMd).toContain('status: running');   // der letzte persist() vor dem Wurf; danach nichts mehr
+      expect(await h.vault.exists(`_crews/runs/${result.runId}/artifacts/analyse-1.txt`)).toBe(false);
+      const lock = JSON.parse(await h.vault.read('_crews/runs/run-lock.json')) as { active: boolean };
+      expect(lock.active).toBe(false);
+    } finally {
+      redactSwitch.throwOnString = false;
+    }
+  });
 });
 
 describe('executeRun — endpoint failover + preflight crash-safety (review C1)', () => {

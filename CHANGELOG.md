@@ -21,6 +21,7 @@ All notable changes to this project are documented here. The format follows
 ### Fixed
 
 - **Number settings have lower limits.** Time limit (minimum 1 minute), call timeout (10 s), stall timeout (5 s) and undo history depth (1) no longer accept 0 or negative values, and the write limit no longer accepts negative values; a time limit of 0 used to end every run before its first step. A value below the limit is raised to it, also when it comes from a saved `data.json`; text and missing values fall back to the default. A write limit of 0 stays allowed and stops all crews from writing (the setting now says so).
+- **A raw answer that cannot be redacted now ends the run.** When the run folder could not store the invalid answer of a repair round (the redaction of keys failed closed), the failure was turned into an ordinary step error and the run went on; it now ends as `failed` with `io`, like every other output that cannot be redacted, and writes nothing more.
 - **The fixed frontmatter of `notes.create` may contain list items with commas, brackets, braces and empty entries** (`tags: ['a, b', 'x]', '']`). Such lists used to be rejected when the crew was read, because the library wrote broken YAML for them; it now quotes them, and the written note reads back unchanged.
 
 ## [0.27.0] — 2026-11-16

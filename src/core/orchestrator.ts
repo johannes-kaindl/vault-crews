@@ -545,7 +545,7 @@ class RunFsm {
 	}
 
 	/** Ein Modellaufruf samt Prüfung und höchstens einer Reparatur-Runde für die Eingaben `call.inputs`: der Teil von `runLlmTask`
-	 *  ab „Primärer Call“ bis zum geprüften Ergebnis. Wirft nie; ein Fehler kommt als `CallFailure` zurück. */
+	 *  ab „Primärer Call“ bis zum geprüften Ergebnis. Wirft nur `RedactionFailed` (fail-closed, beendet den Lauf); jeder andere Fehler kommt als `CallFailure` zurück. */
 	private async callModel(ctx: LlmCallContext, call: NoteCall): Promise<CallResult> {
 		const { task, rec, agent } = ctx;
 		// Je Aufruf, nicht je Schritt: Zeitpunkt und Notiz gehören zum einzelnen Aufruf (`{{today}}`, Quell-Link bei `per_note`).
@@ -580,6 +580,7 @@ class RunFsm {
 				usedMessages = prompt.messages;
 				result = await this.stream(prompt.messages, params, task.id, check);
 			} catch (e) {
+				if (e instanceof RedactionFailed) throw e;   // fail-closed: der Lauf endet in `run()`, kein Task-Fehler
 				if (e instanceof LlmCallError && e.kind === 'overflow' && !overflowRetried) {
 					overflowRetried = true;
 					continue;
@@ -629,6 +630,7 @@ class RunFsm {
 				stopOnTruncated: true,
 			});
 		} catch (e) {
+			if (e instanceof RedactionFailed) throw e;   // fail-closed (writeArtifact in der Reparatur-Runde): der Lauf endet in `run()`
 			if (e instanceof StreamAborted) return abortedFailure();
 			return fail(llmErrorKind(e), errMsg(e));
 		}
