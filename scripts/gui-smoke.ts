@@ -93,6 +93,7 @@ const P_FOKUS = "Welle 24 — Pflichtpunkt Fokus-Erhalt (Skill gui-smoke-setup �
 const P_ERREICHBAR = "Welle 24 — Pflichtpunkt Erreichbarkeit der Bedienelemente bei wachsendem Ausgabebereich (Skill gui-smoke-setup § 3a)";
 const P_GEMMA = "Welle 23 — Gemma 4 ohne Öffner: der Denktext steht im Denkblock, nicht im Anzeigetext der Antwort";
 const P_KONTROLLE_ABSATZ = "Welle 20 — Folge-Regel (Kontrolle, absatzgroße Stücke): der Strom folgt auch bei Stücken über der Schwelle";
+const P_ZAHL = "Welle 36 — Zahlenfeld Zeitlimit: Eingabe 0 wird auf 1 gehoben, das Feld zeigt nach Schließen und Öffnen 1, data.json trägt 1";
 const N1_PUNKT = "N1 Abschnitt Request ist vorhanden, klappt auf und zeigt die Felder";
 // Welle 27: die nur lesende Modellanzeige je Crew im Lauf-Panel (V-a bis V-f); Welle 28: das Modell des letzten Laufs (V-g, V-h).
 const P_V_ENDE = "Modelle — Abschnitt lief bis zum Ende";
@@ -214,6 +215,7 @@ const PUNKTE = [
   "Welle 15 — der Schlüssel kommt aus dem Schlüsselbund an den Draht (Authorization-Kopf)",
   "Welle 15 — Abschnitt lief bis zum Ende",
   "Keine liegen gebliebene Rettungskopie aus einem abgebrochenen Vorlauf",
+  P_ZAHL,
   N1_PUNKT,
   P_V_ENDE, P_V_A, P_V_B, P_V_C, P_V_D, P_V_E, P_V_F, P_V_G, P_V_H,
   ...SCHREIB_PUNKTE,
@@ -435,6 +437,41 @@ async function abschnittEinstellungen(cdp: Cdp): Promise<void> {
   }
 
   if (ui !== cdp) ui.close();
+}
+
+/** Welle 36: die Untergrenzen der Zahlenfelder gelten im echten Feld. Eingabe 0 im Feld „Wall-clock limit“ (Zeitlimit) wird auf 1 gehoben;
+ *  nach Schließen und Öffnen der Einstellungen zeigt das Feld 1, und die `data.json` auf der Platte trägt 1. Der Ausgangswert wird danach zurückgesetzt. */
+async function abschnittZahlenfeld(cdp: Cdp, dataPfad: string): Promise<void> {
+  const zeile = `[...document.querySelectorAll(".setting-item")].find((z) => /^(Wall-clock limit|Zeitlimit)/.test(z.querySelector(".setting-item-name")?.textContent.trim() ?? ""))`;
+  const vorher = await cdp.evaluate<number>(`return app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.wallClockMinutes;`);
+  try {
+    const ui1 = await einstellungenOeffnen(cdp);
+    if (!ui1) { unmeasured(P_ZAHL, "Einstellungen ließen sich nicht öffnen"); return; }
+    const eingabe = await ui1.evaluate<string>(`
+      const z = ${zeile};
+      const feld = z?.querySelector("input");
+      if (!feld) return "kein Feld Zeitlimit";
+      feld.focus();
+      feld.value = "0";
+      feld.dispatchEvent(new Event("input", { bubbles: true }));
+      feld.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 800));
+      return "ok";`);
+    if (ui1 !== cdp) ui1.close();
+    await schliesseEinstellungen(cdp).catch(() => undefined);
+    if (eingabe !== "ok") { unmeasured(P_ZAHL, eingabe); return; }
+    const ui2 = await einstellungenOeffnen(cdp);
+    if (!ui2) { unmeasured(P_ZAHL, "Einstellungen ließen sich beim zweiten Öffnen nicht öffnen"); return; }
+    const feld = await ui2.evaluate<string | null>(`const z = ${zeile}; const f = z?.querySelector("input"); return f ? f.value : null;`);
+    if (ui2 !== cdp) ui2.close();
+    await schliesseEinstellungen(cdp).catch(() => undefined);
+    const speicher = await cdp.evaluate<number>(`return app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.wallClockMinutes;`);
+    const platte = JSON.parse(readFileSync(dataPfad, "utf8")) as { wallClockMinutes?: unknown };
+    record(P_ZAHL, feld === "1" && speicher === 1 && platte.wallClockMinutes === 1,
+      `Feld nach dem Wiederöffnen: ${JSON.stringify(feld)} · Speicher: ${speicher} · data.json: ${JSON.stringify(platte.wallClockMinutes)} (Ausgangswert ${vorher})`);
+  } finally {
+    await cdp.evaluate(`const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]; p.settings.wallClockMinutes = ${vorher}; await p.saveSettings(); return true;`).catch(() => undefined);
+  }
 }
 
 /** Trägt man einen Schlüssel ein, muss die Oberfläche sagen, dass Anfragen dieses
@@ -3259,6 +3296,7 @@ async function main(): Promise<void> {
       await abschnittEinstellungen(cdp);
       await abschnittDeklarativ(cdp);
       await abschnittDrittanbieter(cdp);
+      await abschnittZahlenfeld(cdp, dataPfad);
       await abschnittPanel(cdp);
       await abschnittWelle8(cdp);
       await abschnittWelle14(cdp);
