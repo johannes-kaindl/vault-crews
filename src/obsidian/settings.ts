@@ -43,6 +43,8 @@ export interface PluginSettings {
   hideCrewFolder: boolean;
   /** Laufanzeige (⚙ n/m) in der Statusleiste. Standard an: ein Update lässt keine genutzte Anzeige verschwinden. */
   showStatusBar: boolean;
+  /** Mitschnitt je Modellaufruf (`calls.jsonl.gz` im Lauf-Ordner). Standard aus: Lauf-Ordner werden nie aufgeräumt, und der Mitschnitt enthält den vollen Text der gesendeten Notizen. */
+  recordCalls: boolean;
   maxWrites: number;
   wallClockMinutes: number;
   callTimeoutS: number;
@@ -58,6 +60,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   crewRoot: "_crews",
   hideCrewFolder: false,
   showStatusBar: true, // = STATUS_BAR_DEFAULT des Kit-Bausteins (Test hält beide gleich)
+  recordCalls: false,
   maxWrites: 10,
   wallClockMinutes: 10,
   callTimeoutS: 300,
@@ -343,6 +346,11 @@ export class SettingsTab extends PluginSettingTab {
             desc: t("settings.advanced.stallTimeoutS.desc"),
             control: numberControl("stallTimeoutS"),
           },
+          {
+            name: t("settings.advanced.recordCalls.name"),
+            desc: t("settings.advanced.recordCalls.desc"),
+            control: { type: "toggle", key: "recordCalls" },
+          },
         ],
       },
     ];
@@ -376,6 +384,8 @@ export class SettingsTab extends PluginSettingTab {
         return s.hideCrewFolder;
       case "showStatusBar":
         return s.showStatusBar;
+      case "recordCalls":
+        return s.recordCalls;
       case "maxWrites":
         return s.maxWrites;
       case "wallClockMinutes":
@@ -406,6 +416,9 @@ export class SettingsTab extends PluginSettingTab {
         break;
       case "showStatusBar":
         s.showStatusBar = Boolean(value);
+        break;
+      case "recordCalls":
+        s.recordCalls = Boolean(value);
         break;
       case "maxWrites":
         s.maxWrites = asInt("maxWrites");

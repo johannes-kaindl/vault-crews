@@ -81,6 +81,11 @@ function taskSection(rec: TaskRecord): string[] {
 
 export function buildRunMd(state: RunState): string {
   const parts: string[] = ['---', ...frontmatterLines(state), '---', '', `# Run ${state.runId}`];
+  if (state.callLog !== undefined) {
+    parts.push('', 'failed' in state.callLog
+      ? `- Mitschnitt: nicht gepackt (${firstLine(state.callLog.failed)}); \`calls.jsonl\` bleibt lesbar im Lauf-Ordner`
+      : `- Mitschnitt: ${state.callLog.file} (${state.callLog.calls} Aufrufe)`);
+  }
   for (const rec of state.tasks) parts.push('', ...taskSection(rec));
   if (isUndoable(state)) parts.push('', 'Rückgängig: über das Vault-Crews-Panel (Verlauf → Rückgängig).');
   return `${parts.join('\n')}\n`;

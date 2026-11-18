@@ -109,6 +109,10 @@ export const EN: Record<string, string> = {
   "settings.advanced.stallTimeoutS.desc":
     "Aborts a call if no new token arrives for this long. Only checked after the first token, so just-in-time model loading is never mistaken for a stall.",
 
+  "settings.advanced.recordCalls.name": "Record every model call",
+  "settings.advanced.recordCalls.desc":
+    "Writes each model call of a run (full request, raw response, reasoning, duration, status; never headers, keys are redacted) as one line to calls.jsonl.gz in the run folder (<crew folder>/runs/<run>/). Off by default, because run folders are never cleaned up and the recording duplicates the text of the notes that were sent to the model. A crew that runs often therefore adds one such file per run to your vault. Use it to find out why a model answered the way it did.",
+
   // --- Notices — install --------------------------------------------------
   "notice.install.ok": "Example crews installed ({0} file(s)).",
   "notice.install.exists": "Example crews are already installed.",
@@ -401,6 +405,10 @@ export const DE: Record<string, string> = {
   "settings.advanced.stallTimeoutS.name": "Stillstand-Timeout (Sekunden)",
   "settings.advanced.stallTimeoutS.desc":
     "Bricht einen Aufruf ab, wenn so lange kein neues Token kommt. Wird erst nach dem ersten Token scharf geschaltet, damit Just-in-Time-Laden nicht als Stillstand gilt.",
+
+  "settings.advanced.recordCalls.name": "Jeden Modellaufruf mitschneiden",
+  "settings.advanced.recordCalls.desc":
+    "Schreibt jeden Modellaufruf eines Laufs (volle Anfrage, Rohantwort, Denken, Dauer, Status; nie Kopfzeilen, Schlüssel sind geschwärzt) als eine Zeile nach calls.jsonl.gz im Lauf-Ordner (<Crew-Ordner>/runs/<Lauf>/). Standardmäßig aus, weil Lauf-Ordner nie aufgeräumt werden und der Mitschnitt den Text der Notizen dupliziert, die ans Modell gingen. Eine Crew, die oft läuft, legt so je Lauf eine solche Datei in deinen Vault. Gedacht zur Fehlersuche: warum hat das Modell so geantwortet?",
 
   // --- Notices — Installation ---------------------------------------------
   "notice.install.ok": "Beispiel-Crews installiert ({0} Datei(en)).",

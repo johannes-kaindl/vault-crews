@@ -10,7 +10,8 @@ import type { App, PluginManifest } from "obsidian";
 import { setLang, t } from "../../src/vendor/kit/i18n";
 import * as strings from "../../src/i18n/strings";
 import { VIEW_TYPE_CREWS } from "../../src/obsidian/panel";
-import { executeRun } from "../../src/core/orchestrator";
+import { executeRun, type RunDeps } from "../../src/core/orchestrator";
+import { requestUrlTransport, xhrSseTransport } from "../../src/vendor/kit-obsidian/chat-transport";
 import type { RunResult } from "../../src/core/types";
 import type { LlmClient } from "../../src/core/ports";
 import { InMemoryVaultPort } from "../helpers/in-memory-vault";
@@ -384,6 +385,59 @@ describe("VaultCrewsPlugin.loadSettings — Untergrenzen der Zahlenfelder (Welle
   it("maxWrites 0 bleibt 0 (gewollter Schreibstopp), negative Werte werden 0", async () => {
     expect((await lade({ maxWrites: 0 })).maxWrites).toBe(0);
     expect((await lade({ maxWrites: -1 })).maxWrites).toBe(0);
+  });
+});
+
+describe("VaultCrewsPlugin — Mitschnitt je Modellaufruf (Welle 36)", () => {
+  const settings = (p: VaultCrewsPlugin): Record<string, unknown> => (p as unknown as { settings: Record<string, unknown> }).settings;
+  const loaded = async (data: unknown): Promise<VaultCrewsPlugin> => {
+    const plugin = makePlugin();
+    (plugin as unknown as { loadData(): Promise<unknown> }).loadData = () => Promise.resolve(data);
+    await plugin.onload();
+    return plugin;
+  };
+
+  it("Standard aus; nur ein gespeichertes true schaltet ein, Muell und fehlender Schluessel bleiben aus", async () => {
+    expect(settings(await loaded(null)).recordCalls).toBe(false);
+    expect(settings(await loaded({ maxWrites: 7 })).recordCalls).toBe(false);
+    expect(settings(await loaded({ recordCalls: "ja" })).recordCalls).toBe(false);
+    expect(settings(await loaded({ recordCalls: true })).recordCalls).toBe(true);
+  });
+
+  it("Schalter in den Einstellungen setzt und speichert den Wert", async () => {
+    const plugin = await loaded(null);
+    const saved: unknown[] = [];
+    (plugin as unknown as { saveData(d: unknown): Promise<void> }).saveData = (d) => { saved.push(d); return Promise.resolve(); };
+    const tab = (plugin as unknown as { settingTabs: { setControlValue(k: string, v: unknown): void; getControlValue(k: string): unknown }[] }).settingTabs[0];
+    tab.setControlValue("recordCalls", true);
+    expect(tab.getControlValue("recordCalls")).toBe(true);
+    await Promise.resolve();
+    expect(saved.at(-1)).toMatchObject({ recordCalls: true });
+  });
+
+  /** Startet einen Lauf und gibt die Abhaengigkeiten zurueck, die der Orchestrator bekam, dazu die Transporte des Clients. */
+  async function runWith(recordCalls: boolean): Promise<{ deps: RunDeps; transports: { transport: unknown; fallbackTransport: unknown } }> {
+    vi.mocked(executeRun).mockResolvedValue(okResult());
+    const plugin = await loaded({ recordCalls });
+    plugin.runCrew("task-triage");
+    await vi.waitFor(() => { expect(executeRun).toHaveBeenCalled(); });
+    const deps = vi.mocked(executeRun).mock.calls[0]![1];
+    const transports = (deps.llm as unknown as { transports: { transport: unknown; fallbackTransport: unknown } }).transports;
+    return { deps, transports };
+  }
+
+  it("an: der Lauf bekommt einen Recorder und beide Chat-Transporte sind umhuellt", async () => {
+    const { deps, transports } = await runWith(true);
+    expect(deps.callLog).toBeDefined();
+    expect(transports.transport).not.toBe(xhrSseTransport);
+    expect(transports.fallbackTransport).not.toBe(requestUrlTransport);
+  });
+
+  it("aus (Gegenprobe): kein Recorder, die Transporte sind die unveraenderten", async () => {
+    const { deps, transports } = await runWith(false);
+    expect(deps.callLog).toBeUndefined();
+    expect(transports.transport).toBe(xhrSseTransport);
+    expect(transports.fallbackTransport).toBe(requestUrlTransport);
   });
 });
 

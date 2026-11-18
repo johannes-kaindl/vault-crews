@@ -109,6 +109,18 @@ export class ObsidianVaultPort implements VaultPort {
     // trashFile respektiert die Papierkorb-Einstellung des Users (System/.trash/lokal).
     await this.app.fileManager.trashFile(f);
   }
+
+  /** Bytes über den Adapter (`writeBinary` legt an oder ersetzt). Der Mitschnitt packt am Lauf-Ende `calls.jsonl.gz` im bestehenden Lauf-Ordner. */
+  async writeBinary(path: string, bytes: Uint8Array): Promise<void> {
+    const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    await this.app.vault.adapter.writeBinary(normalizePath(path), buffer);
+  }
+
+  /** Entfernt über den Adapter, ohne Papierkorb: die eigene Zwischendatei `calls.jsonl` soll nicht im Papierkorb des Nutzers landen. */
+  async remove(path: string): Promise<void> {
+    const np = normalizePath(path);
+    if (await this.app.vault.adapter.exists(np)) await this.app.vault.adapter.remove(np);
+  }
 }
 
 /** Dünner MetadataPort-Adapter über metadataCache + vault.getMarkdownFiles/cachedRead. */

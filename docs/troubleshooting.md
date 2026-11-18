@@ -79,6 +79,14 @@ Local servers almost always need a port, for example `http://localhost:1234/v1`.
 
 **Fix:** raise `max_tokens` in the agent note. If the input is the problem instead — "The input was too large for the model's context window." — collect fewer notes (`limit:` in the collector) or load the model with a larger context.
 
+## You need to see exactly what was sent and what came back
+
+The run log (`run.md`) shows the result of each step, and `runs/<id>/artifacts/` keeps the raw answer only when it was invalid or needed a repair. To see every request and every raw response, including the reasoning and the failed or repeated calls:
+
+**Fix:** switch on **Settings → Vault Crews → Advanced → Record every model call** and run the crew again. The run then writes `runs/<id>/calls.jsonl.gz` (one JSON line per request: full request body, raw response, reasoning, duration, status such as `ok`, `leer`, `abgeschnitten`, `ueberlauf`, `zeitueberschreitung`, `stille`, `abgebrochen`, `netzfehler`; never headers, API keys are redacted). Read it with `gunzip -c calls.jsonl.gz`. If Obsidian stopped in the middle of a run, the readable `calls.jsonl` is still there, unpacked.
+
+The setting is off by default: run folders are never cleaned up, so every run keeps one such file, and the recording copies the text of the notes sent to the model into your vault. Switch it off again when you are done and delete the files you no longer need.
+
 ## The call took too long or the model went silent
 
 > The call took too long and was stopped.

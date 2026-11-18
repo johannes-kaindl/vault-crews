@@ -64,13 +64,26 @@ export class InMemoryVaultPort implements VaultPort {
 		if (isDotfilePath(path)) throw new Error(`vault-crews: Datei nicht gefunden: ${path}`);
 		this.files.set(path, content);
 	}
+	/** Bytes aus `writeBinary` (der Mitschnitt `calls.jsonl.gz`); sie zählen für `exists`, nicht für `read`. */
+	readonly binaries = new Map<string, Uint8Array>();
+	/** Pfade, die `remove` entfernt hat (der Wächter-Test prüft, dass sie im Lauf-Ordner liegen). */
+	readonly removed: string[] = [];
+	async writeBinary(path: string, bytes: Uint8Array): Promise<void> {
+		this.assertParentFolder(path);
+		this.binaries.set(path, bytes);
+	}
+	async remove(path: string): Promise<void> {
+		this.removed.push(path);
+		this.files.delete(path);
+		this.binaries.delete(path);
+	}
 	async append(path: string, content: string): Promise<void> {
 		this.files.set(path, (this.files.get(path) ?? '') + content);
 	}
 	/** Wie Obsidians `adapter.exists`: eine Datei, ein Ordner, den `mkdir` angelegt hat oder `requireExistingFolders` führt, und ein Ordner, unter dem
 	 *  eine Datei liegt, sind da. */
 	async exists(path: string): Promise<boolean> {
-		return this.files.has(path) || this.isFolder(path);
+		return this.files.has(path) || this.binaries.has(path) || this.isFolder(path);
 	}
 	private isFolder(path: string): boolean {
 		if (path === '' ) return false;

@@ -23,6 +23,11 @@ export interface VaultPort {
 	linksFollowMoves(): boolean;
 	/** Datei in den Obsidian-Papierkorb verschieben (fileManager.trashFile) — nie Hard-Delete. */
 	trash(path: string): Promise<void>;
+	/** Schreibt Bytes (legt die Datei an oder ersetzt sie). Der Elternordner muss existieren. Nur für den Mitschnitt (`calls.jsonl.gz`). */
+	writeBinary(path: string, bytes: Uint8Array): Promise<void>;
+	/** Entfernt eine Datei endgültig (`adapter.remove`, kein Papierkorb) — für die eigene Zwischendatei des Mitschnitts. Eine fehlende Datei ist kein Fehler.
+	 *  Der Adapter prüft den Ort nicht; wer es ruft, beschränkt es auf den eigenen Lauf-Ordner (`ownRunPath` im Orchestrator). */
+	remove(path: string): Promise<void>;
 }
 
 export interface MetadataPort {

@@ -159,7 +159,7 @@ Eigene Teams und Agenten zu schreiben ist schlichtes Markdown im Vault — siehe
 | **Tiefe der Undo-Historie** | 15 | Mindestens 1. Wie viele Lauf-Snapshots aufbewahrt werden, bevor die ältesten wegfallen |
 | **Zeitlimit je Aufruf** | 300 s | Hartes Limit pro Modellaufruf — großzügig, weil das Laden eines Modells auf Zuruf dauern kann. Mindestens 10 s |
 | **Stillstands-Limit** | 60 s | Bricht ab, wenn kein neues Token mehr kommt; wird erst nach dem ersten Token geprüft, damit Laden nie als Stillstand missverstanden wird. Mindestens 5 s |
-| **Ausführliches Logging** | aus | Reserviert — die Einstellung wird gespeichert, aber noch von nichts gelesen (siehe V1-Grenzen) |
+| **Jeden Modellaufruf mitschneiden** (Record every model call) | aus | Schreibt jeden Modellaufruf eines Laufs (volle Anfrage, Rohantwort, Denken, Dauer, Status; nie Kopfzeilen, API-Schlüssel sind geschwärzt) als eine Zeile nach `<Crew-Wurzel>/runs/<Lauf>/calls.jsonl.gz`, am Lauf-Ende gepackt. Zur Fehlersuche: warum hat das Modell so geantwortet? Lauf-Ordner werden nie aufgeräumt, jeder Lauf legt also eine solche Datei an, und der Mitschnitt kopiert den Text der Notizen, die ans Modell gingen, in deinen Vault; nur zum Suchen einschalten |
 
 Änderungen an Endpunkten und Zeitlimits wirken mit dem nächsten Lauf; ein Neuladen des Plugins ist nicht nötig.
 
@@ -277,10 +277,7 @@ Dokumentiert, statt stillschweigend zu fehlen:
   Lauf-Verzeichnisses geschrieben — es zählt nie als Vault-Schreibvorgang, rührt
   `max_writes` nicht an und wird nicht für das Undo gesichert. Erfolgreiche Läufe
   schreiben gar keine Artefakte.
-- **`verboseLogging` (Einstellungen → Erweitert) ist reserviert, nicht verdrahtet.** Die
-  Einstellung existiert und wird gespeichert, aber derzeit liest sie niemand; ein
-  vollständiges Mitschreiben der Rohausgabe *jedes* Aufrufs (Erfolg wie Fehlschlag) —
-  über die Fehlerfall-Aufzeichnung in `artifacts/` hinaus — ist nicht umgesetzt.
+- **Der Rohtext eines erfolgreichen Aufrufs steht nur mit dem Mitschnitt im Lauf-Ordner.** Ohne die Einstellung „Jeden Modellaufruf mitschneiden“ schreibt ein Lauf Rohantworten nur bei ungültiger Antwort oder Reparatur nach `artifacts/`. Mit ihr steht jede Anfrage und Antwort in `calls.jsonl.gz`; Bilder kommen im Mitschnitt nicht vor, weil kein Collector welche liest.
 - **Das Fehlerprotokoll öffnet `run.md` oben, nicht bei der gescheiterten Aufgabe.**
   „View failure" öffnet die Protokolldatei des Laufs über
   `workspace.getLeaf().openFile()` ohne flüchtigen Scroll-Zustand — du landest oben in

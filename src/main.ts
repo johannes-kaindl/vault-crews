@@ -69,6 +69,9 @@ import { noticeWithLink, NOTICE_WITH_LINK_MS } from "./obsidian/run-notice";
 import { ObsidianMetadataPort, ObsidianVaultPort } from "./obsidian/vault-port";
 import { RequestUrlJsonTransport } from "./obsidian/transports";
 import { requestUrlTransport, xhrSseTransport } from "./vendor/kit-obsidian/chat-transport";
+import type { SseTransport } from "./vendor/kit/chat-client";
+import { recordingTransport } from "./vendor/kit/recording-transport";
+import { createCallRecorder, type CallRecorder } from "./core/call-log";
 import { AdapterSnapshotStore } from "./obsidian/snapshot-store";
 import { LocalLlmClient } from "./core/local-llm-client";
 import { executeRun, type RunDeps } from "./core/orchestrator";
@@ -245,6 +248,8 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     }
     // Ein Boolean gilt, alles andere (alte data.json ohne den Schlüssel, Müll) fällt auf „an": ein Update schaltet keine Anzeige ab.
     this.settings.showStatusBar = statusBarEnabled(raw?.showStatusBar);
+    // Mitschnitt: nur ein echtes `true` schaltet ihn ein (Standard aus; er dupliziert Notiztext in den Lauf-Ordner).
+    this.settings.recordCalls = raw?.recordCalls === true;
     // Die gespeicherten Anfrage-Einstellungen sind handeditierbar: was die Prüfung nicht besteht,
     // fällt auf das Profil zurück — und wird gemeldet, statt still zu verschwinden.
     const { settings: request, dropped } = sanitizeRequestSettings(raw?.request);
@@ -429,11 +434,14 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
    *  Plugin-Reload wirksam werden — sonst bleibt der zur onload-Zeit gebaute Client
    *  (mit toten Timeouts, s. RunDeps.settings.limits.callTimeoutMs/stallTimeoutMs, die
    *  nirgends mehr gelesen werden) für die gesamte Session eingefroren. */
-  private buildLlmClient(): LocalLlmClient {
+  private buildLlmClient(callLog?: CallRecorder): LocalLlmClient {
     const first = this.localEndpoints()[0] ?? { url: "http://localhost:1234" };
+    // Mitschnitt: beide Chat-Transporte (Stream und Fallback ohne Stream) um den `recordingTransport` legen, nur für Läufe und nur wenn eingeschaltet.
+    // ping, listModels und modelInfo laufen über den JSON-Transport und werden nicht mitgeschnitten.
+    const record = (inner: SseTransport): SseTransport => (callLog === undefined ? inner : recordingTransport(inner, (x) => { callLog.accept(x); }));
     return new LocalLlmClient(
       first,
-      { transport: xhrSseTransport, fallbackTransport: requestUrlTransport },
+      { transport: record(xhrSseTransport), fallbackTransport: record(requestUrlTransport) },
       new RequestUrlJsonTransport(),
       fetchEndpointContext,
       this.clock,
@@ -538,7 +546,9 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     // Frischen Client pro Lauf bauen (Endpoint + Timeouts aus den aktuellen Settings,
     // nicht dem onload-Zeitpunkt) — kombiniert mit setBase() im Preflight-Failover
     // wirken Settings-Änderungen so ohne Plugin-Reload.
-    this.llm = this.buildLlmClient();
+    // Mitschnitt je Modellaufruf (Einstellung, Standard aus): der Puffer gehört diesem Lauf; der Orchestrator schreibt aus ihm.
+    const callLog = this.settings.recordCalls ? createCallRecorder() : undefined;
+    this.llm = this.buildLlmClient(callLog);
     let finished = false;
     const reporter: RunReporter = {
       emit: (e) => {
@@ -566,6 +576,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
         request: this.settings.request,
       },
       abort: controller.signal,
+      ...(callLog !== undefined ? { callLog } : {}),
       // Dateinamen aus Modellvorschlag (note.create) durch die Namensrichtlinie: erst die API des Plugins filename-sanitizer, sonst die Kit-Regeln.
       safeName: (segment) => safeFileName(this.app, segment, { caller: "vault-crews" }).name,
     };

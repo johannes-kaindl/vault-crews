@@ -17,6 +17,10 @@ import { isAlwaysOnThinker } from './model-info';
 import { resolveTaskModel } from './model-resolution';
 import { buildCrewParams } from './crew-request';
 import { redactKeysInValue } from '../vendor/kit/redact';
+import { gzipText } from '../vendor/kit/gzip-text';
+import { isInFolder } from '../vendor/kit/folder-scope';
+import { checkRelPath } from '../vendor/kit/rel-path';
+import { buildCallEntries, redactCallEntry, serializeCallEntry, type CallOutcome, type CallRecorder } from './call-log';
 import { askUntilValid, type AskReply, type AskUntilValidResult, type TextMessage, type Verdict } from '../vendor/kit/answer-retry';
 import { normalizeEndpoint } from '../vendor/kit/endpoint';
 import { resolveActiveEndpointConfig, type EndpointConfig } from '../vendor/kit/endpoint_config';
@@ -56,6 +60,8 @@ export interface RunDeps {
 		request: RequestSettings;
 	};
 	abort: AbortSignal;
+	/** Mitschnitt je Modellaufruf: der Puffer, den der `recordingTransport` am Draht füllt. Fehlt er, ist der Mitschnitt aus und der Orchestrator ruft nichts. */
+	callLog?: CallRecorder;
 	/** Namensrichtlinie für den Dateinamen einer vom Modell vorgeschlagenen neuen Notiz (`note.create`), siehe `ExecutorContext.safeName`. */
 	safeName?: (segment: string) => string;
 }
@@ -75,6 +81,9 @@ const WALL_CLOCK_SETTING = 'Zeitlimit (Minuten)';
  *  einmal, der reaktive Overflow-Retry fängt nur den ersten Aufruf. Der Prozentsatz selbst ist nicht an einem echten Tokenizer kalibriert (offen: Messung gegen die Token-Zählung des Servers). */
 const BUDGET_RESERVE = 0.15;
 const CONTEXT_FALLBACK = 8192;
+/** Namen der Mitschnitt-Dateien im Lauf-Ordner: die lesbare Zwischendatei während des Laufs, die gepackte danach. */
+const CALL_LOG_JSONL = 'calls.jsonl';
+const CALL_LOG_GZ = 'calls.jsonl.gz';
 /** Die Aufforderung am Ende der Reparatur-Nachricht (Kit `askUntilValid`, `instruction`): der Ausgangs-Prompt mit dem Format steht davor in der History. */
 const REPAIR_INSTRUCTION = 'Antworte erneut, exakt in dem im System-Prompt geforderten Format.';
 type ValidatedOutput = { ok: true; json: unknown; actions: Action[] };
@@ -98,6 +107,9 @@ interface NoteCall {
 	/** Pfad der gerade bearbeiteten Notiz; null außerhalb von `per_note` (für Prüfung und Schema der Tasks 5 und 7). */
 	notePath: string | null;
 }
+/** Wohin die Austausche eines `stream()`-Aufrufs gehören: der Schritt (bei `per_note` mit Notiz) und die laufende Nummer der Chat-Anfragen innerhalb des Modellaufrufs
+ *  (`n` zählt Overflow-Wiederholung, Reparatur und Fallback ohne Stream weiter). */
+interface CallLogContext { kontext: string; versuch: { n: number }; }
 interface CallFailure { ok: false; kind: ErrorKind; message: string; aborted: boolean; promptHash: string | null; }
 type CallResult = { ok: true; value: ValidatedOutput; promptHash: string | null } | CallFailure;
 
@@ -137,6 +149,10 @@ class RunFsm {
 	private aborted = false;   // Watchdog / User-Abbruch
 	/** `acquireLock` hat die endgültige Lauf-Id gewählt; davor ist `state.runId` nur die Vorab-Id (Zeitstempel + Crew). */
 	private runIdFinal = false;
+	/** Mitschnitt: Zahl der geschriebenen Zeilen, die Zeilen selbst (für das Packen am Ende) und der erste Schreibfehler. */
+	private callNr = 0;
+	private readonly callLines: string[] = [];
+	private callLogError: string | null = null;
 
 	constructor(private readonly teamPath: string, private readonly deps: RunDeps) {
 		const now = deps.clock.now();
@@ -559,6 +575,8 @@ class RunFsm {
 		};
 		const check = ctx.check;
 		const perNote = call.notePath !== null;
+		const logCtx: CallLogContext | null = this.deps.callLog === undefined ? null
+			: { kontext: call.notePath !== null ? `${call.label}: ${call.notePath}` : call.label, versuch: { n: 0 } };
 		let promptHash: string | null = null;
 		const fail = (kind: ErrorKind, message: string): CallFailure => ({ ok: false, kind, message, aborted: false, promptHash });
 		const abortedFailure = (): CallFailure => ({ ok: false, kind: 'aborted', message: 'Stream abgebrochen', aborted: true, promptHash });
@@ -578,7 +596,7 @@ class RunFsm {
 					return fail('context_overflow', `Notiz passt allein nicht ins Kontextbudget (${b} Tokens): ${call.notePath ?? ''}`);
 				}
 				usedMessages = prompt.messages;
-				result = await this.stream(prompt.messages, params, task.id, check);
+				result = await this.stream(prompt.messages, params, task.id, check, logCtx);
 			} catch (e) {
 				if (e instanceof RedactionFailed) throw e;   // fail-closed: der Lauf endet in `run()`, kein Task-Fehler
 				if (e instanceof LlmCallError && e.kind === 'overflow' && !overflowRetried) {
@@ -606,7 +624,7 @@ class RunFsm {
 			if (pending !== null) { const first = pending; pending = null; return first; }
 			// Eine zweite Frage heißt: die erste Antwort war ungültig. Ihren Rohtext vor dem Call sichern (Absturz mitten in der Reparatur).
 			await this.writeArtifact(call.label, asks - 1, rawByAsk[asks - 2] ?? '');
-			const repair = await this.stream(messages, params, task.id, check);
+			const repair = await this.stream(messages, params, task.id, check, logCtx);
 			rec.thinkTokens += repair.thinkTokens;
 			if (params.thinkingLevel === 'off' && repair.reasoned) this.state.alwaysOnThinker = true;
 			if (repair.finishReason === 'aborted') throw new StreamAborted();
@@ -700,6 +718,7 @@ class RunFsm {
 
 	private async finalize(): Promise<void> {
 		await this.releaseLock();                 // Lock liegt außerhalb runDir
+		await this.packCallLog();                  // vor dem letzten persist(): die Zeile in run.md steht nur nach gelungenem Packen
 		this.state.status = this.finalStatus();
 		this.state.endedAt = this.deps.clock.now();
 		await this.persist();                      // run.md/state.json mit finalem Status (undoable steht drin)
@@ -822,28 +841,94 @@ class RunFsm {
 	private async stream(
 		messages: LlmMessage[], params: LlmParams, taskId: string,
 		check: { family: FamilyId | null; thinking: ThinkingLevel; backend: BackendId },
+		log: CallLogContext | null = null,
 	): Promise<LlmStreamResult> {
 		if (this.state.llmCalls >= this.limits.maxLlmCalls) {
 			throw new LlmCallError(`LLM-Call-Limit erreicht (${this.limits.maxLlmCalls})`, 'http');
 		}
 		this.state.llmCalls += 1;
 		this.deps.request.recordRequest(params.params);
+		let result: LlmStreamResult;
 		try {
-			const result = await this.deps.llm.stream(
+			result = await this.deps.llm.stream(
 				messages, params,
 				(text, isThink) => this.deps.reporter.emit({ type: 'token', taskId, isThink, text }),
 				this.deps.abort,
 				() => this.deps.reporter.emit({ type: 'contentReset', taskId }),
 			);
-			// Abweichungen zwischen Profil und Antwort gehören in die Sitzung — kein stiller Wiederholversuch.
-			if (result.facts) this.deps.request.report(checkResponse(check, result.facts));
-			return result;
 		} catch (e) {
+			// Auch der gescheiterte Aufruf gehört in den Mitschnitt (Status aus der Fehlerart). `RedactionFailed` von dort ersetzt den Fehler: fail-closed geht vor.
+			await this.logCall(log, { result: null, error: callErrorOf(e) });
 			if (e instanceof LlmCallError && e.http !== undefined) {
 				this.deps.request.report(checkResponse(check, { status: e.http.status, errorText: e.http.detail, content: '', reasoning: '' }));
 			}
 			throw e;
 		}
+		await this.logCall(log, {
+			result: {
+				content: result.content, reasoning: result.facts?.reasoning ?? '', aborted: result.finishReason === 'aborted',
+				finishReason: result.facts?.finishReason ?? (result.finishReason === 'aborted' ? null : result.finishReason),
+			},
+			error: null,
+		});
+		// Abweichungen zwischen Profil und Antwort gehören in die Sitzung — kein stiller Wiederholversuch.
+		if (result.facts) this.deps.request.report(checkResponse(check, result.facts));
+		return result;
+	}
+
+	// ── Mitschnitt je Modellaufruf (calls.jsonl.gz) ─────────────────────────────
+
+	/** Schreibt die Austausche, die der Transport seit dem letzten Aufruf gemeldet hat, als Zeilen nach `calls.jsonl` (nach jedem Aufruf auf die Platte, `append`).
+	 *  Jede Zeile wird zuerst geschwärzt (fail-closed: `RedactionFailed`, nichts wird geschrieben); ein Schreibfehler stoppt den Lauf nicht, sondern den Mitschnitt. */
+	private async logCall(log: CallLogContext | null, outcome: CallOutcome): Promise<void> {
+		const recorder = this.deps.callLog;
+		if (recorder === undefined || log === null) return;
+		const exchanges = recorder.take();
+		if (exchanges.length === 0) return;
+		const entries = buildCallEntries(exchanges, outcome, {
+			lauf: this.state.runId, kontext: log.kontext, firstNr: this.callNr + 1, firstVersuch: log.versuch.n + 1,
+		});
+		log.versuch.n += entries.length;
+		const keys = this.deps.settings.endpoints.map((e) => e.apiKey);
+		for (const entry of entries) {
+			let line: string;
+			try {
+				line = serializeCallEntry(redactCallEntry(entry, keys));
+			} catch (e) {
+				throw new RedactionFailed(errMsg(e));
+			}
+			this.callNr += 1;
+			this.callLines.push(line);
+			if (this.callLogError !== null) continue;
+			try {
+				await this.deps.vault.append(this.ownRunPath(CALL_LOG_JSONL), line);
+			} catch (e) {
+				this.callLogError = errMsg(e);
+			}
+		}
+	}
+
+	/** Packt den Mitschnitt in `calls.jsonl.gz` und entfernt die lesbare `.jsonl`; läuft in jedem Ausgang, der noch schreiben darf, VOR dem letzten `persist()`,
+	 *  damit die Zeile in `run.md` nur nach gelungenem Packen steht. Gepackt wird aus dem Speicher (alle Zeilen, auch wenn ein `append` scheiterte). */
+	private async packCallLog(): Promise<void> {
+		if (this.deps.callLog === undefined || this.callLines.length === 0) return;
+		try {
+			const gz = this.ownRunPath(CALL_LOG_GZ);
+			await this.deps.vault.writeBinary(gz, await gzipText(this.callLines.join('')));
+			const jsonl = this.ownRunPath(CALL_LOG_JSONL);
+			if (await this.deps.vault.exists(jsonl)) await this.deps.vault.remove(jsonl);
+			this.state.callLog = { file: CALL_LOG_GZ, calls: this.callNr };
+		} catch (e) {
+			this.state.callLog = { failed: errMsg(e) };
+		}
+	}
+
+	/** Pfad einer Datei im Lauf-Ordner dieses Laufs; wirft für alles andere. Die Wächterbedingung für `writeBinary`/`remove` des Mitschnitts: ein Fehler bei der Namensbildung
+	 *  darf nie eine Datei außerhalb des eigenen Lauf-Ordners treffen. */
+	private ownRunPath(name: string): string {
+		const path = `${this.runDir()}/${name}`;
+		if (!checkRelPath(path).ok || !isInFolder(path, this.runDir())) throw new Error(`vault-crews: Pfad liegt nicht im Lauf-Ordner: ${path}`);
+		return path;
 	}
 
 	private failLlm(task: LlmTaskDef, rec: TaskRecord, kind: ErrorKind, message: string): TaskStatus {
@@ -981,6 +1066,11 @@ function actionsErrorKind(outcomes: { reason: string | null }[]): ErrorKind {
 /** Detailtext fuer `output_truncated` — nennt die Stellschraube, nicht nur den Befund. */
 function truncatedMsg(maxTokens: number): string {
 	return `Antwort am Token-Limit abgeschnitten (max_tokens: ${maxTokens})`;
+}
+
+/** Die Fehlerart eines gescheiterten Aufrufs für den Mitschnitt (Status der Zeile). */
+function callErrorOf(e: unknown): NonNullable<CallOutcome['error']> {
+	return { kind: e instanceof LlmCallError ? e.kind : 'other', message: errMsg(e) };
 }
 
 function llmErrorKind(e: unknown): ErrorKind {

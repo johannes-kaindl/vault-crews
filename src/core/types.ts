@@ -189,6 +189,8 @@ export interface RunState {
 	tasks: TaskRecord[];
 	errorTask: string | null;
 	errorKind: ErrorKind | null;
+	/** Mitschnitt (nur wenn eingeschaltet und mindestens ein Aufruf): die gepackte Datei und die Zahl der Zeilen, oder warum das Packen scheiterte. */
+	callLog?: { file: string; calls: number } | { failed: string };
 }
 export interface RunResult {
 	runId: string;

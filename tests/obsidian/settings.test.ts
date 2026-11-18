@@ -178,6 +178,7 @@ describe("DEFAULT_SETTINGS", () => {
       crewRoot: "_crews",
       hideCrewFolder: false,
       showStatusBar: true,
+      recordCalls: false,
       maxWrites: 10,
       wallClockMinutes: 10,
       callTimeoutS: 300,
@@ -207,7 +208,8 @@ describe("SettingsTab.display()", () => {
     // +1 seit 0.13.0: die Zeile „Request" (Kit-Abschnitt Anfrage) sitzt in der Gruppe Connection.
     // −1 seit Welle 22: der Schalter „Verbose logging“ ist gestrichen.
     // +1 seit Welle 34: die Zeile „Status bar“ (Kit-Baustein status-bar-item) in der Gruppe Crews.
-    expect(tab.containerEl.children.length).toBe(17);
+    // +1 seit Welle 36: die Zeile „Mitschnitt je Modellaufruf“ in der Gruppe Advanced.
+    expect(tab.containerEl.children.length).toBe(18);
   });
 
   it("gibt dem Kit-Endpunkt-Editor eine Zeile, die er auch füllt", () => {

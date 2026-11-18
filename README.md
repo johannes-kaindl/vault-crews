@@ -149,6 +149,7 @@ Writing your own teams and agents is plain Markdown in the vault — see
 | **Undo history depth** | 15 | At least 1. How many run snapshots of the current day are kept. Older days thin out: one snapshot per day for a week, then per week (4 weeks) and per month (6 months), none after that |
 | **Call timeout** | 300 s | Hard limit per model call — generous, because just-in-time model loading takes a while. At least 10 s |
 | **Stall timeout** | 60 s | Aborts if no new token arrives; only checked after the first data chunk, so loading is never mistaken for a stall. At least 5 s |
+| **Record every model call** | off | Writes each model call of a run (full request body, raw response, reasoning, duration, status; never request headers, and API keys are redacted) as one line to `<crew root>/runs/<run>/calls.jsonl.gz`, packed when the run ends. For finding out why a model answered the way it did. Run folders are never cleaned up, so every run adds one such file, and the recording copies the text of the notes sent to the model into your vault; leave it off unless you are debugging |
 
 If the **LLM Endpoint Manager** plugin is installed, the endpoint (and its API key and model) comes from there and the settings show the manager's picker instead of the list above; without it, the list above is used as before.
 

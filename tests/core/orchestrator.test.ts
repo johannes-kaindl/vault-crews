@@ -13,9 +13,12 @@ import { FakeSnapshotStore, FinalizeFailsSnapshotStore } from '../helpers/fake-s
 import { ScriptLlmClient, type ScriptedCall } from '../helpers/script-llm';
 import { fakeRequestPort, type FakeRequestPort } from '../helpers/fake-request-port';
 import { DEFAULT_REQUEST_SETTINGS } from '../../src/vendor/kit/sampling-profiles';
+import { createCallRecorder, CALL_LOG_FIELDS, CALL_STATUS, type CallLogEntry, type CallRecorder } from '../../src/core/call-log';
+import { gunzipText } from '../../src/vendor/kit/gzip-text';
+import type { TransportExchange } from '../../src/vendor/kit/recording-transport';
 
 // Schalter für den fail-closed-Wurf der Kit-Schwärzung (siehe Test „Schwärzung wirft“).
-const redactSwitch = vi.hoisted(() => ({ throwAfter: null as number | null, calls: 0, throwOnString: false }));
+const redactSwitch = vi.hoisted(() => ({ throwAfter: null as number | null, calls: 0, throwOnString: false, throwOnCallEntry: false }));
 vi.mock('../../src/vendor/kit/redact', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../../src/vendor/kit/redact')>();
   return {
@@ -24,6 +27,10 @@ vi.mock('../../src/vendor/kit/redact', async (importOriginal) => {
       redactSwitch.calls++;
       // Nur Zeichenketten (Rohantwort, Mitschnittzeile) scheitern lassen: der Lauf-Zustand (persist) ist ein Objekt.
       if (redactSwitch.throwOnString && typeof args[0] === 'string') {
+        throw new TypeError('redactKeysInValue: the value has no JSON form');
+      }
+      // Eine Mitschnittzeile (Objekt mit `kontext`) lässt sich nicht schwärzen.
+      if (redactSwitch.throwOnCallEntry && typeof args[0] === 'object' && args[0] !== null && 'kontext' in args[0]) {
         throw new TypeError('redactKeysInValue: the value has no JSON form');
       }
       if (redactSwitch.throwAfter !== null && redactSwitch.calls > redactSwitch.throwAfter) {
@@ -80,6 +87,7 @@ interface HarnessOpts {
   clock?: FakeClock;
   abort?: AbortSignal;
   settings?: Partial<Settings>;
+  callLog?: CallRecorder;
   request?: FakeRequestPort;
   seedLock?: string;
   /** Obsidians Einstellung „Interne Links automatisch aktualisieren“ (das Test-Double steht auf an). */
@@ -127,7 +135,7 @@ async function harness(opts: HarnessOpts = {}): Promise<Harness> {
   const abort = opts.abort ?? new AbortController().signal;
 
   const request = opts.request ?? fakeRequestPort();
-  const deps: RunDeps = { vault, meta, llm, request, snapshot, clock, reporter, settings: baseSettings(opts.settings), abort };
+  const deps: RunDeps = { vault, meta, llm, request, snapshot, clock, reporter, settings: baseSettings(opts.settings), abort, ...(opts.callLog !== undefined ? { callLog: opts.callLog } : {}) };
   return { vault, meta, clock, reporter, snapshot, llm, request, deps, teamPath };
 }
 
@@ -781,6 +789,206 @@ describe('executeRun — Rohantwort der Reparatur-Runde nicht schwärzbar (fail-
     } finally {
       redactSwitch.throwOnString = false;
     }
+  });
+});
+
+/** Ein Fake-Client, der wie der Draht-Wrapper Austausche an den Recorder meldet: je Skript-Aufruf die angegebenen (oder ein Standard-Austausch). */
+class ExchangingLlm extends ScriptLlmClient {
+  constructor(queue: ScriptedCall[], private readonly recorder: CallRecorder, private readonly exchanges: Array<Partial<TransportExchange>[] | undefined> = []) {
+    super(queue);
+  }
+  override async stream(...args: Parameters<ScriptLlmClient['stream']>): ReturnType<ScriptLlmClient['stream']> {
+    const planned = this.exchanges[this.calls.length] ?? [{}];
+    const emit = (): void => {
+      planned.forEach((over, i) => this.recorder.accept({
+        url: 'http://localhost:1234/v1/chat/completions',
+        body: { model: 'test-model', stream: true, messages: args[0] },
+        status: 200, raw: 'data: [DONE]\n\n', startedAt: START_MS + i * 100, endedAt: START_MS + i * 100 + 50, ...over,
+      }));
+    };
+    try {
+      const r = await super.stream(...args);
+      emit();
+      return r;
+    } catch (e) {
+      emit();
+      throw e;
+    }
+  }
+}
+
+async function readCallLog(h: Harness, runId: string): Promise<CallLogEntry[]> {
+  const bytes = h.vault.binaries.get(`_crews/runs/${runId}/calls.jsonl.gz`);
+  expect(bytes).toBeDefined();
+  const text = await gunzipText(bytes!);
+  return text.split('\n').filter((l) => l !== '').map((l) => JSON.parse(l) as CallLogEntry);
+}
+
+describe('executeRun — Mitschnitt je Modellaufruf (calls.jsonl.gz)', () => {
+  it('Reparatur: zwei Aufrufe → zwei Einträge, versuch 1 und 2, nr 1 und 2, Kontext = Schritt; nach dem Lauf nur die .gz, gunzip ergibt die Zeilen', async () => {
+    const callLog = createCallRecorder();
+    const llm = new ExchangingLlm([{ content: 'kein json' }, { content: TRIAGE_OK }], callLog);
+    const h = await harness({ llm, callLog });
+    const result = await executeRun(h.teamPath, h.deps);
+
+    expect(result.status).toBe('ok');
+    expect(await h.vault.exists(`_crews/runs/${result.runId}/calls.jsonl`)).toBe(false);
+    const entries = await readCallLog(h, result.runId);
+    expect(entries.map((e) => [e.nr, e.versuch, e.kontext, e.lauf])).toEqual([[1, 1, 'analyse', result.runId], [2, 2, 'analyse', result.runId]]);
+    expect(entries.map((e) => e.content)).toEqual(['kein json', TRIAGE_OK]);
+    expect(Object.keys(entries[0]!)).toEqual([...CALL_LOG_FIELDS]);
+    expect(entries.every((e) => e.status === CALL_STATUS.ok)).toBe(true);
+    // Der Wächter: remove/writeBinary trafen nur den eigenen Lauf-Ordner.
+    expect(h.vault.removed).toEqual([`_crews/runs/${result.runId}/calls.jsonl`]);
+    expect([...h.vault.binaries.keys()]).toEqual([`_crews/runs/${result.runId}/calls.jsonl.gz`]);
+    const runMd = await h.vault.read(`_crews/runs/${result.runId}/run.md`);
+    expect(runMd).toContain('- Mitschnitt: calls.jsonl.gz (2 Aufrufe)');
+  });
+
+  it('während des Laufs steht jede Zeile schon auf der Platte (append nach jedem Aufruf), die .jsonl bleibt bei einem Absturz lesbar', async () => {
+    const callLog = createCallRecorder();
+    const seen: string[] = [];
+    class SpyLlm extends ExchangingLlm {
+      override async stream(...args: Parameters<ScriptLlmClient['stream']>): ReturnType<ScriptLlmClient['stream']> {
+        // Beim zweiten Aufruf muss die erste Zeile schon in der Datei stehen.
+        if (this.calls.length === 1) seen.push(h.vault.files.get(`_crews/runs/${[...h.vault.files.keys()].find((k) => k.endsWith('/calls.jsonl'))?.split('/')[2] ?? ''}/calls.jsonl`) ?? '');
+        return super.stream(...args);
+      }
+    }
+    const llm = new SpyLlm([{ content: 'kein json' }, { content: TRIAGE_OK }], callLog);
+    const h = await harness({ llm, callLog });
+    await executeRun(h.teamPath, h.deps);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.split('\n').filter((l) => l !== '')).toHaveLength(1);
+  });
+
+  it('Overflow: die Wiederholung ist ein eigener Eintrag, der erste mit Status ueberlauf', async () => {
+    const callLog = createCallRecorder();
+    const llm = new ExchangingLlm([{ error: 'overflow' }, { content: TRIAGE_OK }], callLog, [[{ status: 400, raw: '{"error":"context length"}' }]]);
+    const h = await harness({ llm, callLog });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.status).toBe('ok');
+    const entries = await readCallLog(h, result.runId);
+    expect(entries.map((e) => [e.nr, e.versuch, e.status])).toEqual([[1, 1, CALL_STATUS.ueberlauf], [2, 2, CALL_STATUS.ok]]);
+    expect(entries[0]!.antwort.http_status).toBe(400);
+    expect(entries[0]!.fehler).toContain('overflow');
+  });
+
+  it('per_note: der Kontext trägt die Notiz, versuch zählt je Aufruf neu, nr über den Lauf', async () => {
+    const callLog = createCallRecorder();
+    const teamFm = triageTeamFm();
+    (teamFm.tasks as Array<Record<string, unknown>>)[1]!.per_note = true;
+    const llm = new ExchangingLlm([{ content: TRIAGE_OK }, { content: TRIAGE_OK.replace('a.md', 'b.md') }], callLog);
+    const h = await harness({
+      teamFm, llm, callLog,
+      files: { '10_Aufgaben/a.md': TASK_NOTE, '10_Aufgaben/b.md': TASK_NOTE },
+    });
+    const result = await executeRun(h.teamPath, h.deps);
+    const entries = await readCallLog(h, result.runId);
+    expect(entries.map((e) => [e.nr, e.versuch, e.kontext])).toEqual([
+      [1, 1, 'analyse-n1: 10_Aufgaben/a.md'], [2, 1, 'analyse-n2: 10_Aufgaben/b.md'],
+    ]);
+  });
+
+  it('ein Austausch, dessen Rohantwort den Schlüssel enthält, steht geschwärzt in der Datei', async () => {
+    const callLog = createCallRecorder();
+    const llm = new ExchangingLlm([{ content: TRIAGE_OK }], callLog, [[{ raw: 'Gateway spiegelt: sk-geheim-1234567890' }]]);
+    const h = await harness({
+      llm, callLog,
+      settings: { endpoints: [{ url: 'http://gw:1', apiKey: 'sk-geheim-1234567890', model: 'test-model' }] },
+    });
+    const result = await executeRun(h.teamPath, h.deps);
+    const text = await gunzipText(h.vault.binaries.get(`_crews/runs/${result.runId}/calls.jsonl.gz`)!);
+    expect(text).not.toContain('sk-geheim-1234567890');
+    expect(text).toContain('••••');
+  });
+
+  it('Geheimnisse aus Notizen: content mit einem PEM-Block steht als Platzhalter im Mitschnitt', async () => {
+    const pem = '-----BEGIN PRIVATE KEY-----\nMIIabcdef\n-----END PRIVATE KEY-----';
+    const callLog = createCallRecorder();
+    const llm = new ExchangingLlm([{ content: `{"items":[],"note":"${pem.replace(/\n/g, '\\n')}"}` }], callLog);
+    const h = await harness({ llm, callLog });
+    const result = await executeRun(h.teamPath, h.deps);
+    const text = await gunzipText(h.vault.binaries.get(`_crews/runs/${result.runId}/calls.jsonl.gz`)!);
+    expect(text).not.toContain('MIIabcdef');
+    expect(text).toContain('[redacted');
+  });
+
+  it('eine nicht schwärzbare Zeile beendet den Lauf failed/io ohne Mitschnittzeile und ohne Packen', async () => {
+    redactSwitch.throwOnCallEntry = true;
+    try {
+      const callLog = createCallRecorder();
+      const llm = new ExchangingLlm([{ content: TRIAGE_OK }], callLog);
+      const h = await harness({ llm, callLog });
+      const result = await executeRun(h.teamPath, h.deps);
+      expect(result.status).toBe('failed');
+      expect(result.errorKind).toBe('io');
+      expect(await h.vault.exists(`_crews/runs/${result.runId}/calls.jsonl`)).toBe(false);
+      expect(h.vault.binaries.size).toBe(0);
+      expect(h.reporter.events.filter((e) => e.type === 'runFinished')).toHaveLength(1);
+      const runMd = await h.vault.read(`_crews/runs/${result.runId}/run.md`);
+      expect(runMd).not.toContain('Mitschnitt');
+      expect(runMd).toContain('status: running');   // kein persist() nach dem Wurf, der Fehler wurde kein Task-Fehler
+      const lock = JSON.parse(await h.vault.read('_crews/runs/run-lock.json')) as { active: boolean };
+      expect(lock.active).toBe(false);
+    } finally {
+      redactSwitch.throwOnCallEntry = false;
+    }
+  });
+
+  it('Abbruch: auch ein abgebrochener Lauf packt; der abgebrochene Aufruf steht mit Status abgebrochen und dem Teil-Rohtext', async () => {
+    const callLog = createCallRecorder();
+    const ac = new AbortController();
+    const llm = new ExchangingLlm([{ content: 'te', finishReason: 'aborted' }], callLog, [[{ status: null, raw: 'data: {"choices":[{"delta":{"content":"te"}}]}\n\n', error: 'AbortError: aborted' }]]);
+    const h = await harness({ llm, callLog, abort: ac.signal });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.status).toBe('aborted');
+    expect(await h.vault.exists(`_crews/runs/${result.runId}/calls.jsonl`)).toBe(false);
+    const entries = await readCallLog(h, result.runId);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.status).toBe(CALL_STATUS.abgebrochen);
+    expect(entries[0]!.antwort.roh).toContain('"content":"te"');
+  });
+
+  it('failed (Task-Fehler): der Mitschnitt wird trotzdem gepackt', async () => {
+    const callLog = createCallRecorder();
+    const llm = new ExchangingLlm([{ error: 'http', httpDetail: { status: 500, detail: 'kaputt' } }], callLog, [[{ status: 500, raw: '{"error":"kaputt"}' }]]);
+    const h = await harness({ llm, callLog });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.status).toBe('failed');
+    const entries = await readCallLog(h, result.runId);
+    expect(entries.map((e) => e.status)).toEqual([CALL_STATUS.httpFehler]);
+    expect(entries[0]!.antwort.body).toEqual({ error: 'kaputt' });
+  });
+
+  it('Gegenprobe, Einstellung aus (kein Recorder): keine Datei, keine Zeile in run.md, remove/writeBinary nie gerufen', async () => {
+    const llm = new ExchangingLlm([{ content: TRIAGE_OK }], createCallRecorder());
+    const h = await harness({ llm });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.status).toBe('ok');
+    expect(h.vault.binaries.size).toBe(0);
+    expect(h.vault.removed).toEqual([]);
+    expect([...h.vault.files.keys()].filter((k) => k.includes('calls.jsonl'))).toEqual([]);
+    expect(await h.vault.read(`_crews/runs/${result.runId}/run.md`)).not.toContain('Mitschnitt');
+  });
+
+  it('ein Lauf ohne Modellaufruf schreibt nichts (Recorder an, aber keine Chat-Anfrage)', async () => {
+    const callLog = createCallRecorder();
+    const h = await harness({ callLog, files: {} });
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(h.vault.binaries.size).toBe(0);
+    expect(await h.vault.read(`_crews/runs/${result.runId}/run.md`)).not.toContain('Mitschnitt');
+  });
+
+  it('scheitert das Packen, bleibt die .jsonl lesbar und run.md sagt es', async () => {
+    const callLog = createCallRecorder();
+    const llm = new ExchangingLlm([{ content: TRIAGE_OK }], callLog);
+    const h = await harness({ llm, callLog });
+    h.vault.writeBinary = async () => { throw new Error('Platte voll'); };
+    const result = await executeRun(h.teamPath, h.deps);
+    expect(result.status).toBe('ok');
+    expect(await h.vault.exists(`_crews/runs/${result.runId}/calls.jsonl`)).toBe(true);
+    expect(await h.vault.read(`_crews/runs/${result.runId}/run.md`)).toContain('Mitschnitt: nicht gepackt (Platte voll)');
   });
 });
 
