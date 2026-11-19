@@ -127,6 +127,20 @@ describe('buildUndoPlan', () => {
 				expect(p.unrestored).toEqual(['Ziel/a.md']);
 			});
 
+			it('zurückgeschobene Notiz mit dem Vorab-Inhalt am alten Pfad ist erledigt: kein Zug, kein Restore, nicht übersprungen', () => {
+				const p = buildUndoPlan(entry(fnv1a('NEU')), { 'Ziel/a.md': null, 'Inbox/a.md': 'ALT' }, { b1: 'ALT' });
+				expect(p).toMatchObject({ moves: [], restores: [], deletes: [], skipped: [], conflicts: [], unrestored: [] });
+				expect(p.unrestoredWhy).toEqual({});
+			});
+
+			it('Grund je nicht wiederherstellbarem Pfad: weg (Notiz nicht am neuen Pfad) oder alter Pfad belegt (Notiz noch am neuen)', () => {
+				const gone = buildUndoPlan(entry(null), { 'Ziel/a.md': null, 'Inbox/a.md': null }, { b1: 'ALT' });
+				expect(gone.unrestoredWhy).toEqual({ 'Ziel/a.md': 'gone' });
+				const taken = buildUndoPlan(entry(null), { 'Ziel/a.md': 'NEU', 'Inbox/a.md': 'fremd' }, { b1: 'ALT' });
+				expect(taken.unrestored).toEqual(['Ziel/a.md']);
+				expect(taken.unrestoredWhy).toEqual({ 'Ziel/a.md': 'taken' });
+			});
+
 			it('Eintrag ohne Blob gilt nie als unwiederhergestellt', () => {
 				const m = manifest([{ path: 'Ziel/a.md', movedFrom: 'Inbox/a.md', existedBefore: true, preHash: null, postHash: null, blob: null }]);
 				expect(buildUndoPlan(m, { 'Ziel/a.md': null, 'Inbox/a.md': 'X' }, {}).unrestored).toEqual([]);

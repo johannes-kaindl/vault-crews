@@ -12,7 +12,12 @@ export interface UndoPlan {
 	deletes: string[];                              // existedBefore=false → in Papierkorb
 	conflicts: string[];                            // Warn-Overlay (Teilmenge von restores/deletes)
 	unrestored: string[];                           // Teilmenge von skipped: Eintrag trägt ein Vorab-Abbild (Blob), das nicht zurückgeschrieben wird
+	unrestoredWhy: Record<string, UnrestoredReason>; // Pfad aus `unrestored` → Grund (für den Dialog „Lauf verwerfen“)
 }
+
+/** `gone`: die Notiz liegt nicht (mehr) an ihrem neuen Pfad. `taken`: sie liegt noch dort, aber der alte Pfad ist belegt;
+ *  nach dem Freiräumen des alten Pfads ist der Eintrag wiederherstellbar. */
+export type UnrestoredReason = 'gone' | 'taken';
 
 /**
  * @param currentContents Pfad → aktueller Inhalt (null = existiert nicht mehr).
@@ -27,6 +32,8 @@ export interface UndoPlan {
  * zurückgeschrieben. Jeder andere Fall ohne Notiz am neuen Pfad oder mit belegtem alten Pfad kommt ohne Zug und ohne Zurückschreiben
  * in `skipped` und `conflicts`: nie eine fremde Datei überschreiben. Trägt ein solcher Eintrag einen Blob, steht er zusätzlich
  * in `unrestored`; der Aufrufer verwirft den Snapshot dann nicht.
+ * Liegt am alten Pfad schon genau der Vorab-Inhalt (`old === blobs[e.blob]`, etwa nach einem teilweisen Rückgängig, das die Notiz
+ * zurückschob), ist der Eintrag erledigt: kein Zug, kein Zurückschreiben, weder in `skipped` noch in `unrestored`.
  * Ein Eintrag mit `movedFrom` und `existedBefore: false` kann nicht entstehen (die Quelle eines `note.move` lag vor dem Lauf im
  * Sammelmaterial); er bekäme hier nur den Zug zurück und kein Löschen.
  */
@@ -41,12 +48,14 @@ export function buildUndoPlan(
 	const moves: { from: string; to: string }[] = [];
 	const skipped: string[] = [];
 	const unrestored: string[] = [];
+	const unrestoredWhy: Record<string, UnrestoredReason> = {};
 	const at = (path: string): string | null => (path in currentContents ? currentContents[path] ?? null : null);
 
 	for (const e of manifest.entries) {
 		const current = at(e.path);
 		if (e.movedFrom !== undefined) {
 			const old = at(e.movedFrom);
+			if (current === null && old !== null && e.blob !== null && old === blobs[e.blob]) continue;
 			if (current === null && old !== null && e.blob !== null && (e.postHash === null || fnv1a(old) === e.postHash)) {
 				restores.push({ path: e.movedFrom, content: blobs[e.blob] ?? '' });
 				continue;
@@ -54,7 +63,10 @@ export function buildUndoPlan(
 			if (current === null || old !== null) {
 				skipped.push(e.path);
 				conflicts.push(e.path);
-				if (e.blob !== null) unrestored.push(e.path);
+				if (e.blob !== null) {
+					unrestored.push(e.path);
+					unrestoredWhy[e.path] = current === null ? 'gone' : 'taken';
+				}
 				continue;
 			}
 			if (e.postHash !== null && fnv1a(current) !== e.postHash) conflicts.push(e.path);
@@ -73,5 +85,5 @@ export function buildUndoPlan(
 			deletes.push(e.path);
 		}
 	}
-	return { moves, restores, deletes, conflicts, skipped, unrestored };
+	return { moves, restores, deletes, conflicts, skipped, unrestored, unrestoredWhy };
 }

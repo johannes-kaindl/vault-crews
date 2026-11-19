@@ -808,7 +808,7 @@ describe("Rückgängig für verschobene Notizen", () => {
     p.lastRuns = { team: { status: "ok", when: 1, runId: RUN, undoable: true } };
     return p;
   }
-  const plan = (over: Partial<UndoPlan>): UndoPlan => ({ moves: [], restores: [], deletes: [], conflicts: [], skipped: [], unrestored: [], ...over });
+  const plan = (over: Partial<UndoPlan>): UndoPlan => ({ moves: [], restores: [], deletes: [], conflicts: [], skipped: [], unrestored: [], unrestoredWhy: {}, ...over });
 
   it("performUndo: rename läuft vor modify, danach liegt der Vorab-Inhalt am alten Pfad", async () => {
     const p = await undoPlugin();
