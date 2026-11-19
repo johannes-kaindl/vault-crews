@@ -889,7 +889,9 @@ describe("Rückgängig für verschobene Notizen", () => {
     expect(await p.snapshot.load(RUN)).toBeNull();
     expect((p.lastRuns.team as { undoable: boolean }).undoable).toBe(false);
     expect(await p.vault.read(logPath)).toContain("This run was undone.");
-    expect(String(Notice.instances.at(-1)?.message)).toBe("Run discarded — 2 note(s) could not be restored, their pre-run copies are gone.");
+    expect(String(Notice.instances.at(-1)?.message)).toBe("Run discarded — restored 0 file(s); 2 note(s) could not be restored, their pre-run copies are gone.");
+    // Wer verwirft, bekommt keine Notice, die „stays undoable“ behauptet.
+    expect(Notice.instances.map((n) => String(n.message)).some((m) => m.includes("stays undoable"))).toBe(false);
   });
 
   /** Manifest mit einem Eintrag, dessen rename nach captureMove scheiterte (oder dessen Zug ein erster Versuch schon ausführte). */

@@ -1004,7 +1004,6 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     // Ein übersprungener Eintrag mit Vorab-Abbild ist nicht zurückgesetzt: Snapshot und Rückgängig-Fähigkeit bleiben,
     // es sei denn, der Nutzer verwirft den Lauf im zweiten (zerstörenden) Dialog.
     if (plan.unrestored.length > 0) {
-      new Notice(t("notice.undo.partial", restored, plan.unrestored.length));
       const lines = [
         t("undo.discard.intro", plan.unrestored.length),
         ...plan.unrestored.map((path) => t("undo.discard.entry", path, t(`undo.discard.reason.${plan.unrestoredWhy[path] ?? "gone"}`))),
@@ -1017,9 +1016,12 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
         cancelLabel: t("common.cancel"),
         warning: true,
       });
-      if (!discard) return;
+      if (!discard) {
+        new Notice(t("notice.undo.partial", restored, plan.unrestored.length));
+        return;
+      }
       await this.finishUndo(runId, teamId);
-      new Notice(t("notice.undo.discarded", plan.unrestored.length));
+      new Notice(t("notice.undo.discarded", restored, plan.unrestored.length));
       return;
     }
     await this.finishUndo(runId, teamId);
