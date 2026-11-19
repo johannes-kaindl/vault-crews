@@ -17,18 +17,11 @@
  * Zweitinstanz mit eigenem Profil und eigenem Port, nie die regulaere Instanz (kein `quit`,
  * kein Neustart fremder Fenster). `--port` ist Pflicht.
  *
- * ```bash
- * UD=/tmp/obs-test-vault-crews; mkdir -p "$UD"
- * lsof -nP -iTCP:<port> -sTCP:LISTEN; pgrep -f "user-data-dir=$UD"      # beides leer
- * cp ~/Library/Application\ Support/obsidian/obsidian-*.asar "$UD"/      # aktuelle Version
- * # $UD/obsidian.json: {"vaults":{"vc":{"path":"$STAGING_VAULTS_DIR/vault-crews","ts":1,"open":true}},"language":"en"}
- * npm run build && npm run shots -- --setup     # baut den Staging-Vault aus docs/images/fixture/
- * OBSIDIAN_PLUGIN_DIR="$STAGING_VAULTS_DIR/vault-crews/.obsidian/plugins/vault-crews" npm run deploy
- * python3 ~/.claude/hooks/obsidian-cdp-lock.py acquire --label vault-crews --intent "GUI-Smoke" --exclusive focus --port <port> --ttl 300
- * /Applications/Obsidian.app/Contents/MacOS/Obsidian --user-data-dir="$UD" --remote-debugging-port=<port> &
- * npm run smoke:gui -- --vault vault-crews --port <port> [--keep] [--ohne-modell]
- * python3 ~/.claude/hooks/obsidian-cdp-lock.py release
- * ```
+ * Lauf: `tools/obsidian-cdp/messlauf.sh` (Dach, README § Messlauf in einem Aufruf) startet die Zweitinstanz, hält den Lock (`--exclusive focus`, davor, mit `export`)
+ * und räumt auf; das Rezept steht nur dort. Für diesen Treiber (gemessen 2026-11-19, Port 9782):
+ *   export REPO=vault-crews PORT=<port> UD=/tmp/obs-test-vault-crews SETUP_BEFEHL='npm run shots -- --setup' SMOKE_ARGS="--vault vault-crews [--keep] [--ohne-modell]"
+ * Das Setup liegt in einem anderen Skript (`npm run shots -- --setup` baut den Staging-Vault aus docs/images/fixture/). Ohne `SMOKE_SHOT_DIR` nimmt
+ * der Lauf keine Bilder auf und kommt mit `--exclusive all` aus; mit `SMOKE_SHOT_DIR=<ordner>` (Bilder der Einstellungen) `--exclusive focus`.
  *
  * `--folge-gegenprobe` hängt einen Beobachter an den Strombereich, der nach jeder Änderung ans Ende scrollt (ein Plugin, das das
  * Hochscrollen überschreibt): erwartet ist genau der Punkt „Hochscrollen wird respektiert“ rot, alle anderen unverändert.
