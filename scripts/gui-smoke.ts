@@ -42,6 +42,7 @@
  * Exit 0 gruen/uebersprungen, 1 bei Rot oder „nichts gemessen", 2 bei Abbruch.
  */
 
+import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cwd } from "node:process";
@@ -94,6 +95,12 @@ const P_ERREICHBAR = "Welle 24 — Pflichtpunkt Erreichbarkeit der Bedienelement
 const P_GEMMA = "Welle 23 — Gemma 4 ohne Öffner: der Denktext steht im Denkblock, nicht im Anzeigetext der Antwort";
 const P_KONTROLLE_ABSATZ = "Welle 20 — Folge-Regel (Kontrolle, absatzgroße Stücke): der Strom folgt auch bei Stücken über der Schwelle";
 const P_ZAHL = "Welle 36 — Zahlenfeld Zeitlimit: Eingabe 0 wird auf 1 gehoben, das Feld zeigt nach Schließen und Öffnen 1, data.json trägt 1";
+const P_MS_AN = "Welle 36 — Mitschnitt an: calls.jsonl.gz im Lauf-Ordner, gunzip ergibt so viele Zeilen wie der Stub Chat-Anfragen zählte, kein Authorization und kein Schlüssel im Text, .jsonl weg";
+const P_MS_AUS = "Welle 36 — Mitschnitt aus (Gegenprobe): im Lauf-Ordner liegt keine calls.jsonl und keine calls.jsonl.gz";
+const P_SEED_OWUI = "Welle 36 — seed: 42 in der Persona, Backend Open WebUI: der Body am Draht trägt \"seed\":42, run.md führt Seed 42";
+const P_SEED_LMS = "Welle 36 — seed: 42 in der Persona, Backend LM Studio: kein seed am Draht, run.md sagt „nicht gesendet“";
+const P_ZAHL_GRENZEN = "Welle 36 — Zahlenfelder tragen ihre Grenzen: Zeitlimit min=1, Aufruf-Frist min=10 und max=86400";
+const P_BILD_MS = "Welle 36 — Bilder der Einstellungen (Anfrage mit seed-Zeile, Mitschnitt in Erweitert) aufgenommen; Zeilen im Text vorhanden";
 const N1_PUNKT = "N1 Abschnitt Request ist vorhanden, klappt auf und zeigt die Felder";
 // Welle 27: die nur lesende Modellanzeige je Crew im Lauf-Panel (V-a bis V-f); Welle 28: das Modell des letzten Laufs (V-g, V-h).
 const P_V_ENDE = "Modelle — Abschnitt lief bis zum Ende";
@@ -216,6 +223,7 @@ const PUNKTE = [
   "Welle 15 — Abschnitt lief bis zum Ende",
   "Keine liegen gebliebene Rettungskopie aus einem abgebrochenen Vorlauf",
   P_ZAHL,
+  P_ZAHL_GRENZEN, P_MS_AN, P_MS_AUS, P_SEED_OWUI, P_SEED_LMS, P_BILD_MS,
   N1_PUNKT,
   P_V_ENDE, P_V_A, P_V_B, P_V_C, P_V_D, P_V_E, P_V_F, P_V_G, P_V_H,
   ...SCHREIB_PUNKTE,
@@ -471,6 +479,207 @@ async function abschnittZahlenfeld(cdp: Cdp, dataPfad: string): Promise<void> {
       `Feld nach dem Wiederöffnen: ${JSON.stringify(feld)} · Speicher: ${speicher} · data.json: ${JSON.stringify(platte.wallClockMinutes)} (Ausgangswert ${vorher})`);
   } finally {
     await cdp.evaluate(`const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]; p.settings.wallClockMinutes = ${vorher}; await p.saveSettings(); return true;`).catch(() => undefined);
+  }
+}
+
+// --- Welle 36: Mitschnitt je Modellaufruf, seed der Persona, Grenzen der Zahlenfelder, Bilder -------------------------
+
+const W36_KEY = "sk-w36-geheim-1234567890abcdef";
+
+/** Eine Crew mit einem LLM-Schritt gegen einen Fake-Endpunkt; liefert den Lauf-Ordner (vault-relativ) und das Ergebnis. */
+async function w36Lauf(cdp: Cdp, root: string, id: string, persona: string[], stub: LlmStub, endpoint: { apiKey?: string }): Promise<{ runDir: string; status: string; chat: number } | null> {
+  const ordner = "zz-w36-ordner";
+  const agentPfad = `${root}/agents/zz-w36-agent.md`;
+  const teamPfad = `${root}/teams/${id}.md`;
+  const team = ["---", "crew-kind: team", `name: ZZ W36 ${id}`, "version: 1", "description: Smoke", "trigger: manual",
+    "limits:", "  max_writes: 1", "write_scope:", `  - "${ordner}/**/*.md"`, "tasks:",
+    "  - id: collect", "    kind: collector", "    collector: vault.list", "    params:", `      folder: ${ordner}`,
+    "  - id: analyse", "    kind: llm", "    agent: zz-w36-agent", "    inputs: [collect]", "    instruction: Tue nichts.",
+    "    output_schema: triage-v1", "    on_error: skip",
+    "  - id: apply", "    kind: actions", "    inputs: [analyse]", "    allowed_actions: [frontmatter.patch]", "    allowed_keys: [priority]",
+    "---", "Smoke", ""].join("\n");
+  await cdp.evaluate(`
+    await app.vault.adapter.write(${JSON.stringify(agentPfad)}, ${JSON.stringify(["---", "crew-kind: agent", "name: ZZ W36", ...persona, "---", "Du bist ein Test.", ""].join("\n"))});
+    if (!app.vault.getAbstractFileByPath(${JSON.stringify(teamPfad)})) await app.vault.create(${JSON.stringify(teamPfad)}, ${JSON.stringify(team)});
+    ${PLUGIN}.settings.endpoints = [{ url: "http://127.0.0.1:${stub.port}/v1", model: "fake-modell"${endpoint.apiKey !== undefined ? `, apiKey: ${JSON.stringify(endpoint.apiKey)}` : ""} }];
+    await ${PLUGIN}.saveSettings();
+    return true;`);
+  // Der Orchestrator liest Team und Persona aus dem metadataCache: erst starten, wenn er die neue Persona trägt.
+  const erwartetSeed = persona.some((z) => z.startsWith("seed: ")) ? Number(persona.find((z) => z.startsWith("seed: "))?.slice(6)) : null;
+  const gezogen = await pollUntil<boolean>(cdp, `
+    const a = app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(agentPfad)}))?.frontmatter;
+    const t = app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(teamPfad)}))?.frontmatter;
+    if (!a || !t) return null;
+    if (${JSON.stringify(erwartetSeed)} !== null ? a.seed !== ${JSON.stringify(erwartetSeed)} : a.seed !== undefined) return null;
+    return true;`, 10_000, 200).catch(() => null);
+  if (!gezogen) return null;
+  const vorher = stub.anfragen().filter((x) => x.route === "chat").length;
+  await cdp.evaluate(`await ${PLUGIN}.refreshTeams?.(); delete ${PLUGIN}.lastRuns[${JSON.stringify(id)}]; ${PLUGIN}.runCrew(${JSON.stringify(id)}); return true;`);
+  const fertig = await wartetAuf(cdp, `${PLUGIN}.lastRuns[${JSON.stringify(id)}] && ${PLUGIN}.runActive === false`, 20_000);
+  if (!fertig) return null;
+  const info = await cdp.evaluate<{ runId: string; status: string }>(`return ${PLUGIN}.lastRuns[${JSON.stringify(id)}];`);
+  return { runDir: `${root}/runs/${info.runId}`, status: info.status, chat: stub.anfragen().filter((x) => x.route === "chat").length - vorher };
+}
+
+async function w36Mitschnitt(cdp: Cdp, root: string, basis: string): Promise<void> {
+  const stub = await startLlmStub({ models: ["fake-modell"], standard: '{"items":[]}' });
+  let secretId = "";
+  try {
+    await cdp.evaluate(`${PLUGIN}.settings.recordCalls = true; await ${PLUGIN}.saveSettings(); return true;`);
+    const an = await w36Lauf(cdp, root, "zz-w36-an", [], stub, { apiKey: W36_KEY });
+    secretId = await cdp.evaluate<string>(`return ${PLUGIN}.settings.endpoints[0]?.secretId ?? "";`);
+    if (an === null) { unmeasured(P_MS_AN, "der Lauf endete nicht innerhalb von 20 s oder die Persona kam nicht in den metadataCache"); }
+    else {
+      const gz = `${basis}/${an.runDir}/calls.jsonl.gz`;
+      const jsonlDa = await cdp.evaluate<boolean>(`return await app.vault.adapter.exists(${JSON.stringify(`${an.runDir}/calls.jsonl`)});`);
+      let text = "";
+      let gunzipFehler = "";
+      if (existsSync(gz)) {
+        try { text = execFileSync("gunzip", ["-c", gz], { encoding: "utf8" }); } catch (e) { gunzipFehler = e instanceof Error ? e.message : String(e); }
+      }
+      const zeilen = text.split("\n").filter((l) => l !== "");
+      const auth = stub.anfragen().filter((x) => x.route === "chat").map((x) => x.header["authorization"]);
+      const runMd = await cdp.evaluate<string>(`return await app.vault.adapter.read(${JSON.stringify(`${an.runDir}/run.md`)});`);
+      let parsbar = zeilen.length > 0;
+      for (const z of zeilen) { try { JSON.parse(z); } catch { parsbar = false; } }
+      record(P_MS_AN,
+        existsSync(gz) && gunzipFehler === "" && zeilen.length === an.chat && an.chat >= 1 && parsbar
+          && !/authorization/i.test(text) && !text.includes(W36_KEY) && !jsonlDa
+          && auth.every((a) => a === `Bearer ${W36_KEY}`) && runMd.includes(`Mitschnitt: calls.jsonl.gz (${an.chat} Aufrufe)`),
+        `Lauf ${an.status} · .gz ${existsSync(gz) ? "da" : "FEHLT"} · gunzip -c: ${zeilen.length} Zeilen bei ${an.chat} Chat-Anfrage(n) am Stub · Authorization im Text: ${/authorization/i.test(text) ? "JA" : "nein"} · Schlüssel im Text: ${text.includes(W36_KEY) ? "JA" : "nein"} · .jsonl: ${jsonlDa ? "NOCH DA" : "weg"} · Schlüssel am Draht (Stub sah Bearer): ${auth.every((a) => a === `Bearer ${W36_KEY}`) ? "ja" : "NEIN"} · run.md-Zeile: ${runMd.includes("Mitschnitt: calls.jsonl.gz") ? "da" : "FEHLT"}${gunzipFehler ? ` · gunzip: ${gunzipFehler}` : ""}`);
+    }
+
+    // Gegenprobe: Einstellung aus, derselbe Aufbau → keine Datei.
+    await cdp.evaluate(`${PLUGIN}.settings.recordCalls = false; await ${PLUGIN}.saveSettings(); return true;`);
+    const aus = await w36Lauf(cdp, root, "zz-w36-aus", [], stub, { apiKey: W36_KEY });
+    if (aus === null) { unmeasured(P_MS_AUS, "der Lauf endete nicht innerhalb von 20 s"); }
+    else {
+      const dateien = await cdp.evaluate<string[]>(`const l = await app.vault.adapter.list(${JSON.stringify(aus.runDir)}); return [...l.files, ...l.folders];`);
+      const runMd = await cdp.evaluate<string>(`return await app.vault.adapter.read(${JSON.stringify(`${aus.runDir}/run.md`)});`);
+      record(P_MS_AUS, aus.chat >= 1 && !dateien.some((d) => d.includes("calls.jsonl")) && !runMd.includes("Mitschnitt"),
+        `Lauf ${aus.status} · ${aus.chat} Chat-Anfrage(n) · Inhalt des Lauf-Ordners: ${dateien.map((d) => d.split("/").pop()).join(", ")}`);
+    }
+  } finally {
+    await stub.stop();
+    if (secretId) await cdp.evaluate(`app.secretStorage.setSecret(${JSON.stringify(secretId)}, ""); return true;`).catch(() => undefined);
+  }
+}
+
+async function w36Seed(cdp: Cdp, root: string): Promise<void> {
+  const lauf = async (punkt: Punktname, id: string, stub: LlmStub, erwartetGesendet: boolean): Promise<void> => {
+    try {
+      const l = await w36Lauf(cdp, root, id, ["seed: 42"], stub, {});
+      if (l === null) { unmeasured(punkt, "der Lauf endete nicht innerhalb von 20 s oder die Persona kam nicht in den metadataCache"); return; }
+      const body = stub.anfragen().filter((x) => x.route === "chat")[0]?.json as Record<string, unknown> | null | undefined;
+      const runMd = await cdp.evaluate<string>(`return await app.vault.adapter.read(${JSON.stringify(`${l.runDir}/run.md`)});`);
+      const seedZeile = runMd.split("\n").find((z) => z.startsWith("- Seed:")) ?? "(keine Seed-Zeile)";
+      const amDraht = body !== null && body !== undefined && "seed" in body ? body.seed : undefined;
+      const probe = stub.alleAnfragen().filter((x) => x.pfad === "/api/config" || x.pfad === "/api/v0/models").map((x) => x.pfad).join(", ");
+      const ok = erwartetGesendet
+        ? amDraht === 42 && JSON.stringify(body).includes('"seed":42') && seedZeile === "- Seed: 42"
+        : amDraht === undefined && /^- Seed: 42 \(nicht gesendet/.test(seedZeile);
+      record(punkt, body !== null && body !== undefined && ok,
+        `Lauf ${l.status} · seed am Draht: ${amDraht === undefined ? "nicht im Body" : JSON.stringify(amDraht)} · run.md: „${seedZeile}“ · Probe des Plugins am Stub: ${probe || "keine"}`);
+    } finally { await stub.stop(); }
+  };
+  // Open WebUI erkennt der Kit-Probe an GET /api/config mit version und features.
+  await lauf(P_SEED_OWUI, "zz-w36-owui",
+    await startLlmStub({ models: ["fake-modell"], standard: '{"items":[]}', zusatz: { "GET /api/config": () => ({ json: { version: "0.6.0", features: { auth: false } } }) } }), true);
+  // LM Studio erkennt er an GET /api/v0/models mit dem Modell.
+  await lauf(P_SEED_LMS, "zz-w36-lms",
+    await startLlmStub({ models: ["fake-modell"], standard: '{"items":[]}', kontext: { geladen: 8192 } }), false);
+}
+
+async function w36Grenzen(cdp: Cdp): Promise<void> {
+  const ui = await einstellungenOeffnen(cdp);
+  if (!ui) { unmeasured(P_ZAHL_GRENZEN, "Einstellungen ließen sich nicht öffnen"); return; }
+  try {
+    const g = await ui.evaluate<Record<string, { min: string | null; max: string | null } | null>>(`
+      const feld = (re) => {
+        const z = [...document.querySelectorAll(".setting-item")].find((r) => re.test(r.querySelector(".setting-item-name")?.textContent.trim() ?? ""));
+        const i = z?.querySelector("input");
+        return i ? { min: i.getAttribute("min"), max: i.getAttribute("max") } : null;
+      };
+      return { zeit: feld(/^(Wall-clock limit|Zeitlimit)/), aufruf: feld(/^(Call timeout|Aufruf-Timeout)/) };`);
+    record(P_ZAHL_GRENZEN, g.zeit?.min === "1" && g.aufruf?.min === "10" && g.aufruf?.max === "86400",
+      `Zeitlimit min=${JSON.stringify(g.zeit?.min)} · Aufruf-Frist min=${JSON.stringify(g.aufruf?.min)} max=${JSON.stringify(g.aufruf?.max)}`);
+  } finally {
+    if (ui !== cdp) ui.close();
+    await schliesseEinstellungen(cdp).catch(() => undefined);
+  }
+}
+
+/** Bilder der Einstellungen zum Ansehen (SMOKE_SHOT_DIR): der Abschnitt Anfrage mit der seed-Zeile, danach die Gruppe Erweitert mit dem Mitschnitt. */
+async function w36Bilder(cdp: Cdp): Promise<void> {
+  const dir = process.env.SMOKE_SHOT_DIR;
+  if (!dir) { skipped(P_BILD_MS, "SMOKE_SHOT_DIR nicht gesetzt"); return; }
+  const ui = await einstellungenOeffnen(cdp);
+  if (!ui) { unmeasured(P_BILD_MS, "Einstellungen ließen sich nicht öffnen"); return; }
+  try {
+    await ui.evaluate(`
+      // Ein Suchbegriff aus einem früheren Punkt (Gegenprobe der Einstellungs-Suche) bliebe sonst im Bild stehen.
+      const suche = document.querySelector(".setting-search-input input, input[type=search]");
+      if (suche && suche.value !== "") { suche.value = ""; suche.dispatchEvent(new Event("input", { bubbles: true })); await new Promise((r) => setTimeout(r, 400)); }
+      const wurzel = document.querySelector(".modal.mod-settings") ?? document.body;
+      const kopf = [...wurzel.querySelectorAll(".okit-collapsible-header")].find((h) => /^(Request|Anfrage)$/.test(h.textContent.trim()));
+      const koerper = kopf ? kopf.nextElementSibling : null;
+      if (koerper?.classList.contains("is-collapsed")) kopf.click();
+      await new Promise((r) => setTimeout(r, 500));
+      return true;`);
+    const vorhanden = await ui.evaluate<{ seed: boolean; mitschnitt: boolean }>(`
+      const seed = document.querySelector('input[data-field="seed"]');
+      seed?.scrollIntoView({ block: "center" });
+      await new Promise((r) => setTimeout(r, 400));
+      const namen = [...document.querySelectorAll(".setting-item-name")].map((n) => n.textContent.trim());
+      return { seed: Boolean(seed), mitschnitt: namen.some((n) => /^(Record every model call|Jeden Modellaufruf mitschneiden)$/.test(n)) };`);
+    writeFileSync(`${dir}/einstellungen-anfrage-seed.png`, await capture(ui));
+    await ui.evaluate(`
+      const z = [...document.querySelectorAll(".setting-item")].find((r) => /^(Record every model call|Jeden Modellaufruf mitschneiden)/.test(r.querySelector(".setting-item-name")?.textContent.trim() ?? ""));
+      z?.scrollIntoView({ block: "center" });
+      await new Promise((r) => setTimeout(r, 400));
+      return true;`);
+    writeFileSync(`${dir}/einstellungen-mitschnitt.png`, await capture(ui));
+    record(P_BILD_MS, vorhanden.seed && vorhanden.mitschnitt, `Zeile seed (data-field) ${vorhanden.seed ? "da" : "FEHLT"} · Zeile Mitschnitt ${vorhanden.mitschnitt ? "da" : "FEHLT"} · Bilder in ${dir}`);
+  } finally {
+    if (ui !== cdp) ui.close();
+    await schliesseEinstellungen(cdp).catch(() => undefined);
+  }
+}
+
+async function abschnittWelle36(cdp: Cdp): Promise<void> {
+  const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
+  const basis = await cdp.evaluate<string>(`return app.vault.adapter.basePath;`);
+  const ordner = "zz-w36-ordner";
+  const vorher = await cdp.evaluate<{ endpoints: unknown; recordCalls: boolean }>(
+    `return { endpoints: JSON.parse(JSON.stringify(${PLUGIN}.settings.endpoints)), recordCalls: ${PLUGIN}.settings.recordCalls };`);
+  const ids = ["zz-w36-an", "zz-w36-aus", "zz-w36-owui", "zz-w36-lms"];
+  const aufraeumen: string[] = [`${root}/agents/zz-w36-agent.md`, ...ids.map((i) => `${root}/teams/${i}.md`), `${ordner}/a.md`];
+  try {
+    await cdp.evaluate(`
+      for (const d of [${JSON.stringify(root)}, ${JSON.stringify(root + "/teams")}, ${JSON.stringify(root + "/agents")}, ${JSON.stringify(ordner)}]) {
+        if (!app.vault.getAbstractFileByPath(d)) await app.vault.createFolder(d);
+      }
+      await app.vault.create(${JSON.stringify(`${ordner}/a.md`)}, "---\\npriority: mittel\\n---\\nInhalt\\n");
+      return true;`);
+    await w36Grenzen(cdp);
+    await w36Mitschnitt(cdp, root, basis);
+    await w36Seed(cdp, root);
+    await w36Bilder(cdp);
+  } finally {
+    const laeufe = await cdp.evaluate<string[]>(`
+      const out = [];
+      for (const id of ${JSON.stringify(ids)}) { const r = ${PLUGIN}.lastRuns[id]; if (r?.runId) out.push(${JSON.stringify(root + "/runs/")} + r.runId); delete ${PLUGIN}.lastRuns[id]; }
+      return out;`).catch(() => [] as string[]);
+    await cdp.evaluate(`
+      for (const p of ${JSON.stringify([...aufraeumen, ...laeufe, ordner])}) {
+        const f = app.vault.getAbstractFileByPath(p);
+        if (f) { await app.vault.delete(f, true); continue; }
+        if (await app.vault.adapter.exists(p)) await app.vault.adapter.rmdir(p, true);
+      }
+      ${PLUGIN}.settings.endpoints = ${JSON.stringify(vorher.endpoints)};
+      ${PLUGIN}.settings.recordCalls = ${JSON.stringify(vorher.recordCalls)};
+      await ${PLUGIN}.saveSettings();
+      return true;`).catch(() => undefined);
   }
 }
 
@@ -3297,6 +3506,7 @@ async function main(): Promise<void> {
       await abschnittDeklarativ(cdp);
       await abschnittDrittanbieter(cdp);
       await abschnittZahlenfeld(cdp, dataPfad);
+      await abschnittWelle36(cdp);
       await abschnittPanel(cdp);
       await abschnittWelle8(cdp);
       await abschnittWelle14(cdp);
