@@ -94,6 +94,7 @@ const P_SEED_OWUI = "Welle 36 — seed: 42 in der Persona, Backend Open WebUI: d
 const P_SEED_LMS = "Welle 36 — seed: 42 in der Persona, Backend LM Studio: kein seed am Draht, run.md sagt „nicht gesendet“";
 const P_ZAHL_GRENZEN = "Welle 36 — Zahlenfelder tragen ihre Grenzen: Zeitlimit min=1, Aufruf-Frist min=10 und max=86400";
 const P_BILD_MS = "Welle 36 — Bilder der Einstellungen (Anfrage mit seed-Zeile, Mitschnitt in Erweitert) aufgenommen; Zeilen im Text vorhanden";
+const P_VERWERFEN = "Welle 36 — Lauf verwerfen: zweiter Dialog nennt je Pfad den Grund, Knopf „Discard run“ in Warnfarbe; Abbrechen lässt die Notice „stays undoable“, kein Verwerfen";
 const N1_PUNKT = "N1 Abschnitt Request ist vorhanden, klappt auf und zeigt die Felder";
 // Welle 27: die nur lesende Modellanzeige je Crew im Lauf-Panel (V-a bis V-f); Welle 28: das Modell des letzten Laufs (V-g, V-h).
 const P_V_ENDE = "Modelle — Abschnitt lief bis zum Ende";
@@ -216,7 +217,7 @@ const PUNKTE = [
   "Welle 15 — Abschnitt lief bis zum Ende",
   "Keine liegen gebliebene Rettungskopie aus einem abgebrochenen Vorlauf",
   P_ZAHL,
-  P_ZAHL_GRENZEN, P_MS_AN, P_MS_AUS, P_SEED_OWUI, P_SEED_LMS, P_BILD_MS,
+  P_ZAHL_GRENZEN, P_MS_AN, P_MS_AUS, P_SEED_OWUI, P_SEED_LMS, P_BILD_MS, P_VERWERFEN,
   N1_PUNKT,
   P_V_ENDE, P_V_A, P_V_B, P_V_C, P_V_D, P_V_E, P_V_F, P_V_G, P_V_H,
   ...SCHREIB_PUNKTE,
@@ -639,6 +640,45 @@ async function w36Bilder(cdp: Cdp): Promise<void> {
   }
 }
 
+/** Der zweite Dialog „Lauf verwerfen“ (Paket 2): über `performUndo` mit einem Plan, dessen Einträge sich nicht wiederherstellen lassen, auf eine
+ *  ausgedachte Lauf-Id (es gibt keinen Snapshot, den ein Klick verwerfen könnte). Gemessen wird der Dialog selbst, Abbrechen und die Notice danach;
+ *  mit `SMOKE_SHOT_DIR` ein Bild zum Ansehen. Der echte Weg bis zum Plan (Verschieben, Notiz löschen, Rückgängig) ist der Handteil in docs/SMOKE.md. */
+async function w36Verwerfen(cdp: Cdp): Promise<void> {
+  const runId = "zz-w36-verwerfen-0000";
+  await clearNotices(cdp);
+  await cdp.evaluate(`
+    const plan = { moves: [], restores: [], deletes: [], conflicts: ["Ziel/a.md", "Ziel/b.md"], skipped: ["Ziel/a.md", "Ziel/b.md"],
+      unrestored: ["Ziel/a.md", "Ziel/b.md"], unrestoredWhy: { "Ziel/a.md": "gone", "Ziel/b.md": "taken" } };
+    window.__w36Verwerfen = ${PLUGIN}.performUndo(${JSON.stringify(runId)}, "zz-w36-verwerfen", plan).then(() => "fertig", (e) => String(e));
+    return true;`);
+  const dialog = await pollUntil<{ text: string; knopf: string; warnung: boolean }>(cdp, `
+    const m = [...document.querySelectorAll(".modal-container .modal")].find((x) => /Discard run|Lauf verwerfen/.test(x.innerText));
+    if (!m) return null;
+    const b = [...m.querySelectorAll(".modal-button-container button")].find((x) => /^(Discard run|Lauf verwerfen)$/.test(x.textContent.trim()));
+    return { text: m.innerText.replace(/\\s+/g, " "), knopf: b?.textContent.trim() ?? "", warnung: b?.classList.contains("mod-warning") ?? false };`, 10_000, 250).catch(() => null);
+  if (dialog === null) {
+    unmeasured(P_VERWERFEN, `kein Dialog „Discard run“ binnen 10 s; Notices: ${await notices(cdp)}`);
+    await swSchliesseDialoge(cdp);
+    return;
+  }
+  const dir = process.env.SMOKE_SHOT_DIR;
+  if (dir) writeFileSync(`${dir}/dialog-lauf-verwerfen.png`, await capture(cdp));
+  const abgebrochen = await cdp.evaluate<boolean>(`
+    const m = [...document.querySelectorAll(".modal-container .modal")].find((x) => /Discard run|Lauf verwerfen/.test(x.innerText));
+    const b = m && [...m.querySelectorAll(".modal-button-container button")].find((x) => /^(Cancel|Abbrechen)$/.test(x.textContent.trim()));
+    if (!b) return false; b.click(); return true;`);
+  const ende = await pollUntil<string>(cdp, `return window.__w36Verwerfen && (await Promise.race([window.__w36Verwerfen, new Promise((r) => setTimeout(() => r(null), 200))]));`, 5_000, 250).catch(() => null);
+  const notice = await notices(cdp);
+  const ok = /Ziel\/a\.md — (no longer exists|nicht mehr vorhanden)/.test(dialog.text)
+    && /Ziel\/b\.md — (old path is taken|alter Pfad belegt)/.test(dialog.text)
+    && /pre-run copies|Vorab-Abbilder/.test(dialog.text)
+    && dialog.warnung && abgebrochen && ende === "fertig"
+    && /stays undoable|rückgängig-fähig/.test(notice) && !/Run discarded|Lauf verworfen/.test(notice);
+  record(P_VERWERFEN, ok,
+    `Dialog: „${swKurz(dialog.text, 260)}“ · Knopf „${dialog.knopf}“ ${dialog.warnung ? "mod-warning" : "OHNE mod-warning"} · Abbrechen ${abgebrochen ? "geklickt" : "NICHT gefunden"} · performUndo: ${ende ?? "hängt"} · Notice: „${swKurz(notice, 160)}“${dir ? ` · Bild ${dir}/dialog-lauf-verwerfen.png` : ""}`);
+  await cdp.evaluate(`delete window.__w36Verwerfen; return true;`).catch(() => undefined);
+}
+
 async function abschnittWelle36(cdp: Cdp): Promise<void> {
   const root = await cdp.evaluate<string>(`return ${PLUGIN}.settings.crewRoot.replace(/\\/+$/, "");`);
   const basis = await cdp.evaluate<string>(`return app.vault.adapter.basePath;`);
@@ -658,6 +698,7 @@ async function abschnittWelle36(cdp: Cdp): Promise<void> {
     await w36Mitschnitt(cdp, root, basis);
     await w36Seed(cdp, root);
     await w36Bilder(cdp);
+    await w36Verwerfen(cdp);
   } finally {
     const laeufe = await cdp.evaluate<string[]>(`
       const out = [];
