@@ -94,7 +94,7 @@ const P_SEED_OWUI = "Welle 36 — seed: 42 in der Persona, Backend Open WebUI: d
 const P_SEED_LMS = "Welle 36 — seed: 42 in der Persona, Backend LM Studio: kein seed am Draht, run.md sagt „nicht gesendet“";
 const P_ZAHL_GRENZEN = "Welle 36 — Zahlenfelder tragen ihre Grenzen: Zeitlimit min=1, Aufruf-Frist min=10 und max=86400";
 const P_BILD_MS = "Welle 36 — Bilder der Einstellungen (Anfrage mit seed-Zeile, Mitschnitt in Erweitert) aufgenommen; Zeilen im Text vorhanden";
-const P_VERWERFEN = "Welle 36 — Lauf verwerfen: zweiter Dialog nennt je Pfad den Grund, Knopf „Discard run“ in Warnfarbe; Abbrechen lässt die Notice „stays undoable“, kein Verwerfen";
+const P_VERWERFEN = "Welle 36 — Lauf verwerfen: zweiter Dialog nennt je Pfad den Grund, Knopf „Discard run“ zerstörend (ab Obsidian 1.13 mod-destructive, davor mod-warning); Abbrechen lässt die Notice „stays undoable“, kein Verwerfen";
 const N1_PUNKT = "N1 Abschnitt Request ist vorhanden, klappt auf und zeigt die Felder";
 // Welle 27: die nur lesende Modellanzeige je Crew im Lauf-Panel (V-a bis V-f); Welle 28: das Modell des letzten Laufs (V-g, V-h).
 const P_V_ENDE = "Modelle — Abschnitt lief bis zum Ende";
@@ -655,7 +655,7 @@ async function w36Verwerfen(cdp: Cdp): Promise<void> {
     const m = [...document.querySelectorAll(".modal-container .modal")].find((x) => /Discard run|Lauf verwerfen/.test(x.innerText));
     if (!m) return null;
     const b = [...m.querySelectorAll(".modal-button-container button")].find((x) => /^(Discard run|Lauf verwerfen)$/.test(x.textContent.trim()));
-    return { text: m.innerText.replace(/\\s+/g, " "), knopf: b?.textContent.trim() ?? "", warnung: b?.classList.contains("mod-warning") ?? false };`, 10_000, 250).catch(() => null);
+    return { text: m.innerText.replace(/\\s+/g, " "), knopf: b?.textContent.trim() ?? "", warnung: (b?.classList.contains("mod-destructive") || b?.classList.contains("mod-warning")) ?? false };`, 10_000, 250).catch(() => null);
   if (dialog === null) {
     unmeasured(P_VERWERFEN, `kein Dialog „Discard run“ binnen 10 s; Notices: ${await notices(cdp)}`);
     await swSchliesseDialoge(cdp);
@@ -675,7 +675,7 @@ async function w36Verwerfen(cdp: Cdp): Promise<void> {
     && dialog.warnung && abgebrochen && ende === "fertig"
     && /stays undoable|rückgängig-fähig/.test(notice) && !/Run discarded|Lauf verworfen/.test(notice);
   record(P_VERWERFEN, ok,
-    `Dialog: „${swKurz(dialog.text, 260)}“ · Knopf „${dialog.knopf}“ ${dialog.warnung ? "mod-warning" : "OHNE mod-warning"} · Abbrechen ${abgebrochen ? "geklickt" : "NICHT gefunden"} · performUndo: ${ende ?? "hängt"} · Notice: „${swKurz(notice, 160)}“${dir ? ` · Bild ${dir}/dialog-lauf-verwerfen.png` : ""}`);
+    `Dialog: „${swKurz(dialog.text, 260)}“ · Knopf „${dialog.knopf}“ ${dialog.warnung ? "zerstörend (mod-destructive/mod-warning)" : "OHNE mod-destructive und mod-warning"} · Abbrechen ${abgebrochen ? "geklickt" : "NICHT gefunden"} · performUndo: ${ende ?? "hängt"} · Notice: „${swKurz(notice, 160)}“${dir ? ` · Bild ${dir}/dialog-lauf-verwerfen.png` : ""}`);
   await cdp.evaluate(`delete window.__w36Verwerfen; return true;`).catch(() => undefined);
 }
 
