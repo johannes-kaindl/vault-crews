@@ -41,7 +41,7 @@ export function buildCrewParams(input: {
 	agent: Pick<AgentDef, 'temperature' | 'maxTokens' | 'thinking' | 'seed'>;
 	settings: RequestSettings;
 	model?: string;
-}): { params: Record<string, number | string>; thinkingLevel: ThinkingLevel } {
+}): { params: Record<string, number | string>; thinkingLevel: ThinkingLevel; requestedSeed?: number } {
 	const wanted = thinkingLevelFor(input.agent, input.settings);
 	const modelPart = input.family === 'claude' && input.model !== undefined && input.model !== '' ? { model: input.model } : {};
 	const thinkingLevel = 'model' in modelPart ? resolveThinkingLevel(wanted, input.family, input.backend, modelPart.model) : wanted;
@@ -55,5 +55,7 @@ export function buildCrewParams(input: {
 		family: input.family, mode: MODE, backend: input.backend, thinking: thinkingLevel,
 		maxTokens: input.agent.maxTokens, overrides, ...modelPart,
 	});
-	return { params, thinkingLevel };
+	// Der angeforderte Seed (Persona vor Überschreibung), auch wo das Kit ihn nicht auf den Draht legt: das Lauf-Protokoll vermerkt ihn dann als „nicht gesendet“.
+	const requestedSeed = typeof overrides.seed === 'number' ? overrides.seed : undefined;
+	return { params, thinkingLevel, ...(requestedSeed !== undefined ? { requestedSeed } : {}) };
 }

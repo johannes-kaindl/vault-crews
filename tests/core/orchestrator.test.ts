@@ -1303,6 +1303,21 @@ describe('executeRun — Anfrage-Profil (Modus structured)', () => {
     expect(await lm.vault.read(`_crews/runs/${rl.runId}/run.md`)).toContain('- Seed: 42 (nicht gesendet');
   });
 
+  it('seed aus der Plugin-Überschreibung (Persona ohne seed): an LM Studio nicht gesendet, aber protokolliert', async () => {
+    const request = { ...DEFAULT_REQUEST_SETTINGS, overrides: { structured: { 'qwen3.8': { seed: 42 } } } };
+    const lm = await harness({ settings: { request }, request: fakeRequestPort({ family: 'qwen3.8', backend: 'lmstudio' }) });
+    const rl = await executeRun(lm.teamPath, lm.deps);
+    expect('seed' in call0(lm).params).toBe(false);
+    const recL = (await runStateOf(lm, rl.runId)).tasks.find((t) => t.taskId === 'analyse');
+    expect(recL).toMatchObject({ seed: 42, seedSent: false });
+    expect(await lm.vault.read(`_crews/runs/${rl.runId}/run.md`)).toContain('- Seed: 42 (nicht gesendet');
+
+    const web = await harness({ settings: { request }, request: fakeRequestPort({ family: 'qwen3.8', backend: 'openwebui' }) });
+    const rw = await executeRun(web.teamPath, web.deps);
+    expect(call0(web).params.seed).toBe(42);
+    expect((await runStateOf(web, rw.runId)).tasks.find((t) => t.taskId === 'analyse')).toMatchObject({ seed: 42, seedSent: true });
+  });
+
   it('ohne seed trägt weder der Task-Eintrag noch run.md etwas davon', async () => {
     const h = await harness({ request: fakeRequestPort({ family: 'qwen3.8', backend: 'openwebui' }) });
     const r = await executeRun(h.teamPath, h.deps);

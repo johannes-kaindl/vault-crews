@@ -209,4 +209,14 @@ describe('seed der Persona (Welle 36)', () => {
 		const { seed: _seed, ...rest } = mitSeed('openwebui', 42);
 		expect(rest).toEqual(mitSeed('openwebui'));
 	});
+	it('requestedSeed ist der angeforderte Wert, Persona vor Überschreibung, auch wo das Kit ihn nicht sendet', () => {
+		const s = settings({ overrides: { [MODE]: { 'qwen3.8': { seed: 7 } } } });
+		const req = (backend: BackendId, seed?: number) =>
+			buildCrewParams({ family: 'qwen3.8', backend, agent: { ...PERSONA, ...(seed !== undefined ? { seed } : {}) }, settings: s }).requestedSeed;
+		expect(req('lmstudio')).toBe(7);
+		expect(req('openwebui')).toBe(7);
+		expect(req('lmstudio', 42)).toBe(42);
+		expect(req('lmstudio', 0)).toBe(0);
+		expect(buildCrewParams({ family: 'qwen3.8', backend: 'lmstudio', agent: PERSONA, settings: settings() }).requestedSeed).toBeUndefined();
+	});
 });
