@@ -38,7 +38,7 @@
         "model-context",
         "model-list-cache",
         "reasoning",
-        "redact",
+        { "name": "redact", "ref": "0.79.1" },
         "rotation",
         "sampling-profiles",
         "secrets",

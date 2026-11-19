@@ -126,6 +126,17 @@ describe('redactCallEntry', () => {
     expect(out).not.toContain('MIIabc');
     expect(out).toContain('redacted');
   });
+
+  it('schwärzt ein Notiz-Geheimnis, das das Modell an ein Wortzeichen klebte (key_sk-…, Platzhalter vom Client zurückgesetzt), code-kit 0.79.1', () => {
+    const [e] = buildCallEntries(
+      [exchange({ raw: 'data: {"choices":[{"delta":{"content":"key_[redacted-token-1]"}}]}' })],
+      { result: { content: 'key_sk-proj-ABCDEFGHIJKLMNOP', reasoning: 'my_AKIAABCDEFGHIJKLMNOP', finishReason: 'stop', aborted: false }, error: null }, IDS,
+    );
+    const out = serializeCallEntry(redactCallEntry(e!, []));
+    expect(out).not.toContain('sk-proj-ABCDEFGHIJKLMNOP');
+    expect(out).not.toContain('AKIAABCDEFGHIJKLMNOP');
+    expect(out).toContain('key_[redacted-token]');
+  });
 });
 
 describe('createCallRecorder', () => {
