@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.28.0] — 2026-11-19
+
 ### Added
 
 - **Undo: discard a run that cannot be fully restored.** When some entries cannot be restored (the note is gone, or its old path is taken), a second dialog lists each path with its reason (gone; not at its new path while the old path holds a different file or version; old path taken) and lets you discard the run instead of keeping it undoable until its snapshot expires. Discarding loses the pre-run copies of those notes; cancelling keeps everything as before. The same dialog appears when you choose Undo again and only such entries are left. A moved note that an earlier partial undo already put back with its pre-run content no longer counts as unrestorable.
