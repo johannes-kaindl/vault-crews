@@ -165,6 +165,14 @@ export const EN: Record<string, string> = {
   "notice.undo.ok": "Undo complete — restored {0} file(s) to the state before the run.",
   "notice.undo.okSkipped": "Undo complete — restored {0} file(s); {1} moved note(s) were left where they are.",
   "notice.undo.partial": "Undo partly done — restored {0} file(s); {1} note(s) could not be restored, the run stays undoable.",
+  "undo.discard.title": "Discard run?",
+  "undo.discard.intro": "{0} note(s) of this run cannot be restored:",
+  "undo.discard.entry": "{0} — {1}",
+  "undo.discard.reason.gone": "no longer exists",
+  "undo.discard.reason.taken": "old path is taken, restorable once it is cleared",
+  "undo.discard.warn": "If you discard the run, the pre-run copies of these notes are lost and the run can no longer be undone. Otherwise it stays undoable until its snapshot expires.",
+  "undo.discard.confirmButton": "Discard run",
+  "notice.undo.discarded": "Run discarded — {0} note(s) could not be restored, their pre-run copies are gone.",
   "notice.undo.failed": "Undo did not finish — some notes may already be restored; the run stays undoable, try again.",
 
   // --- Run-panel vocabulary (Spec §6.2, Task 17) ---------------------------
@@ -461,6 +469,14 @@ export const DE: Record<string, string> = {
   "notice.undo.ok": "Rückgängig gemacht — {0} Datei(en) auf den Stand vor dem Lauf zurückgesetzt.",
   "notice.undo.okSkipped": "Rückgängig gemacht — {0} Datei(en) zurückgesetzt; {1} verschobene Notiz(en) blieben, wo sie sind.",
   "notice.undo.partial": "Rückgängig teilweise — {0} Datei(en) zurückgesetzt; {1} Notiz(en) konnten nicht wiederhergestellt werden, der Lauf bleibt rückgängig-fähig.",
+  "undo.discard.title": "Lauf verwerfen?",
+  "undo.discard.intro": "{0} Notiz(en) dieses Laufs können nicht wiederhergestellt werden:",
+  "undo.discard.entry": "{0} — {1}",
+  "undo.discard.reason.gone": "nicht mehr vorhanden",
+  "undo.discard.reason.taken": "alter Pfad belegt, nach dem Freiräumen wiederherstellbar",
+  "undo.discard.warn": "Verwirfst du den Lauf, sind die Vorab-Abbilder dieser Notizen verloren und der Lauf lässt sich nicht mehr rückgängig machen. Sonst bleibt er rückgängig-fähig, bis sein Snapshot ausläuft.",
+  "undo.discard.confirmButton": "Lauf verwerfen",
+  "notice.undo.discarded": "Lauf verworfen — {0} Notiz(en) konnten nicht wiederhergestellt werden, ihre Vorab-Abbilder sind verloren.",
   "notice.undo.failed": "Rückgängig nicht abgeschlossen — einzelne Notizen können schon zurückgesetzt sein; der Lauf bleibt rückgängig-fähig, bitte erneut versuchen.",
 
   // --- Run-Panel-Vokabular (Spec §6.2, Task 17) ----------------------------

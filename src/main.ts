@@ -1001,16 +1001,37 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
     // Ein Eintrag zählt einmal: ein Zug samt Zurückschreiben des Vorab-Inhalts sind eine Datei.
     const movedBack = new Set(plan.moves.map((m) => m.to));
     const restored = plan.moves.length + plan.restores.filter((r) => !movedBack.has(r.path)).length + plan.deletes.length;
-    // Ein übersprungener Eintrag mit Vorab-Abbild ist nicht zurückgesetzt: Snapshot und Rückgängig-Fähigkeit bleiben.
+    // Ein übersprungener Eintrag mit Vorab-Abbild ist nicht zurückgesetzt: Snapshot und Rückgängig-Fähigkeit bleiben,
+    // es sei denn, der Nutzer verwirft den Lauf im zweiten (zerstörenden) Dialog.
     if (plan.unrestored.length > 0) {
       new Notice(t("notice.undo.partial", restored, plan.unrestored.length));
+      const lines = [
+        t("undo.discard.intro", plan.unrestored.length),
+        ...plan.unrestored.map((path) => t("undo.discard.entry", path, t(`undo.discard.reason.${plan.unrestoredWhy[path] ?? "gone"}`))),
+        t("undo.discard.warn"),
+      ];
+      const discard = await confirmAction(this.app, {
+        title: t("undo.discard.title"),
+        message: lines,
+        confirmLabel: t("undo.discard.confirmButton"),
+        cancelLabel: t("common.cancel"),
+        warning: true,
+      });
+      if (!discard) return;
+      await this.finishUndo(runId, teamId);
+      new Notice(t("notice.undo.discarded", plan.unrestored.length));
       return;
     }
+    await this.finishUndo(runId, teamId);
+    new Notice(plan.skipped.length > 0 ? t("notice.undo.okSkipped", restored, plan.skipped.length) : t("notice.undo.ok", restored));
+  }
+
+  /** Lauf abschließen: Snapshot verwerfen, nicht mehr rückgängig-fähig, run.md markieren. */
+  private async finishUndo(runId: string, teamId: string): Promise<void> {
     await this.snapshot.discard(runId);
     const info = this.lastRuns[teamId];
     if (info !== undefined) { info.undoable = false; void this.saveSettings(); }
     await this.markRunUndone(runId);
-    new Notice(plan.skipped.length > 0 ? t("notice.undo.okSkipped", restored, plan.skipped.length) : t("notice.undo.ok", restored));
   }
 
   /** run.md des rückgängig gemachten Laufs mit einem Hinweis versehen (best effort). */
