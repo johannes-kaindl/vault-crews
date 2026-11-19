@@ -141,6 +141,12 @@ describe('buildUndoPlan', () => {
 				expect(taken.unrestoredWhy).toEqual({ 'Ziel/a.md': 'taken' });
 			});
 
+			it('Notiz von Hand zurückgeschoben und bearbeitet: Grund „changed“, nicht „gone“ (am alten Pfad liegt eine Datei)', () => {
+				const p = buildUndoPlan(entry(fnv1a('NEU')), { 'Ziel/a.md': null, 'Inbox/a.md': 'NEU, von Hand bearbeitet' }, { b1: 'ALT' });
+				expect(p.unrestored).toEqual(['Ziel/a.md']);
+				expect(p.unrestoredWhy).toEqual({ 'Ziel/a.md': 'changed' });
+			});
+
 			it('Eintrag ohne Blob gilt nie als unwiederhergestellt', () => {
 				const m = manifest([{ path: 'Ziel/a.md', movedFrom: 'Inbox/a.md', existedBefore: true, preHash: null, postHash: null, blob: null }]);
 				expect(buildUndoPlan(m, { 'Ziel/a.md': null, 'Inbox/a.md': 'X' }, {}).unrestored).toEqual([]);

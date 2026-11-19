@@ -15,9 +15,10 @@ export interface UndoPlan {
 	unrestoredWhy: Record<string, UnrestoredReason>; // Pfad aus `unrestored` → Grund (für den Dialog „Lauf verwerfen“)
 }
 
-/** `gone`: die Notiz liegt nicht (mehr) an ihrem neuen Pfad. `taken`: sie liegt noch dort, aber der alte Pfad ist belegt;
+/** `gone`: an keinem der beiden Pfade liegt etwas. `changed`: die Notiz liegt nicht am neuen Pfad, der alte Pfad ist belegt
+ *  (etwa von Hand zurückgeschoben und bearbeitet). `taken`: sie liegt noch am neuen Pfad, aber der alte Pfad ist belegt;
  *  nach dem Freiräumen des alten Pfads ist der Eintrag wiederherstellbar. */
-export type UnrestoredReason = 'gone' | 'taken';
+export type UnrestoredReason = 'gone' | 'changed' | 'taken';
 
 /**
  * @param currentContents Pfad → aktueller Inhalt (null = existiert nicht mehr).
@@ -65,7 +66,7 @@ export function buildUndoPlan(
 				conflicts.push(e.path);
 				if (e.blob !== null) {
 					unrestored.push(e.path);
-					unrestoredWhy[e.path] = current === null ? 'gone' : 'taken';
+					unrestoredWhy[e.path] = current !== null ? 'taken' : old === null ? 'gone' : 'changed';
 				}
 				continue;
 			}

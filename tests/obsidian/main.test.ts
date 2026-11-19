@@ -878,18 +878,19 @@ describe("Rückgängig für verschobene Notizen", () => {
     await p.snapshot.captureMove(RUN, "team", 0, "Inbox/a.md", "Ziel/a.md");
     (Modal as unknown as { __last: unknown }).__last = undefined;
     const done = p.performUndo(RUN, "team", plan({
-      skipped: ["Ziel/a.md", "Ziel/b.md"], conflicts: ["Ziel/a.md", "Ziel/b.md"], unrestored: ["Ziel/a.md", "Ziel/b.md"],
-      unrestoredWhy: { "Ziel/a.md": "gone", "Ziel/b.md": "taken" },
+      skipped: ["Ziel/a.md", "Ziel/b.md", "Ziel/c.md"], conflicts: ["Ziel/a.md", "Ziel/b.md", "Ziel/c.md"], unrestored: ["Ziel/a.md", "Ziel/b.md", "Ziel/c.md"],
+      unrestoredWhy: { "Ziel/a.md": "gone", "Ziel/b.md": "taken", "Ziel/c.md": "changed" },
     }));
     const text = await answerDialog(true);
     await done;
     expect(text.join("\n")).toContain("Ziel/a.md — no longer exists");
     expect(text.join("\n")).toContain("Ziel/b.md — old path is taken, restorable once it is cleared");
+    expect(text.join("\n")).toContain("Ziel/c.md — not at its new path; the old path holds a different file or version");
     expect(text.join("\n")).toContain("pre-run copies");
     expect(await p.snapshot.load(RUN)).toBeNull();
     expect((p.lastRuns.team as { undoable: boolean }).undoable).toBe(false);
     expect(await p.vault.read(logPath)).toContain("This run was undone.");
-    expect(String(Notice.instances.at(-1)?.message)).toBe("Run discarded — restored 0 file(s); 2 note(s) could not be restored, their pre-run copies are gone.");
+    expect(String(Notice.instances.at(-1)?.message)).toBe("Run discarded — restored 0 file(s); 3 note(s) could not be restored, their pre-run copies are gone.");
     // Wer verwirft, bekommt keine Notice, die „stays undoable“ behauptet.
     expect(Notice.instances.map((n) => String(n.message)).some((m) => m.includes("stays undoable"))).toBe(false);
   });
