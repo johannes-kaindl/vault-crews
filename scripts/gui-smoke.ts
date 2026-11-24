@@ -42,6 +42,7 @@ import { cwd } from "node:process";
 import { AbbruchAusnahme, attachTo, beimAbbruch, bereiteInstanzVor, Cdp, entferneFakeManager, installFakeManager, clearNotices, istAbgebrochen, ladePluginNeu, notices, pollUntil, requireVisible, schliesseEinstellungen } from "../../tools/obsidian-cdp/cdp.js";
 import { createBilanz, parseArgs, runDriver, Vorbedingung } from "../../tools/obsidian-cdp/bilanz.js";
 import { messeFolge, zeichneFolge } from "../../tools/obsidian-cdp/folge.js";
+import { istZerstoerendJs } from "../../tools/obsidian-cdp/knoepfe.js";
 import { startLlmStub, type LlmStub } from "../../tools/obsidian-cdp/llm-stub.js";
 import { capture } from "../../tools/obsidian-cdp/shot.js";
 import { gegenprobeErreichbarkeit, messeDenkblockKopierbar, messeErreichbarkeit, optOutPflicht, zeichneDenkblock, zeichnePflicht } from "../../tools/obsidian-cdp/pflichtpunkte.js";
@@ -656,7 +657,7 @@ async function w36Verwerfen(cdp: Cdp): Promise<void> {
     const m = [...document.querySelectorAll(".modal-container .modal")].find((x) => /Discard run|Lauf verwerfen/.test(x.innerText));
     if (!m) return null;
     const b = [...m.querySelectorAll(".modal-button-container button")].find((x) => /^(Discard run|Lauf verwerfen)$/.test(x.textContent.trim()));
-    return { text: m.innerText.replace(/\\s+/g, " "), knopf: b?.textContent.trim() ?? "", warnung: (b?.classList.contains("mod-destructive") || b?.classList.contains("mod-warning")) ?? false };`, 10_000, 250).catch(() => null);
+    return { text: m.innerText.replace(/\\s+/g, " "), knopf: b?.textContent.trim() ?? "", warnung: b ? ${istZerstoerendJs("b")} : false };`, 10_000, 250).catch(() => null);
   if (dialog === null) {
     unmeasured(P_VERWERFEN, `kein Dialog „Discard run“ binnen 10 s; Notices: ${await notices(cdp)}`);
     await swSchliesseDialoge(cdp);
