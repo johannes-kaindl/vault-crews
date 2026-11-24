@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.29.0] — 2026-11-24
+
 ### Added
 
 - **`true` and `false` in the fixed frontmatter of `notes.create`.** A crew can now set a boolean field; it is written as a YAML boolean (`done: false`), so a Bases filter on a checkbox finds it. Text that merely says "true" stays text.
