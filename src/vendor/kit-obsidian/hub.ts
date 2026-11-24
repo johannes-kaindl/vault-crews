@@ -1,5 +1,5 @@
-// vendored from obsidian-kit@0.106.0, src/obsidian/hub.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
-import { setIcon } from "obsidian";
+// vendored from obsidian-kit@0.108.0, src/obsidian/hub.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+import { Menu, setIcon, setTooltip } from "obsidian";
 
 /**
  * Hub-Tab-Leiste (UI-STANDARD §4, Muster „mount-once"): eine Tab-Leiste plus
@@ -66,6 +66,14 @@ import { setIcon } from "obsidian";
  *    (ARIA-Tabs-Muster, s. u.) — ein GUI-Smoke, der sich per Tab durch die Leiste hangelt,
  *    muss auf Pfeiltasten umgestellt werden.
  *
+ * ## Überlaufmenü (Option `overflow: "menu"`, seit 0.107.0; Entscheidung Johannes 2026-11-03)
+ * Statt umzubrechen bleibt die Leiste **einzeilig**; was nicht passt, liegt hinter einem Knopf (`ellipsis`, `aria-haspopup="menu"`, `aria-expanded`), der ein
+ * natives Obsidian-`Menu` öffnet (am Handy das Aktionsblatt). Der aktive Tab ist immer sichtbar (`distributeHubTabs`); ein Wechsel über das Menü oder per
+ * Pfeiltaste verteilt neu, der bisher letzte sichtbare Tab fällt ins Menü. Gemessen wird am DOM (`offsetWidth` bei `is-measuring`), ausgelöst vom
+ * `ResizeObserver` an der Leiste und von jedem Tab-Wechsel. Der Aufbau ändert sich nur in diesem Modus: ein Wrapper `.okit-hub-bar` um Leiste und Knopf (der Knopf
+ * darf nicht im `tablist` stehen). Ohne die Option bleibt alles wie in 0.106.0. Die Träger vault-rag und finance-ledger stellt der Consumer selbst um: Option
+ * setzen, `HUB_CSS` neu kopieren, eigene Regeln für `.okit-hub-tabs` mit `flex-wrap` prüfen.
+ *
  * ## Was hier über alle Quellen hinausgeht: das ARIA-Tabs-Muster
  * Zwei der sechs Leisten im Bestand deklarieren es halb (vim-dojo: `role="tablist"` +
  * `aria-selected`, keine Pfeiltasten; apple-health: `role="tab"` ohne `tablist`-Elter,
@@ -120,6 +128,59 @@ export interface HubOptions {
   /** Zusätzliche Klassen am Root für einen plugin-eigenen Design-Scope (z. B.
    *  `['finance-plugin']`). Die `okit-hub-*`-Grammatik bleibt davon unberührt. */
   rootClasses?: readonly string[];
+  /** Was geschieht, wenn die Tabs nicht in eine Zeile passen. `"wrap"` (Vorgabe, die Fassung seit 0.27.0): die Leiste bricht um.
+   *  `"menu"` (seit 0.107.0): die Leiste bleibt **einzeilig**, was nicht passt, wandert hinter einen Knopf mit nativem Obsidian-`Menu`;
+   *  der aktive Tab bleibt immer sichtbar. Der Consumer braucht dafür `HUB_CSS` in der aktuellen Fassung (Regeln für `.okit-hub-bar`). */
+  overflow?: "wrap" | "menu";
+  /** Beschriftung (`aria-label` und Tooltip) des Überlauf-Knopfs. Vorgabe je `lang`: `HUB_MORE_LABEL_EN` / `HUB_MORE_LABEL_DE`. */
+  moreLabel?: string;
+  /** Sprache der Vorgabe-Beschriftung (EN ohne Angabe). */
+  lang?: "en" | "de";
+}
+
+export const HUB_MORE_LABEL_EN = "More tabs";
+export const HUB_MORE_LABEL_DE = "Weitere Tabs";
+
+/**
+ * Verteilung der Tabs auf „sichtbar“ und „im Menü“ (rein, ohne DOM). `widths` sind die natürlichen Breiten der Tabs in Zeichenreihenfolge,
+ * `available` die Breite der Zeile, `moreWidth` die des Überlauf-Knopfs, der nur Platz braucht, wenn etwas überläuft.
+ *
+ * Passt alles in `available`, ist alles sichtbar und der Knopf bleibt weg. Sonst gilt `available - moreWidth` für die Tabs: von links werden Tabs
+ * aufgenommen, bis der nächste nicht mehr passt (kein Überspringen: ein schmaler Tab rechts rückt nicht vor einen breiten links, die Reihenfolge
+ * bleibt lesbar). **Der aktive Tab ist immer sichtbar:** liegt er hinter der Grenze, behält er seinen Platz an seiner Stelle der Reihenfolge, und die
+ * Tabs vor ihm geben so viel Platz ab, wie seine Breite braucht (von rechts nach links, also fällt der letzte sichtbare zuerst ins Menü). Ist der
+ * aktive Tab allein breiter als die Zeile, bleibt er trotzdem der einzige sichtbare (das CSS lässt ihn schrumpfen und kürzt sein Label).
+ * Liefert die Indizes der **sichtbaren** Tabs, aufsteigend.
+ */
+export function distributeHubTabs(widths: readonly number[], activeIndex: number, available: number, moreWidth: number): number[] {
+  const n = widths.length;
+  const all = widths.map((_, i) => i);
+  if (n === 0) return [];
+  if (widths.reduce((a, b) => a + b, 0) <= available) return all;
+  const room = Math.max(0, available - moreWidth);
+  const active = activeIndex >= 0 && activeIndex < n ? activeIndex : -1;
+  const w = (i: number): number => widths[i] ?? 0;
+  const visible: number[] = [];
+  let used = 0;
+  let closed = false;
+  for (let i = 0; i < n; i++) {
+    if (i === active) {
+      // Der Platz des aktiven Tabs ist beim Aufnehmen der Tabs davor schon freigehalten worden.
+      visible.push(i);
+      used += w(i);
+      continue;
+    }
+    if (closed) continue;
+    // Liegt der aktive Tab noch vor uns und fehlt in der Menge, reserviert jeder Tab davor dessen Breite mit.
+    const reserve = active > i ? w(active) : 0;
+    if (used + w(i) + reserve <= room) {
+      visible.push(i);
+      used += w(i);
+    } else {
+      closed = true;
+    }
+  }
+  return visible;
 }
 
 /** Instanzzähler für kollisionsfreie `id`-Attribute (`aria-controls`/`aria-labelledby`),
@@ -152,7 +213,11 @@ export function buildHubInto<Id extends string>(
   for (const cls of opts?.rootClasses ?? []) root.addClass(cls);
 
   const uid = `okit-hub-${++hubInstanceSeq}`;
-  const tabsEl = root.createDiv({ cls: "okit-hub-tabs", attr: { role: "tablist" } });
+  const menuMode = opts?.overflow === "menu";
+  // Im Menü-Modus sitzt der Überlauf-Knopf neben der Leiste, nicht in ihr: ein `tablist` darf nur Tabs besitzen (ARIA). Der Wrapper ist das erste von zwei Kindern des Roots,
+  // `root.children[1]` bleibt der Content. Ohne Menü-Modus bleibt der Aufbau byte-gleich zu 0.106.0.
+  const barEl = menuMode ? root.createDiv({ cls: "okit-hub-bar" }) : null;
+  const tabsEl = (barEl ?? root).createDiv({ cls: "okit-hub-tabs", attr: { role: "tablist" } });
   const contentEl = root.createDiv({ cls: "okit-hub-content" });
 
   const panelDivs = new Map<Id, HTMLElement>();
@@ -165,6 +230,65 @@ export function buildHubInto<Id extends string>(
   let navState: Id = panels.some((p) => p.id === defaultTab)
     ? defaultTab
     : (panels[0]?.id ?? defaultTab);
+
+  // --- Überlaufmenü (nur overflow: "menu") ---
+  let moreBtn: HTMLElement | null = null;
+  let hubDestroyed = false;
+  /** Tabs, die gerade im Menü liegen, in Zeichenreihenfolge. */
+  let overflowIds: Id[] = [];
+  const moreLabel = opts?.moreLabel ?? (opts?.lang === "de" ? HUB_MORE_LABEL_DE : HUB_MORE_LABEL_EN);
+  if (barEl) {
+    moreBtn = barEl.createEl("button", {
+      cls: "okit-hub-more clickable-icon is-hidden",
+      attr: { type: "button", "aria-label": moreLabel, "aria-haspopup": "menu", "aria-expanded": "false" },
+    });
+    setIcon(moreBtn, "ellipsis");
+    setTooltip(moreBtn, moreLabel);
+    const btn = moreBtn;
+    btn.addEventListener("click", () => {
+      if (overflowIds.length === 0) return;
+      const menu = new Menu();
+      for (const id of overflowIds) {
+        const panel = panels.find((p) => p.id === id);
+        if (!panel) continue;
+        menu.addItem((item) => item.setTitle(panel.label).setIcon(panel.icon).onClick(() => { ctrl.setTab(id); }));
+      }
+      btn.setAttribute("aria-expanded", "true");
+      menu.onHide(() => { btn.setAttribute("aria-expanded", "false"); });
+      // Feste Stelle unter dem Knopf statt der Mausposition: ein Tastendruck (Enter, Leertaste) löst ebenfalls `click` aus und hat keine sinnvolle Mausposition.
+      const r = btn.getBoundingClientRect();
+      menu.showAtPosition({ x: r.left, y: r.bottom });
+    });
+  }
+
+  /** Misst die natürlichen Breiten und verteilt die Tabs neu. Läuft synchron (kein Zwischenbild) und fasst das DOM nur an, wenn sich das Ergebnis ändert. */
+  const relayout = (): void => {
+    if (!barEl || !moreBtn || hubDestroyed) return;
+    const available = barEl.clientWidth;
+    // Ohne Breite (noch nicht im Dokument, Panel verborgen) gibt es nichts zu verteilen; der ResizeObserver meldet sich, sobald die Leiste Größe bekommt.
+    if (!available) return;
+    // Natürliche Breiten: alles zeigen, Zwangsbreite `flex: 0 0 auto` (is-measuring), lesen. Geschieht in einer Aufgabe, ein Zwischenzustand wird nie gezeichnet.
+    tabsEl.addClass("is-measuring");
+    moreBtn.removeClass("is-hidden");
+    for (const { btn } of order) btn.removeClass("is-overflow");
+    const widths = order.map(({ btn }) => btn.offsetWidth);
+    const moreWidth = moreBtn.offsetWidth;
+    tabsEl.removeClass("is-measuring");
+    const visible = new Set(distributeHubTabs(widths, order.findIndex((o) => o.id === navState), available, moreWidth));
+    overflowIds = [];
+    order.forEach(({ id, btn }, i) => {
+      const hide = !visible.has(i);
+      btn.toggleClass("is-overflow", hide);
+      if (hide) overflowIds.push(id);
+    });
+    moreBtn.toggleClass("is-hidden", overflowIds.length === 0);
+  };
+  // Die Leiste ändert ihre Breite mit dem Fenster oder der Seitenleiste; `barEl` selbst hängt nicht vom Inhalt ab (Breite des Roots), die Neuverteilung löst also keine neue Meldung aus.
+  let resizeObserver: ResizeObserver | null = null;
+  if (barEl && typeof ResizeObserver !== "undefined") {
+    resizeObserver = new ResizeObserver(() => { relayout(); });
+    resizeObserver.observe(barEl);
+  }
 
   const applyVisibility = (): void => {
     for (const [id, div] of panelDivs) div.toggleClass("is-hidden", id !== navState);
@@ -229,6 +353,8 @@ export function buildHubInto<Id extends string>(
       panels.find((p) => p.id === navState)?.onHide?.();
       navState = id;
       applyVisibility();
+      // Der aktive Tab muss sichtbar sein, bevor ein Pfeiltasten-Wechsel ihn fokussiert.
+      relayout();
       void panels.find((p) => p.id === navState)?.onShow?.();
     },
     refreshActive(): void {
@@ -238,11 +364,14 @@ export function buildHubInto<Id extends string>(
       for (const p of panels) p.onFileOpen?.(path);
     },
     destroy(): void {
+      hubDestroyed = true;
+      resizeObserver?.disconnect();
       for (const p of panels) p.destroy();
     },
   };
 
   applyVisibility();
+  relayout();
   void panels.find((p) => p.id === navState)?.onShow?.();   // Default-Panel initial onShow
   return ctrl;
 }
@@ -296,6 +425,41 @@ export const HUB_CSS = `
 .okit-hub-tab-icon { display: inline-flex; flex: 0 0 auto; }
 .okit-hub-tab:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
 .okit-hub-tab.is-active { color: var(--text-normal); border-bottom-color: var(--interactive-accent); }
+/* Menü-Modus (Option overflow "menu", seit 0.107.0): die Leiste bleibt einzeilig, was nicht passt, liegt hinter dem Knopf.
+   Die Tabs behalten Flex-Basis auto und dürfen nur schrumpfen, wenn ein einzelner Tab breiter ist als die Zeile (dann kürzt das Label-Span). is-measuring
+   zwingt die natürliche Breite, mit der das Skript misst; is-overflow nimmt einen Tab aus der Zeile, er bleibt über das Menü erreichbar. */
+.okit-hub-bar {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.okit-hub-bar > .okit-hub-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  gap: 0;
+  border-bottom: none;
+}
+.okit-hub-bar > .okit-hub-tabs.is-measuring .okit-hub-tab { flex: 0 0 auto; }
+.okit-hub-tab.is-overflow { display: none; }
+button.okit-hub-more {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(var(--size-4-10) + var(--size-4-1));
+  padding: var(--size-2-3) var(--size-4-2);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+button.okit-hub-more:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+button.okit-hub-more.is-hidden { display: none; }
 .okit-hub-content { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; }
 .okit-hub-panel { height: 100%; overflow: auto; }
 .okit-hub-panel.is-hidden { display: none; }

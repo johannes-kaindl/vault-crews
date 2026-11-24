@@ -1,4 +1,4 @@
-// vendored from code-kit@0.87.0, src/ts/pure/folder-scope.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.88.0, src/ts/pure/folder-scope.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 import { foldCase } from "./fold-case";
 import { normalizeRelPath } from "./rel-path";
 

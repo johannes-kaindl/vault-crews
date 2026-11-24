@@ -1,4 +1,4 @@
-// vendored from code-kit@0.87.0, src/ts/pure/list-summary.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.88.0, src/ts/pure/list-summary.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** The first `max` items of a list and the number of the others — the cut every "a, b, c (+3)" and "… and 3 more" makes before it words
  *  the rest. The wording stays the caller's (language, separator, where the count goes); this is the arithmetic, once.
  *

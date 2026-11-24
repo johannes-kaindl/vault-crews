@@ -1,11 +1,11 @@
 {
   "source": "code-kit",
-  "version": "0.87.0",
-  "sha": "7c6cc31",
-  "vendored": "clipboard.ts, gzip-text.ts, anthropic-wire.ts, backend-probe.ts, capabilities.ts, endpoint.ts, endpoint_config.ts, endpoint_diagnostics.ts, error-message.ts, error_body.ts, i18n.ts, list-summary.ts, llm-answer.ts, llm-json.ts, model-choice.ts, model-context.ts, model-list-cache.ts, reasoning.ts, redact.ts, rotation.ts, sampling-profiles.ts, secrets.ts, settings.ts, sse.ts, think-splitter.ts, timeout.ts, local-stamp.ts, rel-path.ts, folder-scope.ts, fold-case.ts, answer-retry.ts, filename-policy.ts, num.ts",
+  "version": "0.88.0",
+  "sha": "59c73be",
+  "vendored": "clipboard.ts, gzip-text.ts, anthropic-wire.ts, backend-probe.ts, capabilities.ts, endpoint.ts, endpoint_config.ts, endpoint_diagnostics.ts, error-message.ts, error_body.ts, i18n.ts, list-summary.ts, llm-answer.ts, llm-json.ts, model-choice.ts, model-context.ts, model-list-cache.ts, reasoning.ts, redact.ts, rotation.ts, sampling-profiles.ts, secrets.ts, settings.ts, sse.ts, think-splitter.ts, timeout.ts, local-stamp.ts, rel-path.ts, folder-scope.ts, fold-case.ts, answer-retry.ts, filename-policy.ts, num.ts, ensure-dir.ts",
   "note": "Verbatim snapshot aus ZWEI Quellen (obsidian-kit + code-kit); welche Datei woher stammt, sagt ihr eigener Kopf. Never hand-edit. Pins in tools/kit-sync.json, re-vendor via tools/sync-kit.sh (zentrales kit-sync im Dach). version/sha gelten fuer die code-kit-Module (source); obsidian_kit_version/-sha fuer endpoint-source.ts, clock.ts und chat-client.ts (chat-client.ts traegt die eine Abweichung ../vendor/code-kit/pure/ → ./). clock.ts liegt hier statt in kit-obsidian, weil sie kein Obsidian-Symbol importiert.",
-  "obsidian_kit_version": "0.106.0",
-  "obsidian_kit_sha": "abb26f3",
+  "obsidian_kit_version": "0.108.0",
+  "obsidian_kit_sha": "0fa2b5a",
   "obsidian_kit_vendored": "endpoint-source.ts, endpoint-secret-hook.ts, folder-hide.ts, frontmatter.ts, filename-sanitizer-source.ts, clock.ts, chat-client.ts, recording-transport.ts",
   "license": "AGPL-3.0-or-later"
 }

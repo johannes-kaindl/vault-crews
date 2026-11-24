@@ -51,6 +51,41 @@
 .okit-hub-tab-icon { display: inline-flex; flex: 0 0 auto; }
 .okit-hub-tab:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
 .okit-hub-tab.is-active { color: var(--text-normal); border-bottom-color: var(--interactive-accent); }
+/* Menü-Modus (Option overflow "menu", seit 0.107.0): die Leiste bleibt einzeilig, was nicht passt, liegt hinter dem Knopf.
+   Die Tabs behalten Flex-Basis auto und dürfen nur schrumpfen, wenn ein einzelner Tab breiter ist als die Zeile (dann kürzt das Label-Span). is-measuring
+   zwingt die natürliche Breite, mit der das Skript misst; is-overflow nimmt einen Tab aus der Zeile, er bleibt über das Menü erreichbar. */
+.okit-hub-bar {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.okit-hub-bar > .okit-hub-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  gap: 0;
+  border-bottom: none;
+}
+.okit-hub-bar > .okit-hub-tabs.is-measuring .okit-hub-tab { flex: 0 0 auto; }
+.okit-hub-tab.is-overflow { display: none; }
+button.okit-hub-more {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(var(--size-4-10) + var(--size-4-1));
+  padding: var(--size-2-3) var(--size-4-2);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+button.okit-hub-more:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+button.okit-hub-more.is-hidden { display: none; }
 .okit-hub-content { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; }
 .okit-hub-panel { height: 100%; overflow: auto; }
 .okit-hub-panel.is-hidden { display: none; }

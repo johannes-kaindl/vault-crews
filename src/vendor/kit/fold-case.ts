@@ -1,4 +1,4 @@
-// vendored from code-kit@0.87.0, src/ts/pure/fold-case.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.88.0, src/ts/pure/fold-case.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** A name or key as a case-insensitive, composition-insensitive file system compares it: NFC, then lower, upper, lower.
  *
  *  The leading lower matters for exactly one character. `s.toUpperCase().toLowerCase()` alone leaves the capital sharp s

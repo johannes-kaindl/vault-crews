@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **A fixed property of a `notes.create` output that is only a clock time (`9:30`, `14:55`) is written in quotes.** Before, the bare text stood in the new note, and Obsidian 1.15.0 reads it as a number (14:55 becomes 895). Text such as `12:30pm` stays unquoted (kit `frontmatter` 0.108.0).
+
+### Changed
+- Kit pins move to obsidian-kit 0.108.0 and code-kit 0.88.0 (`styles.css` takes the kit's current hub bar rules, which only the opt-in overflow menu uses; no visible change). The undo store creates its folders through the shared `ensureDir` of the kit (same result; a folder that a parallel call created meanwhile is no error any more).
+
 ## [0.29.0] — 2026-11-24
 
 ### Added

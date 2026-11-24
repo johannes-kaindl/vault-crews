@@ -3,6 +3,7 @@
  *  Adapter-I/O (nicht vault.read/modify). Manifest wird write-ahead pro capture
  *  neu geschrieben (crash-sicher). Keine Shell-/Node-Dateisystem-Zugriffe — reine Obsidian-API. */
 import type { App } from 'obsidian';
+import { ensureDir } from '../vendor/kit/ensure-dir';
 import { fnv1a } from '../core/collectors';
 import { DEFAULT_GFS_POLICY, selectGfsRetention, type GfsEntry } from '../vendor/kit/rotation';
 import type { SnapshotManifest, SnapshotStore } from '../core/ports';
@@ -25,11 +26,11 @@ export class AdapterSnapshotStore implements SnapshotStore {
 		if (existedBefore && preContent !== null) {
 			blob = `${manifest.entries.length}.snapshot`;
 			preHash = fnv1a(preContent);
-			await this.ensureDir(`${this.runDir(runId)}/blobs`);
+			await ensureDir(this.adapter, `${this.runDir(runId)}/blobs`);
 			await this.adapter.write(this.blobPath(runId, blob), preContent);
 		}
 		manifest.entries.push({ path, existedBefore, preHash, postHash: null, blob });
-		await this.ensureDir(this.runDir(runId));
+		await ensureDir(this.adapter, this.runDir(runId));
 		await this.adapter.write(this.manifestPath(runId), JSON.stringify(manifest, null, 2));
 	}
 
@@ -43,7 +44,7 @@ export class AdapterSnapshotStore implements SnapshotStore {
 		} else {
 			manifest.entries.push({ path: to, movedFrom: from, existedBefore: true, preHash: null, postHash: null, blob: null });
 		}
-		await this.ensureDir(this.runDir(runId));
+		await ensureDir(this.adapter, this.runDir(runId));
 		await this.adapter.write(this.manifestPath(runId), JSON.stringify(manifest, null, 2));
 	}
 
@@ -99,14 +100,5 @@ export class AdapterSnapshotStore implements SnapshotStore {
 		}
 		const { drop } = selectGfsRetention(entries, now, { policy: { ...DEFAULT_GFS_POLICY, today: keepLast }, keepNewest: true });
 		for (const id of drop) await this.discard(id);
-	}
-
-	/** Rekursiv: erzeugt fehlende Parent-Ordner mit (Obsidians adapter.mkdir ist nicht
-	 *  rekursiv, und der undo-Root selbst wird sonst nie angelegt → list()/exists() leer). */
-	private async ensureDir(dir: string): Promise<void> {
-		if (await this.adapter.exists(dir)) return;
-		const parent = dir.slice(0, dir.lastIndexOf('/'));
-		if (parent !== '' && parent !== dir && !(await this.adapter.exists(parent))) await this.ensureDir(parent);
-		await this.adapter.mkdir(dir);
 	}
 }

@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.106.0, src/obsidian/copy-button.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.108.0, src/obsidian/copy-button.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // Kopier-Knopf mit Quittung: ein Symbolknopf, der einen Text in die Zwischenablage legt und dann kurz einen Haken zeigt.
 //
 // Warum es ihn gibt (Welle 33, Auftrag F, Paket 7): dieselbe Logik (`setIcon` copy/check, 1500 ms, `is-copied`, Tippfläche am Handy) stand dreimal im Bestand,

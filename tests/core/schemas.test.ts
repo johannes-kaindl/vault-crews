@@ -228,6 +228,16 @@ describe('makeNotesCreate', () => {
 		expect(parseYaml(content.split('---\n')[1] ?? '')).toMatchObject({ tags, titel: 'x, [y]', quelle: '[[00_Inbox/t]]' });
 	});
 
+	it('ein festes Feld, das nur eine Uhrzeit ist, steht in Anführungszeichen: Obsidian 1.15.0 liest ein blankes 14:55 als Zahl 895 (obsidian-kit 0.108.0)', () => {
+		const [note] = created([{ title: 'A', body: 'x' }], { ...spec, frontmatter: { beginn: '9:30', ende: '14:55', dauer: '1:30:00', ort: '12:30pm' } });
+		const content = note?.content ?? '';
+		expect(content).toContain('beginn: "9:30"');
+		expect(content).toContain('ende: "14:55"');
+		expect(content).toContain('dauer: "1:30:00"');
+		expect(content).toContain('ort: 12:30pm');
+		expect(parseFrontmatter(content).data).toMatchObject({ beginn: '9:30', ende: '14:55', dauer: '1:30:00', ort: '12:30pm' });
+	});
+
 	it('ein Wahrheitswert im festen Frontmatter steht als YAML-Literal im Kopf und liest sich als boolean zurück (Bases-Checkbox)', () => {
 		const [note] = created([{ title: 'A', body: 'x' }], { ...spec, frontmatter: { erledigt: false, aktiv: true } });
 		const content = note?.content ?? '';
