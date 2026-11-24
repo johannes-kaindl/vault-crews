@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.29.1] — 2026-11-24
+
 ### Fixed
 - **A fixed property of a `notes.create` output that is only a clock time (`9:30`, `14:55`) is written in quotes.** Before, the bare text stood in the new note, and Obsidian 1.15.0 reads it as a number (14:55 becomes 895). Text such as `12:30pm` stays unquoted (kit `frontmatter` 0.108.0).
 
