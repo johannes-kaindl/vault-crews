@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`true` and `false` in the fixed frontmatter of `notes.create`.** A crew can now set a boolean field; it is written as a YAML boolean (`done: false`), so a Bases filter on a checkbox finds it. Text that merely says "true" stays text.
+
+### Changed
+
+- **`temperature` and `max_tokens` in an agent note are checked like `seed`.** A value of the wrong type or outside the range (`temperature: "0.2"`, `max_tokens: "x"`, `temperature: 3`) is now an error in the agent note, named by field; before, it was dropped silently and the profile value applied. An empty field (`temperature:`) counts as wrong too, so remove the line instead.
+- Library update to obsidian-kit 0.106.0 and code-kit 0.87.0 (was 0.97.0 and 0.77.0; `redact` no longer pinned apart). The frontmatter module writes a text with a line break as an escape (`"a\nb"`) and reads it back.
+
 ## [0.28.0] — 2026-11-19
 
 ### Added

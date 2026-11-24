@@ -1,6 +1,8 @@
 /** Geteilte Datentypen des pure-Layers — Quelle: Interface-Skelett
  *  Cockpit _SDD/2026-07-02-vault-crews-v1-interfaces.md (bindend). */
 
+import type { FmValue as KitFmValue } from '../vendor/kit/frontmatter';
+
 export interface AgentDef {
 	id: string;
 	name: string;
@@ -39,7 +41,7 @@ export type OutputSpec =
 	| { family: 'text.append'; maxChars: number; heading: string | null }
 	/** Legt aus den Einträgen des Modells (`title`, `body`) neue Notizen an: Ordner und Frontmatter sind fest, nur Titel und Text kommen vom
 	 *  Modell. `linkSource`: Name des Frontmatter-Feldes, das einen Wikilink auf die bearbeitete Notiz (`per_note`) trägt. */
-	| { family: 'notes.create'; folder: string; maxItems: number; frontmatter: Record<string, string | number | string[]>; linkSource: string | null }
+	| { family: 'notes.create'; folder: string; maxItems: number; frontmatter: Record<string, KitFmValue>; linkSource: string | null }
 	/** Ordnet jede Notiz der Eingabe einem Zielordner zu (Aktion `note.move`): `destinations` sind feste Ziele mit Hinweis, `destinationsFrom` ein Ordner,
 	 *  dessen direkte Unterordner zur Laufzeit dazukommen. Die fertige Liste baut der Orchestrator (`resolveDestinations`). */
 	| { family: 'note.file'; destinations: Destination[]; destinationsFrom: string | null };

@@ -1,4 +1,4 @@
-// vendored from code-kit@0.77.0, src/ts/web/gzip-text.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.87.0, src/ts/web/gzip-text.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Text ↔ gzip bytes over the platform streams: `gzipText(text)` → `Promise<Uint8Array>` and `gunzipText(bytes)` → `Promise<string>`.
  *
  *  ── Why `web` and not `pure` ────────────────────────────────────────────────────────────

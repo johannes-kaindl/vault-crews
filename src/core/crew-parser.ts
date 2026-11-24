@@ -4,6 +4,8 @@
 import { checkFixedFolder, isDenied, normalizeVaultPath } from './paths';
 import { foldCase } from '../vendor/kit/fold-case';
 import { normalizeRelPath } from '../vendor/kit/rel-path';
+import type { FmValue as KitFmValue } from '../vendor/kit/frontmatter';
+import { rangeFor } from '../vendor/kit/sampling-profiles';
 import { MIN_INTERVAL_MINUTES, parseIntervalMinutes } from './heartbeat';
 import { DESTINATIONS_FROM_MAX, VALUES_MAX } from './value-sources';
 import { NO_DESTINATION } from './schemas';
@@ -158,10 +160,10 @@ function parseNotesCreate(
 		}
 	}
 
-	const frontmatter: Record<string, string | number | string[]> = {};
+	const frontmatter: Record<string, KitFmValue> = {};
 	if (raw.frontmatter !== undefined) {
 		if (!isRecord(raw.frontmatter)) {
-			err(`${feld}.frontmatter`, 'ist keine Zuordnung (erwartet <feld>: <text|zahl|liste von texten>)');
+			err(`${feld}.frontmatter`, 'ist keine Zuordnung (erwartet <feld>: <text|zahl|true/false|liste von texten>)');
 			ok = false;
 		} else {
 			for (const [key, value] of Object.entries(raw.frontmatter)) {
@@ -170,12 +172,12 @@ function parseNotesCreate(
 				if (!FRONTMATTER_KEY.test(key) || key !== key.trim()) {
 					err(`${feld}.frontmatter`, `Feldname '${key}' ungültig (Buchstaben, Ziffern, _, - und Leerzeichen; ohne : # oder Zeilenumbruch)`);
 					ok = false;
-				} else if (oneLine(value) || (typeof value === 'number' && Number.isFinite(value))) {
+				} else if (oneLine(value) || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) {
 					frontmatter[key] = value;
 				} else if (Array.isArray(value) && value.every(oneLine)) {
 					frontmatter[key] = [...value];
 				} else {
-					err(f, `'${show(value)}' (erwartet einzeiligen Text, Zahl oder Liste von einzeiligen Texten)`);
+					err(f, `'${show(value)}' (erwartet einzeiligen Text, Zahl, true/false oder Liste von einzeiligen Texten)`);
 					ok = false;
 				}
 			}
@@ -361,8 +363,17 @@ export function parseAgentDef(path: string, fm: Record<string, unknown> | null, 
 	if (systemPrompt === '') err('systemPrompt', 'Note-Body ist leer (erwartet System-Prompt-Prosa)');
 
 	const model = typeof fm.model === 'string' && fm.model.trim() !== '' ? fm.model.trim() : null;
-	const temperature = typeof fm.temperature === 'number' ? fm.temperature : undefined;
-	const maxTokens = typeof fm.max_tokens === 'number' ? fm.max_tokens : 2048;
+	// Zahlenfelder der Persona: Typ und Spanne aus dem Kit (`rangeFor`, wie `validateOverride`); ein falscher Wert ist ein Fehler mit Feldname, kein stilles Weglassen.
+	const numberField = (field: 'temperature' | 'max_tokens'): number | undefined => {
+		const raw = fm[field];
+		if (raw === undefined) return undefined;
+		const r = rangeFor(field);
+		if (typeof raw === 'number' && Number.isFinite(raw) && raw >= r.min && raw <= r.max && (!r.int || Number.isInteger(raw))) return raw;
+		err(field, `'${show(raw)}' (erwartet ${r.int ? 'ganze Zahl ab' : 'Zahl von'} ${r.min}${r.int ? '' : ` bis ${r.max}`})`);
+		return undefined;
+	};
+	const temperature = numberField('temperature');
+	const maxTokens = numberField('max_tokens') ?? 2048;
 	// Zufallsstartwert: eine ganze Zahl ab 0 (die Spanne des Kits, `RANGES.seed`). Fehlt das Feld, gibt es keinen; alles andere ist ein Fehler, kein stilles Weglassen.
 	const agentSeed = fm.seed;
 	if (agentSeed !== undefined && !(typeof agentSeed === 'number' && Number.isSafeInteger(agentSeed) && agentSeed >= 0)) {

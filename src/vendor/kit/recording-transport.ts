@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.97.0, src/obsidian/recording-transport.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.106.0, src/obsidian/recording-transport.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // recording-transport.ts — ein SseTransport, der einen anderen unverändert durchreicht und danach genau einmal ein Protokoll des Austauschs übergibt.
 //
 // Kein `obsidian`-Import, und die erste Frage aus AGENTS.md („gehört das nach code-kit?“) ist gestellt: der Vertrag `SseTransport` liegt in

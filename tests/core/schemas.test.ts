@@ -228,6 +228,14 @@ describe('makeNotesCreate', () => {
 		expect(parseYaml(content.split('---\n')[1] ?? '')).toMatchObject({ tags, titel: 'x, [y]', quelle: '[[00_Inbox/t]]' });
 	});
 
+	it('ein Wahrheitswert im festen Frontmatter steht als YAML-Literal im Kopf und liest sich als boolean zurück (Bases-Checkbox)', () => {
+		const [note] = created([{ title: 'A', body: 'x' }], { ...spec, frontmatter: { erledigt: false, aktiv: true } });
+		const content = note?.content ?? '';
+		expect(content).toContain('erledigt: false');
+		expect(content).toContain('aktiv: true');
+		expect(parseYaml(content.split('---\n')[1] ?? '')).toMatchObject({ erledigt: false, aktiv: true });
+	});
+
 	it('schreibt Frontmatter in der Reihenfolge der Crew-Datei, die Quelle zuletzt', () => {
 		const [note] = created([{ title: 'A', body: 'x' }]);
 		const fm = (note?.content ?? '').split('---\n')[1] ?? '';

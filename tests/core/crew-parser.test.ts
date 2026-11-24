@@ -60,6 +60,30 @@ describe('parseAgentDef', () => {
 		expect(r.errors[0]).toMatch(new RegExp(`^${AGENT_PATH}: seed: `));
 	});
 
+	it('temperature und max_tokens: gültige Zahlen landen in AgentDef, ohne Feld gilt der Standard (kein Persona-Wert / 2048)', () => {
+		const r = parseAgentDef(AGENT_PATH, { 'crew-kind': 'agent', name: 'A', temperature: 0, max_tokens: 4096 }, 'x');
+		expect(r.ok).toBe(true);
+		if (r.ok) expect([r.value.temperature, r.value.maxTokens]).toEqual([0, 4096]);
+		const ohne = parseAgentDef(AGENT_PATH, { 'crew-kind': 'agent', name: 'A' }, 'x');
+		expect(ohne.ok && ohne.value.maxTokens === 2048 && !('temperature' in ohne.value)).toBe(true);
+	});
+
+	it.each([['0.2'], [true], [null], [Number.NaN], [-0.1], [2.5], [[0.2]]])('temperature %j ist ein Parser-Fehler mit Feldname (wie seed)', (temperature) => {
+		const r = parseAgentDef(AGENT_PATH, { 'crew-kind': 'agent', name: 'A', temperature }, 'x');
+		expect(r.ok).toBe(false);
+		if (r.ok) return;
+		expect(r.errors).toHaveLength(1);
+		expect(r.errors[0]).toMatch(new RegExp(`^${AGENT_PATH}: temperature: `));
+	});
+
+	it.each([['x'], ['2048'], [true], [null], [0], [-5], [1.5], [Number.NaN]])('max_tokens %j ist ein Parser-Fehler mit Feldname (wie seed)', (max_tokens) => {
+		const r = parseAgentDef(AGENT_PATH, { 'crew-kind': 'agent', name: 'A', max_tokens }, 'x');
+		expect(r.ok).toBe(false);
+		if (r.ok) return;
+		expect(r.errors).toHaveLength(1);
+		expect(r.errors[0]).toMatch(new RegExp(`^${AGENT_PATH}: max_tokens: `));
+	});
+
 	it('meldet fehlenden name, leeren Body und falschen kind einzeln', () => {
 		const r = parseAgentDef(AGENT_PATH, { 'crew-kind': 'nope' }, '');
 		expect(r.ok).toBe(false);
@@ -487,6 +511,25 @@ describe('output: block (schema families)', () => {
 			expect(parseYaml(head.replace(/^---\n/, '').replace(/---\n?$/, ''))).toEqual({ titel: 'a\nb', liste: ['c\nd'] });
 		});
 
+		it('nimmt Wahrheitswerte im festen Frontmatter an und schreibt sie als YAML-Literal (obsidian-kit 0.100.0)', () => {
+			const r = parse({ ...NC, frontmatter: { erledigt: false, aktiv: true, text: 'true' } });
+			expect(r.ok, errs(r)).toBe(true);
+			if (!r.ok) return;
+			const out = (r.value.tasks[1] as { output: { frontmatter: Record<string, string | number | boolean | string[]> } }).output;
+			expect(out.frontmatter).toEqual({ erledigt: false, aktiv: true, text: 'true' });
+			const head = serializeFrontmatter(out.frontmatter, Object.keys(out.frontmatter));
+			expect(head).toContain('erledigt: false');
+			expect(head).toContain('aktiv: true');
+			// Ein Text „true“ bleibt Text (gequotet), sonst läse Obsidian eine Checkbox.
+			expect(parseYaml(head.replace(/^---\n/, '').replace(/---\n?$/, ''))).toEqual({ erledigt: false, aktiv: true, text: 'true' });
+		});
+
+		it('Wahrheitswerte in einer Liste bleiben ein Fehler (die Liste trägt nur Texte)', () => {
+			const r = parse({ ...NC, frontmatter: { tags: [true, 'a'] } });
+			expect(r.ok).toBe(false);
+			expect(errs(r)).toMatch(/frontmatter\.tags/);
+		});
+
 		it('ein Text mit Komma als EINZELWERT bleibt erlaubt (nur Listenelemente sind betroffen)', () => {
 			const r = parse({ ...NC, frontmatter: { tags: 'a, b', titel: 'x]' } });
 			expect(r.ok, errs(r)).toBe(true);
@@ -545,7 +588,7 @@ describe('output: block (schema families)', () => {
 			expect(parse({ ...NC, max_items: 1 }).ok).toBe(true);
 		});
 
-		it.each([[{ a: true }], [{ a: null }], [{ a: { b: 1 } }], [{ a: [1, 2] }], [{ a: ['x', null] }], [{ a: 'zwei\nZeilen' }], [{ 'a:b': 'x' }], [{ '': 'x' }], [['liste']]])('lehnt Frontmatter %j ab', (fm) => {
+		it.each([[{ a: null }], [{ a: { b: 1 } }], [{ a: [1, 2] }], [{ a: ['x', null] }], [{ a: 'zwei\nZeilen' }], [{ 'a:b': 'x' }], [{ '': 'x' }], [['liste']]])('lehnt Frontmatter %j ab', (fm) => {
 			const r = parse({ ...NC, frontmatter: fm });
 			expect(r.ok).toBe(false);
 			expect(errs(r)).toMatch(/output\.frontmatter/);

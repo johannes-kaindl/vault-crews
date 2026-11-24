@@ -1,10 +1,10 @@
 {
   "sources": {
     "obsidian-kit": {
-      "ref": "0.97.0"
+      "ref": "0.106.0"
     },
     "code-kit": {
-      "ref": "0.77.0"
+      "ref": "0.87.0"
     }
   },
   "targets": [
@@ -38,7 +38,7 @@
         "model-context",
         "model-list-cache",
         "reasoning",
-        { "name": "redact", "ref": "0.79.1" },
+        "redact",
         "rotation",
         "sampling-profiles",
         "secrets",
