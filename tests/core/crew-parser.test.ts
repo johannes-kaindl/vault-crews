@@ -504,7 +504,19 @@ describe('output: block (schema families)', () => {
 			expect(parseYaml(head.replace(/^---\n/, '').replace(/---\n?$/, '')).tags).toEqual(tags);
 		});
 
-		it('ein Wert mit Zeilenumbruch steht als "a\\nb" im Kopf und liest sich zurück (Kit-Serializer; der Parser lässt im festen Frontmatter weiter nur einzeilige Texte zu)', () => {
+		it('nimmt Zeilenumbrüche in Texten und Listenelementen des festen Frontmatters an; die Notiz liest sich zurück (Obsidians Eigenschaften-Ansicht gemessen, Welle 37)', () => {
+			const frontmatter = { titel: 'zwei\nZeilen', liste: ['c\r\nd', 'ok'] };
+			const r = parse({ ...NC, frontmatter });
+			expect(r.ok, errs(r)).toBe(true);
+			if (!r.ok) return;
+			const out = (r.value.tasks[1] as { output: { frontmatter: Record<string, string | number | boolean | string[]> } }).output;
+			expect(out.frontmatter).toEqual(frontmatter);
+			const head = serializeFrontmatter(out.frontmatter, Object.keys(out.frontmatter));
+			expect(parseFrontmatter(head).data).toEqual(frontmatter);
+			expect(parseYaml(head.replace(/^---\n/, '').replace(/---\n?$/, ''))).toEqual(frontmatter);
+		});
+
+		it('ein Wert mit Zeilenumbruch steht als "a\\nb" im Kopf und liest sich zurück (Kit-Serializer)', () => {
 			const head = serializeFrontmatter({ titel: 'a\nb', liste: ['c\nd'] }, ['titel', 'liste']);
 			expect(head).toContain('titel: "a\\nb"');
 			expect(parseFrontmatter(head).data).toEqual({ titel: 'a\nb', liste: ['c\nd'] });
@@ -588,7 +600,7 @@ describe('output: block (schema families)', () => {
 			expect(parse({ ...NC, max_items: 1 }).ok).toBe(true);
 		});
 
-		it.each([[{ a: null }], [{ a: { b: 1 } }], [{ a: [1, 2] }], [{ a: ['x', null] }], [{ a: 'zwei\nZeilen' }], [{ 'a:b': 'x' }], [{ '': 'x' }], [['liste']]])('lehnt Frontmatter %j ab', (fm) => {
+		it.each([[{ a: null }], [{ a: { b: 1 } }], [{ a: [1, 2] }], [{ a: ['x', null] }], [{ 'a:b': 'x' }], [{ '': 'x' }], [['liste']]])('lehnt Frontmatter %j ab', (fm) => {
 			const r = parse({ ...NC, frontmatter: fm });
 			expect(r.ok).toBe(false);
 			expect(errs(r)).toMatch(/output\.frontmatter/);

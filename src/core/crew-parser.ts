@@ -168,16 +168,15 @@ function parseNotesCreate(
 		} else {
 			for (const [key, value] of Object.entries(raw.frontmatter)) {
 				const f = `${feld}.frontmatter.${key}`;
-				const oneLine = (v: unknown): v is string => typeof v === 'string' && !/[\r\n]/.test(v);
 				if (!FRONTMATTER_KEY.test(key) || key !== key.trim()) {
 					err(`${feld}.frontmatter`, `Feldname '${key}' ungültig (Buchstaben, Ziffern, _, - und Leerzeichen; ohne : # oder Zeilenumbruch)`);
 					ok = false;
-				} else if (oneLine(value) || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) {
+				} else if (typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) {
 					frontmatter[key] = value;
-				} else if (Array.isArray(value) && value.every(oneLine)) {
+				} else if (Array.isArray(value) && value.every((v): v is string => typeof v === 'string')) {
 					frontmatter[key] = [...value];
 				} else {
-					err(f, `'${show(value)}' (erwartet einzeiligen Text, Zahl, true/false oder Liste von einzeiligen Texten)`);
+					err(f, `'${show(value)}' (erwartet Text, Zahl, true/false oder Liste von Texten)`);
 					ok = false;
 				}
 			}
