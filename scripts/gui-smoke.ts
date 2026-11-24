@@ -87,7 +87,7 @@ const P_FOKUS = "Welle 24 — Pflichtpunkt Fokus-Erhalt (Skill gui-smoke-setup �
 const P_ERREICHBAR = "Welle 24 — Pflichtpunkt Erreichbarkeit der Bedienelemente bei wachsendem Ausgabebereich (Skill gui-smoke-setup § 3a)";
 const P_GEMMA = "Welle 23 — Gemma 4 ohne Öffner: der Denktext steht im Denkblock, nicht im Anzeigetext der Antwort";
 const P_KONTROLLE_ABSATZ = "Welle 20 — Folge-Regel (Kontrolle, absatzgroße Stücke): der Strom folgt auch bei Stücken über der Schwelle";
-const P_ZAHL = "Welle 36 — Zahlenfeld Zeitlimit: Eingabe 0 wird auf 1 gehoben, das Feld zeigt nach Schließen und Öffnen 1, data.json trägt 1";
+const P_ZAHL = "Welle 36 — Zahlenfeld Zeitlimit: Eingabe 0 (unter der Grenze 1) wird nicht gespeichert, wie im nativen Feld; Speicher und data.json behalten den Ausgangswert";
 const P_MS_AN = "Welle 36 — Mitschnitt an: calls.jsonl.gz im Lauf-Ordner, gunzip ergibt so viele Zeilen wie der Stub Chat-Anfragen zählte, kein Authorization und kein Schlüssel im Text, .jsonl weg";
 const P_MS_AUS = "Welle 36 — Mitschnitt aus (Gegenprobe): im Lauf-Ordner liegt keine calls.jsonl und keine calls.jsonl.gz";
 const P_SEED_OWUI = "Welle 36 — seed: 42 in der Persona, Backend Open WebUI: der Body am Draht trägt \"seed\":42, run.md führt Seed 42";
@@ -441,8 +441,9 @@ async function abschnittEinstellungen(cdp: Cdp): Promise<void> {
   if (ui !== cdp) ui.close();
 }
 
-/** Welle 36: die Untergrenzen der Zahlenfelder gelten im echten Feld. Eingabe 0 im Feld „Wall-clock limit“ (Zeitlimit) wird auf 1 gehoben;
- *  nach Schließen und Öffnen der Einstellungen zeigt das Feld 1, und die `data.json` auf der Platte trägt 1. Der Ausgangswert wird danach zurückgesetzt. */
+/** Welle 36: die Untergrenzen der Zahlenfelder gelten im echten Feld. Eingabe 0 im Feld „Wall-clock limit“ (Zeitlimit) liegt unter der Grenze 1 und wird nicht gespeichert
+ *  (obsidian-kit ab 0.100.0 gleicht den Fallback an das native Feld an, das nichts außerhalb von min und max speichert; bis 0.99 klemmte es auf 1): nach Schließen und Öffnen der
+ *  Einstellungen zeigen Speicher und `data.json` den Ausgangswert, nie 0. Der Ausgangswert wird danach zurückgesetzt. */
 async function abschnittZahlenfeld(cdp: Cdp, dataPfad: string): Promise<void> {
   const zeile = `[...document.querySelectorAll(".setting-item")].find((z) => /^(Wall-clock limit|Zeitlimit)/.test(z.querySelector(".setting-item-name")?.textContent.trim() ?? ""))`;
   const vorher = await cdp.evaluate<number>(`return app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.wallClockMinutes;`);
@@ -469,7 +470,7 @@ async function abschnittZahlenfeld(cdp: Cdp, dataPfad: string): Promise<void> {
     await schliesseEinstellungen(cdp).catch(() => undefined);
     const speicher = await cdp.evaluate<number>(`return app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}].settings.wallClockMinutes;`);
     const platte = JSON.parse(readFileSync(dataPfad, "utf8")) as { wallClockMinutes?: unknown };
-    record(P_ZAHL, feld === "1" && speicher === 1 && platte.wallClockMinutes === 1,
+    record(P_ZAHL, speicher === vorher && platte.wallClockMinutes === vorher && vorher >= 1,
       `Feld nach dem Wiederöffnen: ${JSON.stringify(feld)} · Speicher: ${speicher} · data.json: ${JSON.stringify(platte.wallClockMinutes)} (Ausgangswert ${vorher})`);
   } finally {
     await cdp.evaluate(`const p = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}]; p.settings.wallClockMinutes = ${vorher}; await p.saveSettings(); return true;`).catch(() => undefined);
