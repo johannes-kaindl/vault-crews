@@ -12,7 +12,6 @@ import {
   FuzzySuggestModal,
   Notice,
   Plugin,
-  TFile,
   getLanguage,
   normalizePath,
   type App,
@@ -78,6 +77,7 @@ import { executeRun, type RunDeps } from "./core/orchestrator";
 import { parseAgentDef, parseTeamDef } from "./core/crew-parser";
 import { describeCrewModels } from "./core/model-resolution";
 import { dueTeams } from "./core/heartbeat";
+import { isPlainObject } from "./vendor/kit/settings_schema";
 import { isInFolder } from "./vendor/kit/folder-scope";
 import { buildDenylist } from "./core/paths";
 import { buildUndoPlan, type UndoPlan } from "./core/undo-plan";
@@ -258,7 +258,7 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       new Notice(t("request.dropped", String(dropped.length)));
       console.warn("vault-crews: request settings dropped", dropped);
     }
-    this.lastRuns = raw && isRecord(raw.lastRuns) ? filterValidLastRuns(raw.lastRuns) : {};
+    this.lastRuns = raw && isPlainObject(raw.lastRuns) ? filterValidLastRuns(raw.lastRuns) : {};
     // lastRuns ist ein eigenes data.json-Feld, nicht Teil von PluginSettings —
     // aus dem Merge-Ergebnis wieder entfernen, damit `settings` sauber bleibt.
     delete (this.settings as unknown as Record<string, unknown>).lastRuns;
@@ -713,8 +713,8 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       return;
     }
     const path = normalizePath(`${this.settings.crewRoot}/runs/${info.runId}/run.md`);
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (file instanceof TFile) {
+    const file = this.app.vault.getFileByPath(path);
+    if (file) {
       await this.app.workspace.getLeaf(false).openFile(file);
     } else {
       new Notice(t("notice.run.noLastRun"));
@@ -925,8 +925,8 @@ export default class VaultCrewsPlugin extends Plugin implements SettingsHost, Pa
       return;
     }
     const path = normalizePath(`${this.settings.crewRoot}/runs/${recent.info.runId}/run.md`);
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (file instanceof TFile) {
+    const file = this.app.vault.getFileByPath(path);
+    if (file) {
       await this.app.workspace.getLeaf(false).openFile(file);
     } else {
       new Notice(t("notice.run.noLastRun"));
@@ -1105,16 +1105,13 @@ function slugFromPath(path: string): string {
   return (path.split("/").pop() ?? path).replace(/\.md$/, "");
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
 
 /** Wirft korrupte lastRuns-Einträge weg (z. B. fehlendes/NaN `when`), damit sie nicht
  *  mostRecentRun() vergiften — data.json wird nicht von Obsidian selbst geschrieben,
  *  ein manueller/fehlerhafter Edit darf den Undo-/Panel-Pfad nicht crashen lassen. */
 function isValidLastRunInfo(v: unknown): v is Record<string, unknown> {
   return (
-    isRecord(v)
+    isPlainObject(v)
     && typeof v.when === "number" && Number.isFinite(v.when)
     && typeof v.status === "string"
     && typeof v.runId === "string"
@@ -1141,7 +1138,7 @@ function validTaskModels(raw: unknown): TaskModel[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const out: TaskModel[] = [];
   for (const m of raw) {
-    if (isRecord(m) && typeof m.taskId === "string" && typeof m.model === "string" && m.model.trim() !== "") out.push({ taskId: m.taskId, model: m.model });
+    if (isPlainObject(m) && typeof m.taskId === "string" && typeof m.model === "string" && m.model.trim() !== "") out.push({ taskId: m.taskId, model: m.model });
   }
   return out.length > 0 ? out : undefined;
 }

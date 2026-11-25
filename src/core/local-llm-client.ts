@@ -16,6 +16,7 @@ import { LlmCallError } from './ports';
 import type {
 	JsonTransport, LlmClient, LlmMessage, LlmParams, LlmStreamResult, ModelInfo,
 } from './ports';
+import { isPlainObject } from '../vendor/kit/settings_schema';
 
 interface Timeouts { callTimeoutMs: number; stallTimeoutMs: number; }
 
@@ -88,9 +89,9 @@ export class LocalLlmClient implements LlmClient {
 
 	async listModels(): Promise<string[]> {
 		const res = await this.json.getJson(`${this.base}/v1/models`, this.headers());
-		if (!isRecord(res) || !Array.isArray(res.data)) return [];
+		if (!isPlainObject(res) || !Array.isArray(res.data)) return [];
 		return (res.data as unknown[])
-			.map((m: unknown) => (isRecord(m) && typeof m.id === 'string' ? m.id : null))
+			.map((m: unknown) => (isPlainObject(m) && typeof m.id === 'string' ? m.id : null))
 			.filter((id): id is string => id !== null);
 	}
 
@@ -185,6 +186,3 @@ function thinkTokens(reasoningText: string): number {
 	return Math.ceil(reasoningText.length / 3.5);
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-	return typeof v === 'object' && v !== null && !Array.isArray(v);
-}

@@ -7,7 +7,8 @@ function appWith(opts: { folder?: boolean; explorer?: "ok" | "keine-methode" | "
   const leaf = { view: opts.explorer === "keine-methode" ? {} : { revealInFolder } };
   const folderObj = { path: "_crews", children: [] };
   const app = {
-    vault: { getAbstractFileByPath: (p: string) => (p === "_crews" ? (opts.folder === false ? { path: p, extension: "md" } : folderObj) : null) },
+    // getFolderByPath wie in Obsidian: liefert nur einen Ordner, eine Datei am Pfad ergibt null.
+    vault: { getFolderByPath: (p: string) => (p === "_crews" && opts.folder !== false ? folderObj : null) },
     workspace: { getLeavesOfType: (type: string) => (type === "file-explorer" && opts.explorer !== "kein-leaf" ? [leaf] : []), revealLeaf },
   };
   return { app: app as never, revealInFolder, revealLeaf, folderObj };

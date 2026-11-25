@@ -2,6 +2,7 @@ import { normalizePath, TFile, TFolder, type App } from "obsidian";
 import { pathsInFolder } from "../vendor/kit/folder-scope";
 import type { MetadataPort, VaultPort } from "../core/ports";
 import type { FmValue } from "../core/types";
+import { ensureDir } from "../vendor/kit/ensure-dir";
 
 /**
  * Dünner VaultPort-Adapter über app.vault / app.fileManager.
@@ -45,13 +46,8 @@ export class ObsidianVaultPort implements VaultPort {
 
   async mkdir(path: string): Promise<void> {
     const np = normalizePath(path);
-    if (np === "" || (await this.app.vault.adapter.exists(np))) return; // idempotent
-    const lastSlashIndex = np.lastIndexOf("/");
-    if (lastSlashIndex > 0) {
-      const parent = np.slice(0, lastSlashIndex);
-      await this.mkdir(parent); // adapter.mkdir ist nicht rekursiv
-    }
-    await this.app.vault.adapter.mkdir(np);
+    if (np === "") return;
+    await ensureDir(this.app.vault.adapter, np); // rekursiv und idempotent (code-kit)
   }
 
   async patchFrontmatter(

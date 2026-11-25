@@ -6,6 +6,7 @@ import { isDenied, normalizeVaultPath } from './paths';
 import { buildSlugTable, isEnumField } from './slug-mapper';
 import type { MetadataPort, VaultPort } from './ports';
 import type { Artifact, CollectedFile, CollectorTaskDef, SlugTableData } from './types';
+import { isPlainObject } from '../vendor/kit/settings_schema';
 
 const PER_FILE_CAP = 32_768;
 const TOTAL_CAP = 262_144;
@@ -125,7 +126,7 @@ async function vaultRead(def: CollectorTaskDef, deps: CollectorDeps): Promise<Ar
 
 async function tasknotesQuery(def: CollectorTaskDef, deps: CollectorDeps): Promise<Artifact> {
 	const folder = str(def.params.folder) ?? '';
-	const where = isRecord(def.params.where) ? def.params.where : {};
+	const where = isPlainObject(def.params.where) ? def.params.where : {};
 	const whereMissing = Array.isArray(def.params.where_missing)
 		? def.params.where_missing.filter((k): k is string => typeof k === 'string') : [];
 	const sortKey = str(def.params.sort);
@@ -226,6 +227,3 @@ function sortValue(v: unknown): string {
 
 function str(v: unknown): string | null { return typeof v === 'string' && v !== '' ? v : null; }
 function num(v: unknown): number | null { return typeof v === 'number' ? v : null; }
-function isRecord(v: unknown): v is Record<string, unknown> {
-	return typeof v === 'object' && v !== null && !Array.isArray(v);
-}

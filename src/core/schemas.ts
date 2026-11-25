@@ -6,6 +6,7 @@
 import { serializeFrontmatter, wikilinkOf } from '../vendor/kit/frontmatter';
 import { expandTarget } from './paths';
 import type { Action, CollectedFile, Destination, FmValue, FrontmatterPatchAction, NoteCreateAction, NoteMoveAction, OutputSpec, SchemaId, SlugTableData } from './types';
+import { isPlainObject } from '../vendor/kit/settings_schema';
 
 export interface SchemaDef {
 	/** Familien-/Alias-Kennung (extern nicht gelesen; rein zur Selbstbeschreibung). */
@@ -40,7 +41,7 @@ export function makeFrontmatterSet(allowedKeys: string[] | '*', addTo: string[] 
 		outputExample: '{"items": [{"path": "Aufgaben/beispiel.md", "set": {"priority": "mittel", "tags": ["arbeit", "notiz"]}}]}',
 		validate(json, sources, slugTables, _target) {
 			const errors: string[] = [];
-			if (!isRecord(json) || !Array.isArray(json.items)) {
+			if (!isPlainObject(json) || !Array.isArray(json.items)) {
 				return { ok: false, errors: ['items: fehlt oder ist keine Liste'] };
 			}
 			const items: unknown[] = json.items;
@@ -49,14 +50,14 @@ export function makeFrontmatterSet(allowedKeys: string[] | '*', addTo: string[] 
 			const actions: FrontmatterPatchAction[] = [];
 			for (let i = 0; i < items.length; i++) {
 				const item: unknown = items[i];
-				if (!isRecord(item)) { errors.push(`items[${i}]: ist kein Objekt`); continue; }
+				if (!isPlainObject(item)) { errors.push(`items[${i}]: ist kein Objekt`); continue; }
 				const path = typeof item.path === 'string' ? item.path : null;
 				if (path === null) { errors.push(`items[${i}].path: fehlt`); continue; }
 				if (!knownPaths.has(path)) {
 					errors.push(`items[${i}].path: '${path}' kommt im Quellmaterial nicht vor (Quellbindung)`);
 					continue;
 				}
-				if (!isRecord(item.set)) { errors.push(`items[${i}].set: fehlt oder ist kein Objekt`); continue; }
+				if (!isPlainObject(item.set)) { errors.push(`items[${i}].set: fehlt oder ist kein Objekt`); continue; }
 				const set: Record<string, FmValue> = {};
 				const add: Record<string, (string | number)[]> = {};
 				for (const [key, rawValue] of Object.entries(item.set)) {
@@ -209,14 +210,14 @@ export function makeNotesCreate(spec: Extract<OutputSpec, { family: 'notes.creat
 			+ `body ihr Text. Höchstens ${spec.maxItems} Einträge; nichts zu tun heißt eine leere Liste.`,
 		outputExample: '{"items": [{"title": "Angebot an Meyer schicken", "body": "Bis Freitag, Vorlage vom letzten Mal."}]}',
 		validate(json, _sources, _slugTables, _target) {
-			if (!isRecord(json) || !Array.isArray(json.items)) return { ok: false, errors: ['items: fehlt oder ist keine Liste'] };
+			if (!isPlainObject(json) || !Array.isArray(json.items)) return { ok: false, errors: ['items: fehlt oder ist keine Liste'] };
 			const items: unknown[] = json.items;
 			const errors: string[] = [];
 			if (items.length > spec.maxItems) errors.push(`items: ${items.length} überschreitet max_items ${spec.maxItems}`);
 			const actions: NoteCreateAction[] = [];
 			for (let i = 0; i < items.length; i++) {
 				const item: unknown = items[i];
-				if (!isRecord(item)) { errors.push(`items[${i}]: ist kein Objekt`); continue; }
+				if (!isPlainObject(item)) { errors.push(`items[${i}]: ist kein Objekt`); continue; }
 				if (typeof item.title !== 'string') { errors.push(`items[${i}].title: fehlt oder ist kein Text`); continue; }
 				const title = item.title.trim();
 				const problem = titleProblem(title);
@@ -251,7 +252,7 @@ export function makeNoteFile(destinations: Destination[]): SchemaDef {
 			+ `to genau einer der folgenden Ordner, oder ${NO_DESTINATION}, wenn die Notiz bleiben soll. Erlaubte Ordner:\n${lines.join('\n')}`,
 		outputExample: `{"items": [{"path": "Inbox/beispiel.md", "to": "${destinations[0]?.folder ?? 'Projekte/Beispiel'}"}, {"path": "Inbox/offen.md", "to": "${NO_DESTINATION}"}]}`,
 		validate(json, sources, _slugTables, _target) {
-			if (!isRecord(json) || !Array.isArray(json.items)) return { ok: false, errors: ['items: fehlt oder ist keine Liste'] };
+			if (!isPlainObject(json) || !Array.isArray(json.items)) return { ok: false, errors: ['items: fehlt oder ist keine Liste'] };
 			const items: unknown[] = json.items;
 			const errors: string[] = [];
 			if (items.length > MAX_FILE_ITEMS) errors.push(`items: ${items.length} überschreitet Maximum ${MAX_FILE_ITEMS}`);
@@ -260,7 +261,7 @@ export function makeNoteFile(destinations: Destination[]): SchemaDef {
 			const actions: NoteMoveAction[] = [];
 			for (let i = 0; i < items.length; i++) {
 				const item: unknown = items[i];
-				if (!isRecord(item)) { errors.push(`items[${i}]: ist kein Objekt`); continue; }
+				if (!isPlainObject(item)) { errors.push(`items[${i}]: ist kein Objekt`); continue; }
 				if (typeof item.path !== 'string') { errors.push(`items[${i}].path: fehlt oder ist kein Text`); continue; }
 				if (!knownPaths.has(item.path)) {
 					errors.push(`items[${i}].path: '${item.path}' kommt im Quellmaterial nicht vor (Quellbindung)`);
@@ -310,6 +311,3 @@ export const BUILTIN_SCHEMAS: Record<SchemaId, SchemaDef> = {
 	'briefing-v1': makeSectionWrite(16_000, 'briefing'),
 };
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-	return typeof v === 'object' && v !== null && !Array.isArray(v);
-}

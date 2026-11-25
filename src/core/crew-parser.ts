@@ -12,6 +12,7 @@ import { NO_DESTINATION } from './schemas';
 import type {
 	ActionType, AgentDef, CollectorId, Destination, LlmTaskDef, OutputSpec, RunLimits, TaskDef, TeamDef, ValueSource,
 } from './types';
+import { isPlainObject } from '../vendor/kit/settings_schema';
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; errors: string[] };
 
@@ -61,13 +62,13 @@ function parseValues(
 	denylist: string[],
 ): Record<string, ValueSource> | null {
 	if (raw === undefined) return {};
-	if (!isRecord(raw)) { err(feld, 'ist keine Zuordnung (erwartet <feld>: { from: list|tags|notes })'); return null; }
+	if (!isPlainObject(raw)) { err(feld, 'ist keine Zuordnung (erwartet <feld>: { from: list|tags|notes })'); return null; }
 	const out: Record<string, ValueSource> = {};
 	let ok = true;
 	for (const [key, entry] of Object.entries(raw)) {
 		const f = `${feld}.${key}`;
 		if (!allowedKeys.includes(key)) { err(f, `'${key}' steht nicht in allowed_keys (${allowedKeys.join(', ')})`); ok = false; continue; }
-		if (!isRecord(entry)) { err(`${f}.from`, 'fehlt (erwartet list|tags|notes)'); ok = false; continue; }
+		if (!isPlainObject(entry)) { err(`${f}.from`, 'fehlt (erwartet list|tags|notes)'); ok = false; continue; }
 		const from = entry.from;
 		const stray = (names: string[]): void => {
 			for (const n of names) if (entry[n] !== undefined) { err(`${f}.${n}`, `gilt nicht für from: ${String(from)}`); ok = false; }
@@ -162,7 +163,7 @@ function parseNotesCreate(
 
 	const frontmatter: Record<string, KitFmValue> = {};
 	if (raw.frontmatter !== undefined) {
-		if (!isRecord(raw.frontmatter)) {
+		if (!isPlainObject(raw.frontmatter)) {
 			err(`${feld}.frontmatter`, 'ist keine Zuordnung (erwartet <feld>: <text|zahl|true/false|liste von texten>)');
 			ok = false;
 		} else {
@@ -221,7 +222,7 @@ function parseDestinations(
 	for (let i = 0; i < entries.length; i++) {
 		const e: unknown = entries[i];
 		const f = `${feld}[${i}]`;
-		if (!isRecord(e)) { err(f, 'ist kein Objekt (erwartet folder: <ordner>)'); ok = false; continue; }
+		if (!isPlainObject(e)) { err(f, 'ist kein Objekt (erwartet folder: <ordner>)'); ok = false; continue; }
 		const unknown = Object.keys(e).filter((k) => k !== 'folder' && k !== 'when');
 		if (unknown.length > 0) { err(f, `unbekanntes Feld '${unknown.join("', '")}' (erwartet folder, when)`); ok = false; continue; }
 		if (typeof e.folder !== 'string' || e.folder.trim() === '') { err(`${f}.folder`, 'fehlt oder leer (erwartet den Zielordner)'); ok = false; continue; }
@@ -293,7 +294,7 @@ function parseOutputBlock(
 	denylist: string[],
 	writeScope: string[],
 ): OutputSpec | null {
-	if (!isRecord(raw)) { err(feld, 'ist kein Objekt (erwartet family: …)'); return null; }
+	if (!isPlainObject(raw)) { err(feld, 'ist kein Objekt (erwartet family: …)'); return null; }
 	const family = raw.family;
 	if (family === 'frontmatter.set') {
 		if (!Array.isArray(raw.allowed_keys) || raw.allowed_keys.length === 0) {
@@ -415,7 +416,7 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 	}
 	const description = typeof fm.description === 'string' ? fm.description : '';
 
-	const limits = isRecord(fm.limits) ? fm.limits : {};
+	const limits = isPlainObject(fm.limits) ? fm.limits : {};
 	let maxWrites = typeof limits.max_writes === 'number' ? limits.max_writes : opts.maxima.maxWrites;
 	if (maxWrites > opts.maxima.maxWrites) {
 		err('limits.max_writes', `${maxWrites} überschreitet Plugin-Maximum ${opts.maxima.maxWrites}`);
@@ -477,7 +478,7 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 		for (let i = 0; i < rawTasks.length; i++) {
 			const raw: unknown = rawTasks[i];
 			const label = `tasks[${i}]`;
-			if (!isRecord(raw)) { err(label, 'ist kein Objekt'); continue; }
+			if (!isPlainObject(raw)) { err(label, 'ist kein Objekt'); continue; }
 			const id = typeof raw.id === 'string' && raw.id.trim() !== '' ? raw.id.trim() : null;
 			if (id === null) { err(`${label}.id`, 'fehlt oder leer'); continue; }
 			if (seenIds.has(id)) err(`${label}.id`, `'${id}' doppelt (Task-IDs müssen eindeutig sein)`);
@@ -489,7 +490,7 @@ export function parseTeamDef(path: string, fm: Record<string, unknown> | null, o
 				case 'collector': {
 					const collector = COLLECTORS.includes(raw.collector as CollectorId) ? (raw.collector as CollectorId) : null;
 					if (collector === null) { err(`${label}.collector`, `'${show(raw.collector)}' (erwartet ${COLLECTORS.join('|')})`); break; }
-					tasks.push({ id, kind: 'collector', collector, params: isRecord(raw.params) ? raw.params : {} });
+					tasks.push({ id, kind: 'collector', collector, params: isPlainObject(raw.params) ? raw.params : {} });
 					break;
 				}
 				case 'llm': {
@@ -610,6 +611,3 @@ function show(v: unknown): string {
 	return typeof v === 'string' ? v : JSON.stringify(v) ?? 'undefined';
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-	return typeof v === 'object' && v !== null && !Array.isArray(v);
-}

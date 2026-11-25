@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { stripThinkBlocks } from '../../src/vendor/kit/think-splitter';
 import { extractJson, extractText, validateOutput } from '../../src/core/output-validator';
-import { pruefeLinear } from '../vendor/kit/linear-probe';
+import { lastGeschuetzt } from '../vendor/kit/linear-probe';
 import { BUILTIN_SCHEMAS } from '../../src/core/schemas';
 import type { CollectedFile, SlugTableData } from '../../src/core/types';
 
@@ -80,20 +80,20 @@ describe('extractJson: Verhalten aus dem Kit-Modul llm-json (Welle 18)', () => {
 describe('extractJson: linear bei entarteten Antworten (Welle 18, Messung statt Annahme)', () => {
 	// Linearitätsprobe (Kit `pruefeLinear`: n = 1 000 / 10 000 / 50 000, Quotient statt Wanduhr-Grenze),
 	// damit zwölf parallele Sessions den Test nicht kippen (Welle 20).
-	it('Escape frisst die Anführungszeichen: \\"[ × n', () => {
-		const r = pruefeLinear(extractJson, '\\"[');
+	it('Escape frisst die Anführungszeichen: \\"[ × n', (ctx) => {
+		const r = lastGeschuetzt(ctx).pruefeLinear(extractJson, '\\"[');
 		expect(r.linear, r.message).toBe(true);
 	});
-	it('verschachtelt und nie JSON: [ × n + x + ] × n', () => {
-		const r = pruefeLinear(extractJson, (n: number) => '['.repeat(n) + 'x' + ']'.repeat(n));
+	it('verschachtelt und nie JSON: [ × n + x + ] × n', (ctx) => {
+		const r = lastGeschuetzt(ctx).pruefeLinear(extractJson, (n: number) => '['.repeat(n) + 'x' + ']'.repeat(n));
 		expect(r.linear, r.message).toBe(true);
 	});
-	it('viele kleine Klammerpaare ohne JSON: {] × n', () => {
-		const r = pruefeLinear(extractJson, '{]');
+	it('viele kleine Klammerpaare ohne JSON: {] × n', (ctx) => {
+		const r = lastGeschuetzt(ctx).pruefeLinear(extractJson, '{]');
 		expect(r.linear, r.message).toBe(true);
 	});
-	it('ein nie geschlossener Fence: ```json × n', () => {
-		const r = pruefeLinear(extractJson, '```json\n{"a":1');
+	it('ein nie geschlossener Fence: ```json × n', (ctx) => {
+		const r = lastGeschuetzt(ctx).pruefeLinear(extractJson, '```json\n{"a":1');
 		expect(r.linear, r.message).toBe(true);
 	});
 });
@@ -247,9 +247,9 @@ describe('extractText gegen die alte Fassung (Differentialtest)', () => {
 });
 
 describe('Think-Blöcke entfernen: linear in der Eingabelänge (Welle 17)', () => {
-	it('offene <think> ohne Schluss wachsen linear (vorher 2,6 s bei 50 000, quadratisch)', () => {
+	it('offene <think> ohne Schluss wachsen linear (vorher 2,6 s bei 50 000, quadratisch)', (ctx) => {
 		for (const f of [extractText, extractJson]) {
-			const r = pruefeLinear(f, '<think>');
+			const r = lastGeschuetzt(ctx).pruefeLinear(f, '<think>');
 			expect(r.linear, r.message).toBe(true);
 		}
 	});

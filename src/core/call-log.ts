@@ -8,6 +8,7 @@
  *  (Quelle: focus-crew, Erweiterung 7). */
 import type { TransportExchange } from '../vendor/kit/recording-transport';
 import { redactKeysInValue, redactText } from '../vendor/kit/redact';
+import { isPlainObject } from '../vendor/kit/settings_schema';
 
 /** Die Felder einer Zeile in ihrer Reihenfolge (das gemeinsame Format mit focus-crew). Einzige Stelle; `CallLogEntry` und `buildCallEntries` folgen ihr,
  *  ein Test hält sie gleich. */
@@ -88,9 +89,6 @@ const ERROR_STATUS: Record<NonNullable<CallOutcome['error']>['kind'], CallStatus
 	other: CALL_STATUS.netzfehler,
 };
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-	return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 
 function isOk(status: number | null): boolean {
 	return status !== null && status >= 200 && status < 300;
@@ -118,7 +116,7 @@ export function reasoningFieldOf(raw: string, reasoning: string): ReasoningField
 function statusOf(x: TransportExchange, last: boolean, outcome: CallOutcome): { status: CallStatus; fehler: string | null } {
 	// Ein Austausch, auf den noch einer folgt, ist der abgelehnte Stream vor dem Fallback.
 	if (!last) return { status: CALL_STATUS.netzfehler, fehler: x.error ?? null };
-	const sentNoStream = isRecord(x.body) && x.body.stream === false;
+	const sentNoStream = isPlainObject(x.body) && x.body.stream === false;
 	if (isOk(x.status) && sentNoStream && /^\s*data:/m.test(x.raw)) {
 		return { status: CALL_STATUS.datenstromTrotzStreamFalse, fehler: outcome.error?.message ?? null };
 	}

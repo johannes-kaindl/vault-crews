@@ -8,8 +8,8 @@ export type RevealResult = "revealed" | "hidden" | "missing" | "no-explorer";
  *  Ist der Ordner per Einstellung versteckt, zeigt der Explorer ihn nicht — das meldet `hidden`, statt ins Leere zu laufen. */
 export function revealCrewFolder(app: App, crewRoot: string, hideCrewFolder: boolean): RevealResult {
   const path = crewRoot.trim().replace(/\/+$/, "");
-  const folder = path === "" ? null : app.vault.getAbstractFileByPath(path);
-  if (!folder || !("children" in folder)) return "missing";
+  const folder = path === "" ? null : app.vault.getFolderByPath(path);
+  if (!folder) return "missing";
   if (hideCrewFolder) return "hidden";
   const leaf = app.workspace.getLeavesOfType("file-explorer")[0];
   const view = leaf?.view as { revealInFolder?: (f: unknown) => void } | undefined;

@@ -19,6 +19,7 @@ import type { VaultPort } from "../core/ports";
 import type { RunState } from "../core/types";
 import { buildRunMd, buildStateJson } from "../core/run-log";
 import { t } from "../vendor/kit/i18n";
+import { isPlainObject } from "../vendor/kit/settings_schema";
 
 export interface OrphanedRun {
   runId: string;
@@ -26,9 +27,6 @@ export interface OrphanedRun {
   state: RunState;
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
 
 /** Lock-Pfad aus dem runDir zurückgewinnen: runDir = `<crewRoot>/runs/<runId>`.
  *  Non-dotfile (`run-lock.json`, nicht `.lock`) — Obsidians TFile-Index indiziert
@@ -69,7 +67,7 @@ export async function checkOrphanedRun(vault: VaultPort, crewRoot: string): Prom
   } catch {
     return null;
   }
-  if (!isRecord(lock) || lock.active === false || typeof lock.runId !== "string") return null;
+  if (!isPlainObject(lock) || lock.active === false || typeof lock.runId !== "string") return null;
 
   const runId = lock.runId;
   const runDir = `${crewRoot}/runs/${runId}`;
@@ -79,7 +77,7 @@ export async function checkOrphanedRun(vault: VaultPort, crewRoot: string): Prom
   } catch {
     return null;
   }
-  if (!isRecord(state) || state.status !== "running") return null;
+  if (!isPlainObject(state) || state.status !== "running") return null;
   return { runId, runDir, state: state as unknown as RunState };
 }
 

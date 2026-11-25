@@ -35,6 +35,7 @@ import type {
 	Action, ActionsTaskDef, AgentDef, Artifact, CollectedFile, CollectorTaskDef, Destination, ErrorKind, LlmTaskDef, NoteRecord,
 	RunLimits, RunResult, RunState, RunStatus, SlugTableData, TaskDef, TaskRecord, TeamDef,
 } from './types';
+import { isPlainObject } from '../vendor/kit/settings_schema';
 
 export interface RunDeps {
 	vault: VaultPort;
@@ -969,7 +970,7 @@ class RunFsm {
 	private async isLockHeld(path: string): Promise<boolean> {
 		try {
 			const parsed: unknown = JSON.parse(await this.deps.vault.read(path));
-			if (!isRecord(parsed) || parsed.active === false || typeof parsed.startedAt !== 'number') return false;
+			if (!isPlainObject(parsed) || parsed.active === false || typeof parsed.startedAt !== 'number') return false;
 			return this.deps.clock.now() - parsed.startedAt <= this.limits.wallClockMs;
 		} catch {
 			return false;   // korrupt → verwaist, übernehmen
@@ -1040,7 +1041,7 @@ function formatRunId(nowMs: number, teamId: string): string {
 /** Kopie eines Eingabe-Artefakts, die nur die Notiz `path` trägt (`files` und, wo vorhanden, `json.files`). */
 function artifactForNote(a: Artifact, path: string): Artifact {
 	const files = a.files.filter((f) => f.path === path);
-	const json = isRecord(a.json) && Array.isArray(a.json.files) ? { ...a.json, files } : a.json;
+	const json = isPlainObject(a.json) && Array.isArray(a.json.files) ? { ...a.json, files } : a.json;
 	return { ...a, files, json };
 }
 
@@ -1052,7 +1053,7 @@ function mergeSlugTables(inputs: Artifact[]): Record<string, SlugTableData> {
 
 function artifactActions(a: Artifact): Action[] {
 	const j = a.json;
-	if (isRecord(j) && Array.isArray(j.actions)) return j.actions as Action[];
+	if (isPlainObject(j) && Array.isArray(j.actions)) return j.actions as Action[];
 	return [];
 }
 
@@ -1099,6 +1100,3 @@ function errMsg(e: unknown): string {
 	return e instanceof Error ? e.message : String(e);
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-	return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
