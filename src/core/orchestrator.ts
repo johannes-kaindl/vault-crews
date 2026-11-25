@@ -620,19 +620,29 @@ class RunFsm {
 		const rawByAsk: string[] = [];
 		let pending: AskReply | null = { content: result.content, truncated: result.finishReason === 'length' };
 		let asks = 0;
+		// Ob die gerade geprüfte Antwort am Token-Limit endete: bei den Markdown-Familien (outputFormat text) ist sie dann ungültig.
+		let lastTruncated = false;
 		const ask = async (messages: TextMessage[]): Promise<AskReply> => {
 			asks += 1;
-			if (pending !== null) { const first = pending; pending = null; return first; }
+			if (pending !== null) { const first = pending; pending = null; lastTruncated = first.truncated === true; return first; }
 			// Eine zweite Frage heißt: die erste Antwort war ungültig. Ihren Rohtext vor dem Call sichern (Absturz mitten in der Reparatur).
 			await this.writeArtifact(call.label, asks - 1, rawByAsk[asks - 2] ?? '');
 			const repair = await this.stream(messages, params, task.id, check, logCtx);
 			rec.thinkTokens += repair.thinkTokens;
 			if (params.thinkingLevel === 'off' && repair.reasoned) this.state.alwaysOnThinker = true;
 			if (repair.finishReason === 'aborted') throw new StreamAborted();
-			return { content: repair.content, truncated: repair.finishReason === 'length' };
+			lastTruncated = repair.finishReason === 'length';
+			return { content: repair.content, truncated: lastTruncated };
 		};
 		const validate = (content: string): Verdict<ValidatedOutput> => {
 			rawByAsk.push(content);
+			// Markdown-Familien (section.write, text.append): ein abgeschnittener Text sieht wie ein ganzer aus, kein Parser fängt ihn.
+			// Darum gilt dort finish_reason length als ungültig; mit stopOnTruncated endet die Aufgabe als output_truncated, ohne
+			// Reparatur und ohne Schreibvorgang (Angleichung an die JSON-Familien, CORE-DATA-01; Welle 38).
+			if (schema.outputFormat === 'text' && lastTruncated) {
+				lastErrors = ['markdown: am Token-Limit abgeschnitten'];
+				return { ok: false, problem: '- markdown: am Token-Limit abgeschnitten' };
+			}
 			const v = validateOutput(content, schema, sources, slugTables, target);
 			if (v.ok) return { ok: true, value: v };
 			lastErrors = v.errors;

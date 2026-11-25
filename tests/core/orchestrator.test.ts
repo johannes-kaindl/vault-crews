@@ -1832,6 +1832,22 @@ describe('executeRun — per_note mit Ziel {{input}}', () => {
     expect((await h.vault.read('n/b.md')).trimEnd().endsWith('Zeile für B')).toBe(true);
     expect(await h.vault.read('n/a.md')).not.toContain('Zeile für B');
   });
+
+  // Markdown-Familien gleichen den JSON-Familien: eine am Token-Limit abgeschnittene Antwort endet als output_truncated und wird
+  // nicht geschrieben (CORE-DATA-01, Bestellung Messrahmen Welle 38). Vorher nahm checkMarkdown den halben Text an und schrieb ihn.
+  for (const [family, action] of [['section.write', 'section.replace'], ['text.append', 'note.append']] as const) {
+    it(`${family}: finishReason length → failed output_truncated, nichts geschrieben, keine Reparatur`, async () => {
+      const paths = ['n/a.md'];
+      const llm = new ScriptLlmClient([{ content: '## Zusammenfassung\n- halber Satz, der mitten im', finishReason: 'length' }]);
+      const h = await harness({ teamFm: inputTeam(paths, { family }, action), files: pnFiles(paths), llm });
+      const r = await runToCompletion(executeRun(h.teamPath, h.deps), h.clock);
+      expect(r.status).toBe('failed');
+      expect(r.errorKind).toBe('output_truncated');
+      expect(r.writes).toBe(0);
+      expect(await h.vault.read('n/a.md')).toBe(PN_NOTE);
+      expect(llm.calls).toHaveLength(1);
+    });
+  }
 });
 
 // ── notes.create: neue Notizen aus Notizen ───────────────────────────────────
