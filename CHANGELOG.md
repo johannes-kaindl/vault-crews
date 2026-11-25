@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.30.0] — 2026-11-25
+
 ### Fixed
 - **A Markdown answer that the model cut off at its token limit is no longer written.** For `section.write` and `text.append` an answer with `finish_reason: length` used to pass as long as it was not empty, so half a section or half a log line landed in the note and looked complete. Such a step now ends as `output_truncated` (raise `max_tokens` of the step), like the JSON families, without a repair round and without a write.
 
