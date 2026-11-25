@@ -1,4 +1,4 @@
-// vendored from code-kit@0.88.0, src/ts/pure/num.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.91.1, src/ts/pure/num.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Parsed einen Integer aus String oder Zahl und clamped ihn nach [min, max].
  *  Nicht-finite/ungültige Eingaben → `fallback`. Floats werden via Math.trunc zu Int (kein Round).
  *  Konsolidiert 5 divergente Inlinings (parseInt/Number/parseFloat) auf EINE Semantik;

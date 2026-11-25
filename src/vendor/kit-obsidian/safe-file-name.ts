@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.108.0, src/obsidian/safe-file-name.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.111.0, src/obsidian/safe-file-name.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 import { applyPolicy, DEFAULT_FILENAME_POLICY, type FilenameHit, type SegmentKind } from "../kit/filename-policy";
 import { FILENAME_SANITIZER_PLUGIN_ID, isFilenameSanitizerApi } from "../kit/filename-sanitizer-source";
 import { readPluginApi } from "./plugin-api";

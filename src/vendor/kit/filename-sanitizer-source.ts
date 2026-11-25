@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.108.0, src/pure/filename-sanitizer-source.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.111.0, src/pure/filename-sanitizer-source.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /* VERTRAG v1, EINGEFROREN am 2026-11-14 (Entscheidung Johannes): `SanitizeResult`, `NameCheck`, `FilenameSanitizerApi` und `ApiError` (im Index `FilenameSanitizerApiError`) gelten
  * wie gebaut als Vertrag der Plugin-API v1; geändert werden sie nur ADDITIV oder als v2 mit Übergang (`version: 2`, `isFilenameSanitizerApi` nimmt beide, das Kit bedient beide, bis das
  * Plugin v1 abkündigt). Additiv heißt je Typ: `SanitizeResult` und `NameCheck` — ein neues OPTIONALES Feld ja, ein neuer Wert nein (`changed` und `valid` sind boolean, `hits` ist eine Liste);

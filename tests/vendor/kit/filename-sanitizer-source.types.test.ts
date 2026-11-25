@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.108.0, tests/filename-sanitizer-source.types.test.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.111.0, tests/filename-sanitizer-source.types.test.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 import { describe, it, expect } from "vitest";
 import type { FilenameHit } from "../../../src/vendor/kit/filename-policy";
 import type { ApiError, FilenameSanitizerApi, NameCheck, SanitizeResult } from "../../../src/vendor/kit/filename-sanitizer-source";

@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.108.0, src/pure/frontmatter.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.111.0, src/pure/frontmatter.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // frontmatter.ts — yaml_lite: flache Skalare + einfache Listen. Kein obsidian-Import.
 //
 // Gehoben aus vault-rag/src/frontmatter.ts (Serialisier-/Parse-Pfad); die smart-apply-
@@ -61,6 +61,15 @@ export function locateFrontmatter(text: string): FrontmatterSpan | null {
     if (nl === -1) return null;
     pos = nl + 1;
   }
+}
+
+/** Text in Kopf (Frontmatter-Block samt Zäunen und dem Zeilenende danach) und Rumpf teilen, nach derselben Regel wie `locateFrontmatter` (seit 0.111.0, Welle 37 Nachlauf, K-B). Ohne Block ist der
+ *  Kopf leer; `head + body === text` gilt immer. Ersetzt die zwei Eigenbauten lingotuner `src/core/source.ts` (`splitFrontmatter`) und epub-exporter `src/core/frontmatter.ts` (`splitFrontmatter`), beide
+ *  eine Regex `^---\r?\n[\s\S]*?\r?\n---…`. Unterschiede zu ihnen, jeder nach Obsidian (`getFrontMatterInfo`, gemessen 1.15.1, Tabelle oben): ein leerer Block (`---` direkt auf `---`) ist ein Block
+ *  (beide Regexe sahen keinen und hielten die erste spätere Trennlinie für den Schluss), eine Zeile `---x` schließt nicht (epub las sie als Schluss), ein BOM vor dem Zaun ergibt keinen Block. */
+export function splitFrontmatter(text: string): { head: string; body: string } {
+  const span = locateFrontmatter(text);
+  return span === null ? { head: "", body: text } : { head: text.slice(0, span.bodyFrom), body: text.slice(span.bodyFrom) };
 }
 
 const DOUBLE_ESCAPES: Record<string, string> = { n: "\n", r: "\r", t: "\t", "0": "\0", a: "\x07", b: "\b", e: "\x1b", f: "\f", v: "\v", N: "\u0085", L: "\u2028", P: "\u2029", _: "\u00a0", " ": " ", '"': '"', "/": "/", "\\": "\\" };

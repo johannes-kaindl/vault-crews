@@ -1,4 +1,4 @@
-// vendored from code-kit@0.88.0, src/ts/pure/ensure-dir.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from code-kit@0.91.1, src/ts/pure/ensure-dir.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 /** Create a folder together with every missing parent, through the two calls every file adapter has. No I/O of its own: the store is injected, so the
  *  module runs against Obsidian's `DataAdapter`, a Node `fs.promises` wrapper, a Capacitor filesystem or a test double alike.
  *

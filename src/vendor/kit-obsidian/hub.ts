@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.108.0, src/obsidian/hub.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.111.0, src/obsidian/hub.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 import { Menu, setIcon, setTooltip } from "obsidian";
 
 /**

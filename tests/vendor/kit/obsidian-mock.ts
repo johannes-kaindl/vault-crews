@@ -1,4 +1,4 @@
-// vendored from obsidian-kit@0.108.0, src/testing/obsidian-mock.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
+// vendored from obsidian-kit@0.111.0, src/testing/obsidian-mock.ts — do not hand-edit; re-vendor via tools/sync-kit.sh
 // Self-contained Obsidian test double for obsidian-kit.
 // - Zero external imports (NOT from "obsidian", NOT from "vitest").
 // - Consumed via vitest `resolve.alias` as a drop-in for `import ... from "obsidian"`,
@@ -357,7 +357,9 @@ export class ButtonComponent {
    *  Prototyp (`delete ButtonComponent.prototype.setDestructive`) — s. tests/confirm.test.ts. */
   setDestructive(): this { this.destructiveSet = true; return this; }
   setTooltip(t: string): this { this.tooltip = String(t ?? ""); return this; }
-  setDisabled(_d: boolean): this { return this; }
+  /** Aufgezeichnet (0.110.0): die Systemprompt-Zeile sperrt „Mitgelieferten Prompt bearbeiten“ bei eigenem Text. */
+  disabled = false;
+  setDisabled(d: boolean): this { this.disabled = Boolean(d); return this; }
   onClick(cb: () => any): this { this.clickCB = cb; return this; }
 }
 export class ExtraButtonComponent {
