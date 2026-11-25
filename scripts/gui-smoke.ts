@@ -2453,7 +2453,8 @@ async function modelleMessungen(cdp: Cdp): Promise<void> {
   const WUNSCH = "wunsch-modell-smoke";
   const pfade = { wunsch: `${root}/agents/zz-smoke-wunsch.md`, ohne: `${root}/agents/zz-smoke-ohne.md`, team: `${root}/teams/zz-smoke-modelle.md` };
   const team = [
-    "---", "crew-kind: team", "name: ZZ Smoke Modelle", "version: 1", "description: smoke", "trigger: manual", "limits:", "  max_writes: 1",
+    // review: false ist seit 773c9ef Pflicht für Crews mit note.create; ohne die Zeile lehnte der Parser die Crew ab, die Zeile trug keinen Modell-Block (V-b leer, V-e brach ab).
+    "---", "crew-kind: team", "name: ZZ Smoke Modelle", "version: 1", "description: smoke", "trigger: manual", "review: false", "limits:", "  max_writes: 1",
     "write_scope:", '  - "zz-smoke/**/*.md"', "tasks:", "  - id: lies", "    kind: collector", "    collector: vault.list", "    params:", "      folder: zz-smoke",
     "  - id: erste", "    kind: llm", "    agent: zz-smoke-wunsch", "    inputs: [lies]", "    instruction: x", "    output_schema: briefing-v1", "    on_error: abort",
     "  - id: zweite", "    kind: llm", "    agent: zz-smoke-ohne", "    inputs: [erste]", "    instruction: y", "    output_schema: briefing-v1", "    on_error: abort",
@@ -2561,6 +2562,7 @@ async function modelleMessungen(cdp: Cdp): Promise<void> {
     const e = await cdp.evaluate<{ offen: boolean; andereZu: boolean }>(`
       const lies = (name) => [...${PANEL}.querySelectorAll(".vault-crews-team-row")].find((r) => r.querySelector(".vault-crews-team-name")?.textContent.includes(name))?.querySelector(".vault-crews-team-models");
       const mein = lies("ZZ Smoke Modelle");
+      if (!mein) return { offen: false, andereZu: lies("Task triage")?.open === false };
       mein.open = true;
       await new Promise((r) => setTimeout(r, 200));
       const leaf = app.workspace.getLeavesOfType("vault-crews-panel")[0];
